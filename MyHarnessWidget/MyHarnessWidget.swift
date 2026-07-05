@@ -173,6 +173,12 @@ private struct MyHarnessWidgetView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
+            if showsTitle {
+                Text("my harness")
+                    .font(.headline)
+                    .lineLimit(1)
+            }
+
             if visibleItems.isEmpty {
                 Text("項目なし")
                     .font(.caption)
@@ -199,6 +205,15 @@ private struct MyHarnessWidgetView: View {
             Spacer(minLength: 0)
         }
         .containerBackground(.background, for: .widget)
+    }
+
+    private var showsTitle: Bool {
+        switch family {
+        case .accessoryRectangular:
+            return false
+        default:
+            return true
+        }
     }
 }
 
@@ -239,6 +254,34 @@ private struct MyHarnessButtonWidgetView: View {
     }
 }
 
+private struct MyHarnessOpenWidgetView: View {
+    @Environment(\.widgetFamily) private var family
+
+    var body: some View {
+        switch family {
+        case .accessoryCircular:
+            Image(systemName: "checklist")
+                .font(.title3.weight(.semibold))
+                .widgetLabel("my harness")
+                .containerBackground(.background, for: .widget)
+        default:
+            VStack(spacing: 10) {
+                Image(systemName: "checklist")
+                    .font(.title.weight(.semibold))
+                    .foregroundStyle(.black)
+
+                Text("my harness")
+                    .font(.headline)
+                    .foregroundStyle(.black)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .containerBackground(.background, for: .widget)
+        }
+    }
+}
+
 struct MyHarnessWidget: Widget {
     let kind = "MyHarnessWidget"
 
@@ -265,11 +308,25 @@ struct MyHarnessButtonWidget: Widget {
     }
 }
 
+struct MyHarnessOpenWidget: Widget {
+    let kind = "MyHarnessOpenWidget"
+
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: kind, provider: HarnessTimelineProvider()) { _ in
+            MyHarnessOpenWidgetView()
+        }
+        .configurationDisplayName("my harness open")
+        .description("my harnessを開くためのウィジェットです。")
+        .supportedFamilies([.systemSmall, .accessoryCircular])
+    }
+}
+
 @main
 struct MyHarnessWidgetBundle: WidgetBundle {
     var body: some Widget {
         MyHarnessWidget()
         MyHarnessButtonWidget()
+        MyHarnessOpenWidget()
     }
 }
 
@@ -294,6 +351,18 @@ struct MyHarnessWidgetBundle: WidgetBundle {
             )
         ]
     ))
+}
+
+#Preview("Open", as: .systemSmall) {
+    MyHarnessOpenWidget()
+} timeline: {
+    HarnessTimelineEntry(date: Date(), snapshot: WidgetTodaySnapshot.empty)
+}
+
+#Preview("Open Circular", as: .accessoryCircular) {
+    MyHarnessOpenWidget()
+} timeline: {
+    HarnessTimelineEntry(date: Date(), snapshot: WidgetTodaySnapshot.empty)
 }
 
 #Preview("Button", as: .systemSmall) {
