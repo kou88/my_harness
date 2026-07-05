@@ -42,3 +42,21 @@ struct SyncWidgetUpdatesUseCase {
         }
     }
 }
+
+@MainActor
+struct LoadWidgetDisplaySettingsUseCase {
+    let repository: WidgetSettingsRepository
+
+    func execute() async throws -> WidgetDisplaySettings {
+        try await repository.loadDisplaySettings()
+    }
+}
+
+@MainActor
+struct SaveWidgetDisplaySettingsUseCase {
+    let repository: WidgetSettingsRepository
+
+    func execute(_ settings: WidgetDisplaySettings) async throws {
+        try await repository.saveDisplaySettings(settings)
+    }
+}

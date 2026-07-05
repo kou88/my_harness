@@ -23,6 +23,18 @@ struct SettingsView: View {
                 .disabled(state.isSaving)
             }
 
+            Section("ウィジェット") {
+                Picker("表示", selection: $state.widgetTextDirection) {
+                    ForEach(WidgetTextDirection.allCases) { direction in
+                        Text(direction.label).tag(direction)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: state.widgetTextDirection) { _, direction in
+                    Task { await state.saveWidgetTextDirection(direction) }
+                }
+            }
+
             if let error = state.errorMessage {
                 Section {
                     Text(error)

@@ -11,6 +11,8 @@ struct AppUseCases {
     let copyText: CopyTextUseCase
     let publishWidgetSnapshot: PublishWidgetSnapshotUseCase
     let syncWidgetUpdates: SyncWidgetUpdatesUseCase
+    let loadWidgetDisplaySettings: LoadWidgetDisplaySettingsUseCase
+    let saveWidgetDisplaySettings: SaveWidgetDisplaySettingsUseCase
     let loadNotificationSchedule: LoadNotificationScheduleUseCase
     let saveNotificationSchedule: SaveNotificationScheduleUseCase
     let notificationPermission: NotificationPermissionUseCase

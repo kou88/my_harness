@@ -9,6 +9,7 @@ private enum WidgetAppGroup {
 private enum WidgetStoreKey {
     static let snapshot = "my_harness.widget.snapshot"
     static let pendingUpdates = "my_harness.widget.pending_updates"
+    static let displaySettings = "my_harness.widget.display_settings"
 }
 
 private struct WidgetItemSnapshot: Identifiable, Codable, Hashable {
@@ -39,6 +40,19 @@ private struct WidgetTodaySnapshot: Codable, Hashable {
     }
 }
 
+private enum WidgetTextDirection: String, Codable, Hashable {
+    case horizontal
+    case vertical
+}
+
+private struct WidgetDisplaySettings: Codable, Hashable {
+    var textDirection: WidgetTextDirection
+
+    static var `default`: WidgetDisplaySettings {
+        WidgetDisplaySettings(textDirection: .horizontal)
+    }
+}
+
 private struct WidgetPendingEntryUpdate: Identifiable, Codable {
     let id: UUID
     var dateKey: String
@@ -66,6 +80,16 @@ private enum WidgetSharedStore {
         if let data = try? JSONEncoder().encode(snapshot) {
             defaults.set(data, forKey: WidgetStoreKey.snapshot)
         }
+    }
+
+    static func readDisplaySettings() -> WidgetDisplaySettings {
+        guard
+            let data = defaults.data(forKey: WidgetStoreKey.displaySettings),
+            let settings = try? JSONDecoder().decode(WidgetDisplaySettings.self, from: data)
+        else {
+            return .default
+        }
+        return settings
     }
 
     static func appendPendingUpdate(_ update: WidgetPendingEntryUpdate) {
@@ -127,6 +151,17 @@ struct ToggleHarnessItemIntent: AppIntent {
 private struct HarnessTimelineEntry: TimelineEntry {
     let date: Date
     let snapshot: WidgetTodaySnapshot
+    let displaySettings: WidgetDisplaySettings
+
+    init(
+        date: Date,
+        snapshot: WidgetTodaySnapshot,
+        displaySettings: WidgetDisplaySettings = .default
+    ) {
+        self.date = date
+        self.snapshot = snapshot
+        self.displaySettings = displaySettings
+    }
 }
 
 private struct HarnessTimelineProvider: TimelineProvider {
@@ -146,11 +181,19 @@ private struct HarnessTimelineProvider: TimelineProvider {
     }
 
     func getSnapshot(in context: Context, completion: @escaping (HarnessTimelineEntry) -> Void) {
-        completion(HarnessTimelineEntry(date: Date(), snapshot: WidgetSharedStore.readSnapshot()))
+        completion(HarnessTimelineEntry(
+            date: Date(),
+            snapshot: WidgetSharedStore.readSnapshot(),
+            displaySettings: WidgetSharedStore.readDisplaySettings()
+        ))
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<HarnessTimelineEntry>) -> Void) {
-        let entry = HarnessTimelineEntry(date: Date(), snapshot: WidgetSharedStore.readSnapshot())
+        let entry = HarnessTimelineEntry(
+            date: Date(),
+            snapshot: WidgetSharedStore.readSnapshot(),
+            displaySettings: WidgetSharedStore.readDisplaySettings()
+        )
         let nextReload = Calendar.autoupdatingCurrent.date(byAdding: .minute, value: 30, to: Date()) ?? Date()
         completion(Timeline(entries: [entry], policy: .after(nextReload)))
     }
@@ -164,10 +207,27 @@ private struct MyHarnessWidgetView: View {
         switch family {
         case .systemSmall:
             Array(entry.snapshot.items.prefix(3))
+        case .systemMedium:
+            Array(entry.snapshot.items.prefix(entry.displaySettings.textDirection == .vertical ? 6 : 8))
+        case .systemLarge:
+            Array(entry.snapshot.items.prefix(entry.displaySettings.textDirection == .vertical ? 10 : 16))
         case .accessoryRectangular:
             Array(entry.snapshot.items.prefix(2))
         default:
-            Array(entry.snapshot.items.prefix(6))
+            Array(entry.snapshot.items.prefix(8))
+        }
+    }
+
+    private var checklistColumns: [[WidgetItemSnapshot]] {
+        switch family {
+        case .systemMedium, .systemLarge:
+            let leadingCount = (visibleItems.count + 1) / 2
+            return [
+                Array(visibleItems.prefix(leadingCount)),
+                Array(visibleItems.dropFirst(leadingCount))
+            ].filter { !$0.isEmpty }
+        default:
+            return [visibleItems]
         }
     }
 
@@ -184,21 +244,10 @@ private struct MyHarnessWidgetView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(visibleItems) { item in
-                        Button(intent: ToggleHarnessItemIntent(itemId: item.id)) {
-                            HStack(spacing: 6) {
-                                Image(systemName: item.isCompleted ? "checkmark.circle.fill" : "circle")
-                                    .foregroundStyle(item.isCompleted ? .green : .secondary)
-                                Text(item.title)
-                                    .font(.caption)
-                                    .lineLimit(1)
-                                    .strikethrough(item.isCompleted)
-                                Spacer(minLength: 0)
-                            }
-                        }
-                        .buttonStyle(.plain)
-                    }
+                if entry.displaySettings.textDirection == .vertical {
+                    WidgetVerticalChecklistView(items: visibleItems)
+                } else {
+                    WidgetChecklistColumnsView(columns: checklistColumns)
                 }
             }
 
@@ -214,6 +263,94 @@ private struct MyHarnessWidgetView: View {
         default:
             return true
         }
+    }
+}
+
+private struct WidgetChecklistColumnsView: View {
+    let columns: [[WidgetItemSnapshot]]
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            ForEach(Array(columns.enumerated()), id: \.offset) { _, column in
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(column) { item in
+                        WidgetChecklistRowView(item: item)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+}
+
+private struct WidgetChecklistRowView: View {
+    let item: WidgetItemSnapshot
+
+    var body: some View {
+        Button(intent: ToggleHarnessItemIntent(itemId: item.id)) {
+            HStack(spacing: 6) {
+                Image(systemName: item.isCompleted ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(item.isCompleted ? .green : .secondary)
+                Text(item.title)
+                    .font(.caption)
+                    .lineLimit(1)
+                    .strikethrough(item.isCompleted)
+                Spacer(minLength: 0)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct WidgetVerticalChecklistView: View {
+    let items: [WidgetItemSnapshot]
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            ForEach(Array(items.reversed())) { item in
+                WidgetVerticalItemView(item: item)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+}
+
+private struct WidgetVerticalItemView: View {
+    let item: WidgetItemSnapshot
+
+    var body: some View {
+        Button(intent: ToggleHarnessItemIntent(itemId: item.id)) {
+            VStack(spacing: 5) {
+                Image(systemName: item.isCompleted ? "checkmark.circle.fill" : "circle")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(item.isCompleted ? .green : .secondary)
+
+                WidgetVerticalTitleView(title: item.title, isCompleted: item.isCompleted)
+            }
+            .frame(maxHeight: .infinity, alignment: .top)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct WidgetVerticalTitleView: View {
+    let title: String
+    let isCompleted: Bool
+
+    private var characters: [Character] {
+        Array(title.filter { !$0.isWhitespace }.prefix(8))
+    }
+
+    var body: some View {
+        VStack(spacing: 1) {
+            ForEach(Array(characters.enumerated()), id: \.offset) { _, character in
+                Text(String(character))
+                    .font(.caption)
+                    .lineLimit(1)
+                    .strikethrough(isCompleted)
+            }
+        }
+        .foregroundStyle(isCompleted ? .secondary : .primary)
     }
 }
 
@@ -291,7 +428,7 @@ struct MyHarnessWidget: Widget {
         }
         .configurationDisplayName("my harness")
         .description("今日のチェック項目を表示して、ウィジェットから完了状態を切り替えます。")
-        .supportedFamilies([.systemSmall, .systemMedium, .accessoryRectangular])
+        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge, .accessoryRectangular])
     }
 }
 
@@ -351,6 +488,39 @@ struct MyHarnessWidgetBundle: WidgetBundle {
             )
         ]
     ))
+}
+
+#Preview("Large", as: .systemLarge) {
+    MyHarnessWidget()
+} timeline: {
+    HarnessTimelineEntry(date: Date(), snapshot: WidgetTodaySnapshot(
+        dateKey: WidgetTodaySnapshot.todayDateKey(),
+        updatedAt: Date(),
+        items: [
+            WidgetItemSnapshot(id: UUID(), title: "朝 薬飲む", sortOrder: 0, isCompleted: true),
+            WidgetItemSnapshot(id: UUID(), title: "風呂入る", sortOrder: 1, isCompleted: false),
+            WidgetItemSnapshot(id: UUID(), title: "水 1L 飲む", sortOrder: 2, isCompleted: true),
+            WidgetItemSnapshot(id: UUID(), title: "ランニングする", sortOrder: 3, isCompleted: false),
+            WidgetItemSnapshot(id: UUID(), title: "夜 薬飲む", sortOrder: 4, isCompleted: true),
+            WidgetItemSnapshot(id: UUID(), title: "洗濯", sortOrder: 5, isCompleted: false)
+        ]
+    ))
+}
+
+#Preview("Vertical", as: .systemMedium) {
+    MyHarnessWidget()
+} timeline: {
+    HarnessTimelineEntry(date: Date(), snapshot: WidgetTodaySnapshot(
+        dateKey: WidgetTodaySnapshot.todayDateKey(),
+        updatedAt: Date(),
+        items: [
+            WidgetItemSnapshot(id: UUID(), title: "朝 薬飲む", sortOrder: 0, isCompleted: true),
+            WidgetItemSnapshot(id: UUID(), title: "風呂入る", sortOrder: 1, isCompleted: false),
+            WidgetItemSnapshot(id: UUID(), title: "水 1L 飲む", sortOrder: 2, isCompleted: true),
+            WidgetItemSnapshot(id: UUID(), title: "ランニングする", sortOrder: 3, isCompleted: false),
+            WidgetItemSnapshot(id: UUID(), title: "夜 薬飲む", sortOrder: 4, isCompleted: true)
+        ]
+    ), displaySettings: WidgetDisplaySettings(textDirection: .vertical))
 }
 
 #Preview("Open", as: .systemSmall) {

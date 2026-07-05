@@ -59,6 +59,8 @@ struct AppDependencies {
                 widgetRepository: widgetRepository,
                 entryRepository: entryRepository
             ),
+            loadWidgetDisplaySettings: LoadWidgetDisplaySettingsUseCase(repository: widgetRepository),
+            saveWidgetDisplaySettings: SaveWidgetDisplaySettingsUseCase(repository: widgetRepository),
             loadNotificationSchedule: LoadNotificationScheduleUseCase(repository: settingsRepository),
             saveNotificationSchedule: SaveNotificationScheduleUseCase(
                 repository: settingsRepository,

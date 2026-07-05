@@ -86,9 +86,9 @@ struct TodayView: View {
                 Button {
                     router.presentedSheet = .settings
                 } label: {
-                    Image(systemName: "bell.badge")
+                    Image(systemName: "gearshape")
                 }
-                .accessibilityLabel("通知設定")
+                .accessibilityLabel("設定")
             }
         }
         .overlay {
