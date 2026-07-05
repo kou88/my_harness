@@ -196,6 +196,8 @@ jobs:
             -destination 'generic/platform=iOS' \
             -archivePath "$RUNNER_TEMP/MyHarness.xcarchive" \
             CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            'CODE_SIGN_IDENTITY[sdk=iphoneos*]=Apple Distribution' \
             archive
 
       - name: Upload to TestFlight
