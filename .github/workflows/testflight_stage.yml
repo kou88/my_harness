@@ -1,6 +1,8 @@
 name: TestFlight (Stage)
 
 on:
+  push:
+    branches: [stage]
   pull_request:
     branches: [stage]
     types: [closed]
@@ -17,6 +19,7 @@ jobs:
   build_and_upload:
     if: |
       github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'push' ||
       (
         github.event.pull_request.merged == true &&
         github.event.pull_request.head.repo.full_name == github.repository &&
