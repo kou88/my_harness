@@ -66,8 +66,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          ORIG_DEFAULT_KEYCHAIN="$(security default-keychain | tr -d '"')"
-          security list-keychains -d user | tr -d '"' > "$RUNNER_TEMP/orig_keychains.txt"
+          ORIG_DEFAULT_KEYCHAIN="$(security default-keychain 2>/dev/null | tr -d '"' | sed 's/^ *//; s/ *$//' || true)"
+          security list-keychains -d user | tr -d '"' | sed 's/^ *//; s/ *$//' > "$RUNNER_TEMP/orig_keychains.txt"
           echo "ORIG_DEFAULT_KEYCHAIN=$ORIG_DEFAULT_KEYCHAIN" >> "$GITHUB_ENV"
           echo "ORIG_KEYCHAINS_FILE=$RUNNER_TEMP/orig_keychains.txt" >> "$GITHUB_ENV"
 
