@@ -12,6 +12,9 @@ struct TodayView: View {
                 title: state.selectedDateTitle,
                 detail: state.selectedDateDetail,
                 isWeekOverviewVisible: showsWeekOverview,
+                onSettings: {
+                    router.presentedSheet = .settings
+                },
                 onPrevious: {
                     Task { await state.moveSelectedDate(by: -1) }
                 },
@@ -26,6 +29,7 @@ struct TodayView: View {
                 }
             )
             .listRowSeparator(.hidden)
+            .listRowInsets(EdgeInsets(top: 0, leading: 14, bottom: 4, trailing: 14))
 
             if showsWeekOverview {
                 WeekdayTaskOverviewView(groups: state.weekdayTaskGroups)
@@ -81,16 +85,8 @@ struct TodayView: View {
         .environment(\.defaultMinListRowHeight, 48)
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                Button {
-                    router.presentedSheet = .settings
-                } label: {
-                    Image(systemName: "gearshape")
-                }
-                .accessibilityLabel("設定")
-            }
-        }
+        .toolbar(.hidden, for: .navigationBar)
+        .contentMargins(.top, 0, for: .scrollContent)
         .overlay {
             if state.isLoading {
                 ProgressView()
@@ -216,13 +212,21 @@ private struct DateNavigatorView: View {
     let title: String
     let detail: String
     let isWeekOverviewVisible: Bool
+    let onSettings: () -> Void
     let onPrevious: () -> Void
     let onToday: () -> Void
     let onNext: () -> Void
     let onToggleWeekOverview: () -> Void
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
+            Button(action: onSettings) {
+                Image(systemName: "gearshape")
+                    .frame(width: 36, height: 36)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("設定")
+
             Button(action: onPrevious) {
                 Image(systemName: "chevron.left")
                     .frame(width: 36, height: 36)
