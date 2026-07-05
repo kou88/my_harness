@@ -1,22 +1,57 @@
 import Foundation
 import Observation
 
+enum RoutineRepeatPreset: String, CaseIterable, Hashable, Identifiable {
+    case weekdays
+    case weekends
+    case custom
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .weekdays:
+            return "平日のみ"
+        case .weekends:
+            return "土日のみ"
+        case .custom:
+            return "カスタム"
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class ItemEditorState {
     var title: String
-    var repeatWeekdays: Set<RoutineWeekday>
+    var repeatPreset: RoutineRepeatPreset
+    var customRepeatWeekdays: Set<RoutineWeekday>
     var errorMessage: String?
     var isSaving = false
 
-    private let editingItem: RoutineItem?
+    private var editingItem: RoutineItem?
+    private var lastSavedTitle: String
+    private var lastSavedRepeatWeekdays: Set<RoutineWeekday>
     private let useCases: AppUseCases
 
     init(useCases: AppUseCases, editingItem: RoutineItem? = nil) {
         self.useCases = useCases
         self.editingItem = editingItem
         title = editingItem?.title ?? ""
-        repeatWeekdays = editingItem?.repeatWeekdays ?? RoutineWeekday.everyDay
+        lastSavedTitle = editingItem?.title.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let savedWeekdays = editingItem?.repeatWeekdays ?? RoutineWeekday.everyDay
+        lastSavedRepeatWeekdays = savedWeekdays
+
+        if savedWeekdays == RoutineWeekday.weekdays {
+            repeatPreset = .weekdays
+            customRepeatWeekdays = RoutineWeekday.everyDay
+        } else if savedWeekdays == RoutineWeekday.weekends {
+            repeatPreset = .weekends
+            customRepeatWeekdays = RoutineWeekday.everyDay
+        } else {
+            repeatPreset = .custom
+            customRepeatWeekdays = savedWeekdays
+        }
     }
 
     var navigationTitle: String {
@@ -24,22 +59,36 @@ final class ItemEditorState {
     }
 
     var isValid: Bool {
-        !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !repeatWeekdays.isEmpty
+        !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !selectedRepeatWeekdays.isEmpty
     }
 
-    func toggleWeekday(_ weekday: RoutineWeekday) {
-        if repeatWeekdays.contains(weekday) {
-            repeatWeekdays.remove(weekday)
-        } else {
-            repeatWeekdays.insert(weekday)
+    var selectedRepeatWeekdays: Set<RoutineWeekday> {
+        switch repeatPreset {
+        case .weekdays:
+            return RoutineWeekday.weekdays
+        case .weekends:
+            return RoutineWeekday.weekends
+        case .custom:
+            return customRepeatWeekdays
         }
     }
 
-    func save() async -> Bool {
-        guard isValid else {
-            errorMessage = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                ? "項目名を入力してください"
-                : "繰り返す曜日を1つ以上選んでください"
+    func toggleWeekday(_ weekday: RoutineWeekday) {
+        repeatPreset = .custom
+        if customRepeatWeekdays.contains(weekday) {
+            customRepeatWeekdays.remove(weekday)
+        } else {
+            customRepeatWeekdays.insert(weekday)
+        }
+    }
+
+    func autosaveIfNeeded() async -> Bool {
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let repeatWeekdays = selectedRepeatWeekdays
+        guard !trimmedTitle.isEmpty, !repeatWeekdays.isEmpty else {
+            return false
+        }
+        guard trimmedTitle != lastSavedTitle || repeatWeekdays != lastSavedRepeatWeekdays else {
             return false
         }
 
@@ -47,22 +96,20 @@ final class ItemEditorState {
         defer { isSaving = false }
 
         do {
-            if let editingItem {
-                try await useCases.updateRoutineItem.execute(
-                    id: editingItem.id,
-                    title: title,
-                    repeatWeekdays: repeatWeekdays
-                )
+            if var editingItem {
+                try await useCases.updateRoutineItem.execute(id: editingItem.id, title: trimmedTitle, repeatWeekdays: repeatWeekdays)
+                editingItem.title = trimmedTitle
+                editingItem.repeatWeekdays = repeatWeekdays
+                self.editingItem = editingItem
             } else {
-                try await useCases.createRoutineItem.execute(
-                    title: title,
-                    repeatWeekdays: repeatWeekdays
-                )
+                editingItem = try await useCases.createRoutineItem.execute(title: trimmedTitle, repeatWeekdays: repeatWeekdays)
             }
+            lastSavedTitle = trimmedTitle
+            lastSavedRepeatWeekdays = repeatWeekdays
             errorMessage = nil
             return true
         } catch {
-            errorMessage = "保存に失敗しました: \(error.localizedDescription)"
+            errorMessage = "自動保存に失敗しました: \(error.localizedDescription)"
             return false
         }
     }

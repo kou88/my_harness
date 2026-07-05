@@ -34,6 +34,14 @@ enum RoutineWeekday: Int, CaseIterable, Codable, Hashable, Identifiable {
         Set(allCases)
     }
 
+    static var weekdays: Set<RoutineWeekday> {
+        [.monday, .tuesday, .wednesday, .thursday, .friday]
+    }
+
+    static var weekends: Set<RoutineWeekday> {
+        [.sunday, .saturday]
+    }
+
     static func set(fromStorageValue value: String?) -> Set<RoutineWeekday> {
         let days = value?
             .split(separator: ",")
@@ -101,6 +109,12 @@ struct RoutineItem: Identifiable, Codable, Hashable {
     var repeatWeekdaysLabel: String {
         if repeatWeekdays == RoutineWeekday.everyDay {
             return "毎日"
+        }
+        if repeatWeekdays == RoutineWeekday.weekdays {
+            return "平日"
+        }
+        if repeatWeekdays == RoutineWeekday.weekends {
+            return "土日"
         }
 
         let ordered = RoutineWeekday.allCases.filter { repeatWeekdays.contains($0) }

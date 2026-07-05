@@ -4,14 +4,15 @@ import Foundation
 struct CreateRoutineItemUseCase {
     let repository: RoutineItemRepository
 
-    func execute(title: String, repeatWeekdays: Set<RoutineWeekday>) async throws {
+    func execute(title: String, repeatWeekdays: Set<RoutineWeekday>) async throws -> RoutineItem? {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty else { return nil }
 
         let items = try await repository.listActive()
         let nextOrder = (items.map(\.sortOrder).max() ?? -1) + 1
         let item = RoutineItem(title: trimmed, sortOrder: nextOrder, repeatWeekdays: repeatWeekdays)
         try await repository.upsert(item)
+        return item
     }
 }
 

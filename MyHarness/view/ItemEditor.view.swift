@@ -5,6 +5,7 @@ struct ItemEditorView: View {
     @Environment(\.dismiss) private var dismiss
     let state: ItemEditorState
     let afterSave: () async -> Void
+    @State private var autosaveTask: Task<Void, Never>?
 
     var body: some View {
         @Bindable var state = state
@@ -16,10 +17,27 @@ struct ItemEditorView: View {
             }
 
             Section("繰り返し") {
-                WeekdaySelectionView(
-                    selectedWeekdays: $state.repeatWeekdays,
-                    onToggle: state.toggleWeekday
-                )
+                Picker("繰り返し", selection: $state.repeatPreset) {
+                    ForEach(RoutineRepeatPreset.allCases) { preset in
+                        Text(preset.label).tag(preset)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                if state.repeatPreset == .custom {
+                    WeekdaySelectionView(
+                        selectedWeekdays: $state.customRepeatWeekdays,
+                        onToggle: state.toggleWeekday
+                    )
+                }
+            }
+
+            if state.isSaving {
+                Section {
+                    Label("保存中", systemImage: "arrow.triangle.2.circlepath")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             if let error = state.errorMessage {
@@ -35,21 +53,44 @@ struct ItemEditorView: View {
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("閉じる") {
-                    dismiss()
-                }
-            }
-
-            ToolbarItem(placement: .confirmationAction) {
-                Button(state.isSaving ? "保存中" : "保存") {
                     Task {
-                        if await state.save() {
-                            await afterSave()
-                            dismiss()
-                        }
+                        await saveImmediately()
+                        dismiss()
                     }
                 }
-                .disabled(!state.isValid || state.isSaving)
             }
+        }
+        .onChange(of: state.title) { _, _ in
+            scheduleAutosave()
+        }
+        .onChange(of: state.repeatPreset) { _, _ in
+            scheduleAutosave()
+        }
+        .onChange(of: state.customRepeatWeekdays) { _, _ in
+            scheduleAutosave()
+        }
+        .onDisappear {
+            autosaveTask?.cancel()
+            autosaveTask = nil
+        }
+    }
+
+    @MainActor
+    private func scheduleAutosave() {
+        autosaveTask?.cancel()
+        autosaveTask = Task {
+            try? await Task.sleep(nanoseconds: 450_000_000)
+            guard !Task.isCancelled else { return }
+            await saveImmediately()
+        }
+    }
+
+    @MainActor
+    private func saveImmediately() async {
+        autosaveTask?.cancel()
+        autosaveTask = nil
+        if await state.autosaveIfNeeded() {
+            await afterSave()
         }
     }
 }
@@ -69,7 +110,7 @@ private struct WeekdaySelectionView: View {
                         .frame(maxWidth: .infinity, minHeight: 34)
                         .foregroundStyle(selectedWeekdays.contains(weekday) ? .white : .primary)
                         .background(
-                            selectedWeekdays.contains(weekday) ? Color.accentColor : Color(.secondarySystemGroupedBackground),
+                            selectedWeekdays.contains(weekday) ? Color.green : Color(.secondarySystemGroupedBackground),
                             in: RoundedRectangle(cornerRadius: 8, style: .continuous)
                         )
                 }

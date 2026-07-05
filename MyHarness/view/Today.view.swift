@@ -77,9 +77,13 @@ struct TodayView: View {
             } label: {
                 Image(systemName: "plus")
                     .font(.title2.weight(.semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.black)
                     .frame(width: 56, height: 56)
-                    .background(Color.green, in: Circle())
+                    .background(.white, in: Circle())
+                    .overlay {
+                        Circle()
+                            .stroke(.black.opacity(0.12), lineWidth: 1)
+                    }
                     .shadow(color: .black.opacity(0.18), radius: 12, x: 0, y: 6)
             }
             .buttonStyle(.plain)
