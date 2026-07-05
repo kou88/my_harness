@@ -36,6 +36,26 @@ GitHub Actions uses a self-hosted Apple Silicon Mac runner:
 runs-on: [self-hosted, macOS, ARM64]
 ```
 
+Current local runner:
+
+- Directory: `/Users/kou888/apps/actions-runner-my-harness`
+- Service: `actions.runner.kou88-my_harness.kou888-mac-my-harness`
+- Extra label: `my-harness`
+
+Useful runner commands:
+
+```sh
+cd /Users/kou888/apps/actions-runner-my-harness
+./svc.sh status
+./svc.sh stop
+./svc.sh start
+```
+
+Workflows:
+
+- `iOS Build`: manual dispatch, pushes to `develop`, and pull requests into `develop`, `stage`, or `prod`
+- `TestFlight (Stage)`: manual dispatch, pushes to `stage`, and merged `develop` -> `stage` pull requests
+
 Required repository variables:
 
 - `ASC_KEY_ID`
