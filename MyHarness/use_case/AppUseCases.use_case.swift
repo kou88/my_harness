@@ -1,0 +1,16 @@
+@MainActor
+struct AppUseCases {
+    let loadToday: LoadTodayUseCase
+    let createRoutineItem: CreateRoutineItemUseCase
+    let updateRoutineItem: UpdateRoutineItemUseCase
+    let deleteRoutineItem: DeleteRoutineItemUseCase
+    let reorderRoutineItems: ReorderRoutineItemsUseCase
+    let updateDayEntry: UpdateDayEntryUseCase
+    let buildWeeklyExport: BuildWeeklyExportUseCase
+    let copyText: CopyTextUseCase
+    let publishWidgetSnapshot: PublishWidgetSnapshotUseCase
+    let syncWidgetUpdates: SyncWidgetUpdatesUseCase
+    let loadNotificationSchedule: LoadNotificationScheduleUseCase
+    let saveNotificationSchedule: SaveNotificationScheduleUseCase
+    let notificationPermission: NotificationPermissionUseCase
+}

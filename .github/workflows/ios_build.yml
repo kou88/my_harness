@@ -1,0 +1,49 @@
+name: iOS Build
+
+on:
+  pull_request:
+    branches: [develop, stage, prod]
+  push:
+    branches: [develop]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: [self-hosted, macOS, ARM64]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Preflight runner arch
+        run: |
+          set -euo pipefail
+          if [ "$(uname -m)" != "arm64" ]; then
+            echo "::error::Runner architecture is not arm64."
+            exit 1
+          fi
+          if sysctl -n sysctl.proc_translated 2>/dev/null | grep -q 1; then
+            echo "::error::Runner is running under Rosetta."
+            exit 1
+          fi
+
+      - name: Verify Xcode
+        run: |
+          xcodebuild -version
+
+      - name: Build for simulator
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project MyHarness.xcodeproj \
+            -scheme MyHarness \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+

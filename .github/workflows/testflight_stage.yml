@@ -1,0 +1,227 @@
+name: TestFlight (Stage)
+
+on:
+  pull_request:
+    branches: [stage]
+    types: [closed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: my-harness-testflight-stage
+  cancel-in-progress: true
+
+jobs:
+  build_and_upload:
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event.pull_request.merged == true &&
+        github.event.pull_request.head.repo.full_name == github.repository &&
+        github.event.pull_request.head.ref == 'develop'
+      )
+    runs-on: [self-hosted, macOS, ARM64]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: stage
+
+      - name: Preflight runner arch
+        run: |
+          set -euo pipefail
+          if [ "$(uname -m)" != "arm64" ]; then
+            echo "::error::Runner architecture is not arm64."
+            exit 1
+          fi
+          if sysctl -n sysctl.proc_translated 2>/dev/null | grep -q 1; then
+            echo "::error::Runner is running under Rosetta."
+            exit 1
+          fi
+
+      - name: Verify Xcode
+        run: |
+          xcodebuild -version
+
+      - name: Decode App Store Connect API key
+        env:
+          ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}
+        run: |
+          set -euo pipefail
+          echo "$ASC_KEY_P8_BASE64" | openssl base64 -d -A > "$RUNNER_TEMP/AuthKey.p8"
+          echo "ASC_KEY_P8_PATH=$RUNNER_TEMP/AuthKey.p8" >> "$GITHUB_ENV"
+
+      - name: Install signing assets
+        env:
+          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_PROVISION_PROFILE_BASE64 }}
+          BUILD_WIDGET_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_WIDGET_PROVISION_PROFILE_BASE64 }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          ORIG_DEFAULT_KEYCHAIN="$(security default-keychain | tr -d '"')"
+          security list-keychains -d user | tr -d '"' > "$RUNNER_TEMP/orig_keychains.txt"
+          echo "ORIG_DEFAULT_KEYCHAIN=$ORIG_DEFAULT_KEYCHAIN" >> "$GITHUB_ENV"
+          echo "ORIG_KEYCHAINS_FILE=$RUNNER_TEMP/orig_keychains.txt" >> "$GITHUB_ENV"
+
+          KEYCHAIN_PATH="$RUNNER_TEMP/my-harness-signing.keychain-db"
+          CERT_PATH="$RUNNER_TEMP/build_certificate.p12"
+          APP_PROFILE_PATH="$RUNNER_TEMP/app.mobileprovision"
+          WIDGET_PROFILE_PATH="$RUNNER_TEMP/widget.mobileprovision"
+          USER_HOME="$(dscl . -read /Users/$(whoami) NFSHomeDirectory | awk '{print $2}')"
+
+          echo "$BUILD_CERTIFICATE_BASE64" | openssl base64 -d -A > "$CERT_PATH"
+          echo "$BUILD_PROVISION_PROFILE_BASE64" | openssl base64 -d -A > "$APP_PROFILE_PATH"
+          echo "$BUILD_WIDGET_PROVISION_PROFILE_BASE64" | openssl base64 -d -A > "$WIDGET_PROFILE_PATH"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(cat "$RUNNER_TEMP/orig_keychains.txt")
+          security default-keychain -s "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          mkdir -p "$USER_HOME/Library/MobileDevice/Provisioning Profiles"
+
+          extract_profile() {
+            local profile_path="$1"
+            local prefix="$2"
+            local plist_path="$RUNNER_TEMP/${prefix}.plist"
+            security cms -D -i "$profile_path" > "$plist_path"
+            local uuid
+            local name
+            local team_id
+            uuid=$(/usr/libexec/PlistBuddy -c "Print :UUID" "$plist_path")
+            name=$(/usr/libexec/PlistBuddy -c "Print :Name" "$plist_path")
+            team_id=$(/usr/libexec/PlistBuddy -c "Print :TeamIdentifier:0" "$plist_path")
+            cp "$profile_path" "$USER_HOME/Library/MobileDevice/Provisioning Profiles/$uuid.mobileprovision"
+            printf '%s|%s|%s\n' "$uuid" "$name" "$team_id"
+          }
+
+          APP_INFO="$(extract_profile "$APP_PROFILE_PATH" APP)"
+          WIDGET_INFO="$(extract_profile "$WIDGET_PROFILE_PATH" WIDGET)"
+
+          IFS='|' read -r APP_PROFILE_UUID APP_PROFILE_NAME APP_TEAM_ID <<< "$APP_INFO"
+          IFS='|' read -r WIDGET_PROFILE_UUID WIDGET_PROFILE_NAME WIDGET_TEAM_ID <<< "$WIDGET_INFO"
+
+          {
+            echo "APP_PROFILE_UUID=$APP_PROFILE_UUID"
+            echo "APP_PROFILE_NAME=$APP_PROFILE_NAME"
+            echo "APP_TEAM_ID=$APP_TEAM_ID"
+            echo "WIDGET_PROFILE_UUID=$WIDGET_PROFILE_UUID"
+            echo "WIDGET_PROFILE_NAME=$WIDGET_PROFILE_NAME"
+            echo "WIDGET_TEAM_ID=$WIDGET_TEAM_ID"
+            echo "TEAM_ID=$APP_TEAM_ID"
+          } >> "$GITHUB_ENV"
+
+          if [ "$APP_TEAM_ID" != "$WIDGET_TEAM_ID" ]; then
+            echo "::error::App and widget profiles belong to different teams."
+            exit 1
+          fi
+
+          echo "App profile: $APP_PROFILE_NAME ($APP_PROFILE_UUID)"
+          echo "Widget profile: $WIDGET_PROFILE_NAME ($WIDGET_PROFILE_UUID)"
+          echo "Team ID: $APP_TEAM_ID"
+          security find-identity -v -p codesigning
+
+      - name: Patch signing settings
+        run: |
+          set -euo pipefail
+          PBXPROJ="MyHarness.xcodeproj/project.pbxproj"
+          TEAM_ID="$APP_TEAM_ID"
+
+          perl -0pi -e "s/(CA0B1C2D3E4F567801234567 \\/\\* Debug \\*\\/ = \\{.*?buildSettings = \\{.*?DEVELOPMENT_TEAM = )\"\";/${1}$TEAM_ID;/s" "$PBXPROJ"
+          perl -0pi -e "s/(DA0B1C2D3E4F567801234567 \\/\\* Release \\*\\/ = \\{.*?buildSettings = \\{.*?DEVELOPMENT_TEAM = )\"\";/${1}$TEAM_ID;/s" "$PBXPROJ"
+          perl -0pi -e "s/(E4F5A6B7C8D9E0F112345678 \\/\\* Debug \\*\\/ = \\{.*?buildSettings = \\{.*?DEVELOPMENT_TEAM = )\"\";/${1}$TEAM_ID;/s" "$PBXPROJ"
+          perl -0pi -e "s/(F5A6B7C8D9E0F11212345678 \\/\\* Release \\*\\/ = \\{.*?buildSettings = \\{.*?DEVELOPMENT_TEAM = )\"\";/${1}$TEAM_ID;/s" "$PBXPROJ"
+
+          perl -pi -e "s/CODE_SIGN_STYLE = Automatic;/CODE_SIGN_STYLE = Manual;/g" "$PBXPROJ"
+          perl -pi -e "s/CODE_SIGN_IDENTITY = \"?Apple Development\"?;/CODE_SIGN_IDENTITY = \"Apple Distribution\";/g" "$PBXPROJ"
+
+          perl -0pi -e "s/(CA0B1C2D3E4F567801234567 \\/\\* Debug \\*\\/ = \\{.*?buildSettings = \\{)/$1\\n\\t\\t\\t\\tPROVISIONING_PROFILE_SPECIFIER = \"$ENV{APP_PROFILE_NAME}\";/s" "$PBXPROJ"
+          perl -0pi -e "s/(DA0B1C2D3E4F567801234567 \\/\\* Release \\*\\/ = \\{.*?buildSettings = \\{)/$1\\n\\t\\t\\t\\tPROVISIONING_PROFILE_SPECIFIER = \"$ENV{APP_PROFILE_NAME}\";/s" "$PBXPROJ"
+          perl -0pi -e "s/(E4F5A6B7C8D9E0F112345678 \\/\\* Debug \\*\\/ = \\{.*?buildSettings = \\{)/$1\\n\\t\\t\\t\\tPROVISIONING_PROFILE_SPECIFIER = \"$ENV{WIDGET_PROFILE_NAME}\";/s" "$PBXPROJ"
+          perl -0pi -e "s/(F5A6B7C8D9E0F11212345678 \\/\\* Release \\*\\/ = \\{.*?buildSettings = \\{)/$1\\n\\t\\t\\t\\tPROVISIONING_PROFILE_SPECIFIER = \"$ENV{WIDGET_PROFILE_NAME}\";/s" "$PBXPROJ"
+
+          grep -n "DEVELOPMENT_TEAM\\|CODE_SIGN_STYLE\\|PROVISIONING_PROFILE_SPECIFIER\\|CODE_SIGN_IDENTITY" "$PBXPROJ" | head -120
+
+      - name: Generate ExportOptions.plist
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store-connect</string>
+            <key>destination</key>
+            <string>upload</string>
+            <key>teamID</key>
+            <string>$APP_TEAM_ID</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>signingCertificate</key>
+            <string>Apple Distribution</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>com.kou888.myharness</key>
+              <string>$APP_PROFILE_NAME</string>
+              <key>com.kou888.myharness.widget</key>
+              <string>$WIDGET_PROFILE_NAME</string>
+            </dict>
+            <key>stripSwiftSymbols</key>
+            <true/>
+            <key>uploadSymbols</key>
+            <true/>
+          </dict>
+          </plist>
+          EOF
+          plutil -lint "$RUNNER_TEMP/ExportOptions.plist"
+
+      - name: Archive
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project MyHarness.xcodeproj \
+            -scheme MyHarness \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/MyHarness.xcarchive" \
+            CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
+            archive
+
+      - name: Upload to TestFlight
+        env:
+          ASC_KEY_ID: ${{ vars.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ vars.ASC_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -exportArchive \
+            -archivePath "$RUNNER_TEMP/MyHarness.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -exportPath "$RUNNER_TEMP/export" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_P8_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+
+      - name: Cleanup keychain and temp files
+        if: always()
+        run: |
+          USER_HOME="$(dscl . -read /Users/$(whoami) NFSHomeDirectory | awk '{print $2}')"
+          if [ -n "${ORIG_KEYCHAINS_FILE:-}" ] && [ -f "$ORIG_KEYCHAINS_FILE" ]; then
+            security list-keychains -d user -s $(cat "$ORIG_KEYCHAINS_FILE") || true
+          fi
+          if [ -n "${ORIG_DEFAULT_KEYCHAIN:-}" ]; then
+            security default-keychain -s "$ORIG_DEFAULT_KEYCHAIN" || true
+          fi
+          security delete-keychain "$RUNNER_TEMP/my-harness-signing.keychain-db" || true
+          rm -f "$USER_HOME/Library/MobileDevice/Provisioning Profiles/${APP_PROFILE_UUID:-}.mobileprovision" || true
+          rm -f "$USER_HOME/Library/MobileDevice/Provisioning Profiles/${WIDGET_PROFILE_UUID:-}.mobileprovision" || true
