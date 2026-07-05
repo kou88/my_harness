@@ -24,6 +24,7 @@ final class SwiftDataTodayReadStore: TodayReadStore {
     func snapshots(for date: Date) async throws -> [TodayItemSnapshot] {
         let dateKey = calendar.dateKey(for: date)
         let items = try await itemRepository.listActive()
+            .filter { $0.isActive(on: date, calendar: calendar.calendar) }
         let entries = try await dayEntryRepository.entries(dateKey: dateKey)
         let entryByItemId = Dictionary(uniqueKeysWithValues: entries.map { ($0.itemId, $0) })
 
@@ -32,4 +33,3 @@ final class SwiftDataTodayReadStore: TodayReadStore {
         }
     }
 }
-

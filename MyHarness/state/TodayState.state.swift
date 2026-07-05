@@ -4,7 +4,6 @@ import Observation
 struct TodayItemRowState: Identifiable, Hashable {
     var item: RoutineItem
     var isCompleted: Bool
-    var logText: String
 
     var id: UUID { item.id }
 }
@@ -32,8 +31,7 @@ final class TodayState {
             rows = try await useCases.loadToday.execute().map { snapshot in
                 TodayItemRowState(
                     item: snapshot.item,
-                    isCompleted: snapshot.entry?.isCompleted ?? false,
-                    logText: snapshot.entry?.logText ?? ""
+                    isCompleted: snapshot.entry?.isCompleted ?? false
                 )
             }
             try await publishWidgetSnapshot()
@@ -50,15 +48,6 @@ final class TodayState {
     func toggleCompletion(for id: UUID) async {
         guard let index = rows.firstIndex(where: { $0.id == id }) else { return }
         rows[index].isCompleted.toggle()
-        await persistRow(rows[index])
-    }
-
-    func setLogText(_ text: String, for id: UUID) async {
-        guard let index = rows.firstIndex(where: { $0.id == id }) else { return }
-        rows[index].logText = text
-        if rows[index].item.type == .checkLog, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            rows[index].isCompleted = true
-        }
         await persistRow(rows[index])
     }
 
@@ -100,8 +89,7 @@ final class TodayState {
         do {
             try await useCases.updateDayEntry.execute(
                 itemId: row.id,
-                isCompleted: row.isCompleted,
-                logText: row.logText
+                isCompleted: row.isCompleted
             )
             try await publishWidgetSnapshot()
             errorMessage = nil
@@ -115,10 +103,8 @@ final class TodayState {
             WidgetItemSnapshot(
                 id: row.item.id,
                 title: row.item.title,
-                type: row.item.type,
                 sortOrder: row.item.sortOrder,
-                isCompleted: row.isCompleted,
-                logText: row.logText
+                isCompleted: row.isCompleted
             )
         })
     }

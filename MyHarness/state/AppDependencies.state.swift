@@ -80,9 +80,13 @@ struct AppDependencies {
         calendar: CalendarProviding
     ) throws {
         let items = [
-            RoutineItem(title: "明日の服を出す", type: .check, sortOrder: 0),
-            RoutineItem(title: "睡眠メモ", type: .checkLog, sortOrder: 1),
-            RoutineItem(title: "机を戻す", type: .check, sortOrder: 2)
+            RoutineItem(title: "明日の服を出す", sortOrder: 0),
+            RoutineItem(
+                title: "ごみ出し準備",
+                sortOrder: 1,
+                repeatWeekdays: [.monday, .thursday]
+            ),
+            RoutineItem(title: "机を戻す", sortOrder: 2)
         ]
 
         for item in items {
@@ -100,7 +104,6 @@ struct AppDependencies {
             dateKey: today,
             itemId: items[1].id,
             isCompleted: true,
-            logText: "23:30に寝る準備まで完了",
             completedAt: Date()
         )))
         try context.save()

@@ -1,6 +1,6 @@
 # my harness
 
-Private SwiftUI app for a nightly checklist plus one-line logs.
+Private SwiftUI app for a nightly checklist.
 
 ## v0 Scope
 
@@ -14,8 +14,8 @@ Private SwiftUI app for a nightly checklist plus one-line logs.
   - `state/**/*.state.swift`
   - `view/**/*.view.swift`
 - Routine item CRUD, delete, and reordering
-- Item types: `check` and `checkLog`
-- Today view with completion state and inline one-line logs
+- Per-item daily repeat settings
+- Today view with completion state
 - Weekday local notifications with one configurable time
 - Weekly plain-text export to clipboard
 - Home Screen widget extension with interactive checklist toggles

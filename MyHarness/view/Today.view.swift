@@ -4,6 +4,11 @@ import SwiftUI
 struct TodayView: View {
     @Environment(AppRouter.self) private var router
     let state: TodayState
+    @State private var editMode: EditMode = .inactive
+
+    private var isEditing: Bool {
+        editMode.isEditing
+    }
 
     var body: some View {
         List {
@@ -19,11 +24,12 @@ struct TodayView: View {
             ForEach(state.rows) { row in
                 TodayItemRow(
                     row: row,
+                    isEditing: isEditing,
                     onToggle: {
                         Task { await state.toggleCompletion(for: row.id) }
                     },
-                    onLogChange: { text in
-                        Task { await state.setLogText(text, for: row.id) }
+                    onEdit: {
+                        router.presentedSheet = .editItem(row.item)
                     }
                 )
                 .swipeActions(edge: .trailing) {
@@ -47,10 +53,16 @@ struct TodayView: View {
         }
         .listStyle(.plain)
         .environment(\.defaultMinListRowHeight, 48)
+        .environment(\.editMode, $editMode)
         .navigationTitle("my harness")
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
-                EditButton()
+                Button(isEditing ? "完了" : "編集") {
+                    withAnimation(.snappy) {
+                        editMode = isEditing ? .inactive : .active
+                    }
+                }
+                .disabled(state.rows.isEmpty)
             }
 
             ToolbarItemGroup(placement: .topBarTrailing) {
@@ -100,53 +112,51 @@ struct TodayView: View {
 
 private struct TodayItemRow: View {
     let row: TodayItemRowState
+    let isEditing: Bool
     let onToggle: () -> Void
-    let onLogChange: (String) -> Void
+    let onEdit: () -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Button(action: onToggle) {
-                Image(systemName: row.isCompleted ? "checkmark.circle.fill" : "circle")
-                    .font(.title3)
-                    .foregroundStyle(row.isCompleted ? .green : .secondary)
-                    .frame(width: 28, height: 28)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(row.isCompleted ? "未完了にする" : "完了にする")
+        HStack(alignment: .center, spacing: 12) {
+            Image(systemName: row.isCompleted ? "checkmark.circle.fill" : "circle")
+                .font(.title3)
+                .foregroundStyle(row.isCompleted ? .green : .secondary)
+                .frame(width: 28, height: 28)
 
             VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
-                    Text(row.item.title)
-                        .font(.body)
-                        .strikethrough(row.isCompleted)
-                        .foregroundStyle(row.isCompleted ? .secondary : .primary)
+                Text(row.item.title)
+                    .font(.body)
+                    .strikethrough(row.isCompleted)
+                    .foregroundStyle(row.isCompleted ? .secondary : .primary)
+                    .lineLimit(1)
+
+                if row.item.repeatWeekdays != RoutineWeekday.everyDay {
+                    Text(row.item.repeatWeekdaysLabel)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                         .lineLimit(1)
-
-                    if row.item.type == .checkLog {
-                        Text("log")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(.quaternary, in: Capsule())
-                    }
-                }
-
-                if row.item.type == .checkLog {
-                    TextField(
-                        "1行ログ",
-                        text: Binding(
-                            get: { row.logText },
-                            set: onLogChange
-                        )
-                    )
-                    .textFieldStyle(.roundedBorder)
-                    .submitLabel(.done)
                 }
             }
         }
         .padding(.vertical, 6)
         .contentShape(Rectangle())
+        .onTapGesture {
+            if isEditing {
+                onEdit()
+            } else {
+                onToggle()
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(row.item.title)
+        .accessibilityHint(isEditing ? "タップして編集" : "タップして完了状態を切り替え")
+        .accessibilityAction {
+            if isEditing {
+                onEdit()
+            } else {
+                onToggle()
+            }
+        }
     }
 }
 
@@ -170,4 +180,3 @@ private struct MessageBar: View {
             .environment(AppRouter())
     }
 }
-

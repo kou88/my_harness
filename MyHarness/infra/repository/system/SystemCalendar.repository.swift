@@ -21,7 +21,7 @@ struct SystemCalendar: CalendarProviding {
         guard let weekStart = calendar.dateInterval(of: .weekOfYear, for: date)?.start else {
             return [date]
         }
-        return (0..<5).compactMap {
+        return (0..<7).compactMap {
             calendar.date(byAdding: .day, value: $0, to: weekStart)
         }
     }

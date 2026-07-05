@@ -34,7 +34,7 @@ struct SyncWidgetUpdatesUseCase {
                 dateKey: update.dateKey,
                 itemId: update.itemId,
                 isCompleted: update.isCompleted,
-                logText: existing?.logText ?? "",
+                logText: "",
                 completedAt: update.isCompleted ? (existing?.completedAt ?? update.updatedAt) : nil,
                 updatedAt: update.updatedAt
             )
@@ -42,4 +42,3 @@ struct SyncWidgetUpdatesUseCase {
         }
     }
 }
-

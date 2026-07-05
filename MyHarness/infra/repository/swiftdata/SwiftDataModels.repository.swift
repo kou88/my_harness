@@ -7,6 +7,7 @@ final class RoutineItemModel {
     var title: String
     var typeRawValue: String
     var sortOrder: Int
+    var repeatWeekdaysRawValue: String?
     var isArchived: Bool
     var createdAt: Date
     var updatedAt: Date
@@ -16,6 +17,7 @@ final class RoutineItemModel {
         title = item.title
         typeRawValue = item.type.rawValue
         sortOrder = item.sortOrder
+        repeatWeekdaysRawValue = RoutineWeekday.storageValue(for: item.repeatWeekdays)
         isArchived = item.isArchived
         createdAt = item.createdAt
         updatedAt = item.updatedAt
@@ -25,6 +27,7 @@ final class RoutineItemModel {
         title = item.title
         typeRawValue = item.type.rawValue
         sortOrder = item.sortOrder
+        repeatWeekdaysRawValue = RoutineWeekday.storageValue(for: item.repeatWeekdays)
         isArchived = item.isArchived
         createdAt = item.createdAt
         updatedAt = item.updatedAt
@@ -36,6 +39,7 @@ final class RoutineItemModel {
             title: title,
             type: RoutineItemType(rawValue: typeRawValue) ?? .check,
             sortOrder: sortOrder,
+            repeatWeekdays: RoutineWeekday.set(fromStorageValue: repeatWeekdaysRawValue),
             isArchived: isArchived,
             createdAt: createdAt,
             updatedAt: updatedAt
@@ -97,4 +101,3 @@ final class HarnessSettingsModel {
         self.notificationMinute = notificationMinute
     }
 }
-

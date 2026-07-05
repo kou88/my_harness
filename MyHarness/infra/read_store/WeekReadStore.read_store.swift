@@ -34,11 +34,12 @@ final class SwiftDataWeekReadStore: WeekReadStore {
 
         return zip(dates, dateKeys).map { date, dateKey in
             let entriesForDay = entryByDateKeyAndItemId[dateKey] ?? [:]
-            let snapshots = items.map { item in
-                TodayItemSnapshot(item: item, entry: entriesForDay[item.id])
-            }
+            let snapshots = items
+                .filter { $0.isActive(on: date, calendar: calendar.calendar) }
+                .map { item in
+                    TodayItemSnapshot(item: item, entry: entriesForDay[item.id])
+                }
             return WeekDaySnapshot(date: date, dateKey: dateKey, items: snapshots)
         }
     }
 }
-

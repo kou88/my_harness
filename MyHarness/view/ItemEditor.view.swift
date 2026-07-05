@@ -13,12 +13,13 @@ struct ItemEditorView: View {
             Section {
                 TextField("項目名", text: $state.title)
                     .submitLabel(.done)
+            }
 
-                Picker("タイプ", selection: $state.type) {
-                    ForEach(RoutineItemType.allCases) { type in
-                        Text(type.label).tag(type)
-                    }
-                }
+            Section("繰り返し") {
+                WeekdaySelectionView(
+                    selectedWeekdays: $state.repeatWeekdays,
+                    onToggle: state.toggleWeekday
+                )
             }
 
             if let error = state.errorMessage {
@@ -53,6 +54,34 @@ struct ItemEditorView: View {
     }
 }
 
+private struct WeekdaySelectionView: View {
+    @Binding var selectedWeekdays: Set<RoutineWeekday>
+    let onToggle: (RoutineWeekday) -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ForEach(RoutineWeekday.allCases) { weekday in
+                Button {
+                    onToggle(weekday)
+                } label: {
+                    Text(weekday.shortLabel)
+                        .font(.callout.weight(.semibold))
+                        .frame(maxWidth: .infinity, minHeight: 34)
+                        .foregroundStyle(selectedWeekdays.contains(weekday) ? .white : .primary)
+                        .background(
+                            selectedWeekdays.contains(weekday) ? Color.accentColor : Color(.secondarySystemGroupedBackground),
+                            in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(weekday.shortLabel)曜日")
+                .accessibilityAddTraits(selectedWeekdays.contains(weekday) ? .isSelected : [])
+            }
+        }
+        .padding(.vertical, 4)
+    }
+}
+
 #Preview {
     NavigationStack {
         ItemEditorView(
@@ -61,4 +90,3 @@ struct ItemEditorView: View {
         )
     }
 }
-

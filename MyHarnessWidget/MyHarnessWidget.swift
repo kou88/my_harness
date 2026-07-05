@@ -11,18 +11,11 @@ private enum WidgetStoreKey {
     static let pendingUpdates = "my_harness.widget.pending_updates"
 }
 
-private enum WidgetItemType: String, Codable {
-    case check
-    case checkLog
-}
-
 private struct WidgetItemSnapshot: Identifiable, Codable, Hashable {
     let id: UUID
     var title: String
-    var type: WidgetItemType
     var sortOrder: Int
     var isCompleted: Bool
-    var logText: String
 }
 
 private struct WidgetTodaySnapshot: Codable, Hashable {
@@ -145,10 +138,8 @@ private struct HarnessTimelineProvider: TimelineProvider {
                 WidgetItemSnapshot(
                     id: UUID(),
                     title: "睡眠メモ",
-                    type: .checkLog,
                     sortOrder: 0,
-                    isCompleted: false,
-                    logText: ""
+                    isCompleted: false
                 )
             ]
         ))
@@ -254,18 +245,14 @@ struct MyHarnessWidgetBundle: WidgetBundle {
             WidgetItemSnapshot(
                 id: UUID(),
                 title: "睡眠メモ",
-                type: .checkLog,
                 sortOrder: 0,
-                isCompleted: true,
-                logText: "23:30"
+                isCompleted: true
             ),
             WidgetItemSnapshot(
                 id: UUID(),
                 title: "机を戻す",
-                type: .check,
                 sortOrder: 1,
-                isCompleted: false,
-                logText: ""
+                isCompleted: false
             )
         ]
     ))

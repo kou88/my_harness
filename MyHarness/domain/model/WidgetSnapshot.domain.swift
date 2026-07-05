@@ -7,10 +7,8 @@ enum HarnessAppGroup {
 struct WidgetItemSnapshot: Identifiable, Codable, Hashable {
     let id: UUID
     var title: String
-    var type: RoutineItemType
     var sortOrder: Int
     var isCompleted: Bool
-    var logText: String
 }
 
 struct WidgetTodaySnapshot: Codable, Hashable {
@@ -44,4 +42,3 @@ struct WidgetPendingEntryUpdate: Identifiable, Codable, Hashable {
         self.updatedAt = updatedAt
     }
 }
-

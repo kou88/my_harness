@@ -5,7 +5,7 @@ import Observation
 @Observable
 final class ItemEditorState {
     var title: String
-    var type: RoutineItemType
+    var repeatWeekdays: Set<RoutineWeekday>
     var errorMessage: String?
     var isSaving = false
 
@@ -16,7 +16,7 @@ final class ItemEditorState {
         self.useCases = useCases
         self.editingItem = editingItem
         title = editingItem?.title ?? ""
-        type = editingItem?.type ?? .check
+        repeatWeekdays = editingItem?.repeatWeekdays ?? RoutineWeekday.everyDay
     }
 
     var navigationTitle: String {
@@ -24,12 +24,22 @@ final class ItemEditorState {
     }
 
     var isValid: Bool {
-        !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !repeatWeekdays.isEmpty
+    }
+
+    func toggleWeekday(_ weekday: RoutineWeekday) {
+        if repeatWeekdays.contains(weekday) {
+            repeatWeekdays.remove(weekday)
+        } else {
+            repeatWeekdays.insert(weekday)
+        }
     }
 
     func save() async -> Bool {
         guard isValid else {
-            errorMessage = "項目名を入力してください"
+            errorMessage = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? "項目名を入力してください"
+                : "繰り返す曜日を1つ以上選んでください"
             return false
         }
 
@@ -38,9 +48,16 @@ final class ItemEditorState {
 
         do {
             if let editingItem {
-                try await useCases.updateRoutineItem.execute(id: editingItem.id, title: title, type: type)
+                try await useCases.updateRoutineItem.execute(
+                    id: editingItem.id,
+                    title: title,
+                    repeatWeekdays: repeatWeekdays
+                )
             } else {
-                try await useCases.createRoutineItem.execute(title: title, type: type)
+                try await useCases.createRoutineItem.execute(
+                    title: title,
+                    repeatWeekdays: repeatWeekdays
+                )
             }
             errorMessage = nil
             return true
@@ -50,4 +67,3 @@ final class ItemEditorState {
         }
     }
 }
-
