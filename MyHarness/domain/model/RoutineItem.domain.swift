@@ -113,6 +113,9 @@ struct RoutineItem: Identifiable, Codable, Hashable {
         if repeatWeekdays == RoutineWeekday.weekdays {
             return "平日"
         }
+        if repeatWeekdays == RoutineWeekday.weekends {
+            return "土日"
+        }
 
         let ordered = RoutineWeekday.allCases.filter { repeatWeekdays.contains($0) }
         return ordered.map(\.shortLabel).joined(separator: "・")
