@@ -2,6 +2,7 @@ import Foundation
 import Observation
 
 enum RoutineRepeatPreset: String, CaseIterable, Hashable, Identifiable {
+    case everyDay
     case weekdays
     case weekends
     case custom
@@ -10,10 +11,12 @@ enum RoutineRepeatPreset: String, CaseIterable, Hashable, Identifiable {
 
     var label: String {
         switch self {
+        case .everyDay:
+            return "毎日"
         case .weekdays:
-            return "平日のみ"
+            return "平日"
         case .weekends:
-            return "土日のみ"
+            return "土日"
         case .custom:
             return "カスタム"
         }
@@ -42,7 +45,10 @@ final class ItemEditorState {
         let savedWeekdays = editingItem?.repeatWeekdays ?? RoutineWeekday.weekends
         lastSavedRepeatWeekdays = savedWeekdays
 
-        if savedWeekdays == RoutineWeekday.weekdays {
+        if savedWeekdays == RoutineWeekday.everyDay {
+            repeatPreset = .everyDay
+            customRepeatWeekdays = RoutineWeekday.everyDay
+        } else if savedWeekdays == RoutineWeekday.weekdays {
             repeatPreset = .weekdays
             customRepeatWeekdays = RoutineWeekday.everyDay
         } else if savedWeekdays == RoutineWeekday.weekends {
@@ -73,6 +79,8 @@ final class ItemEditorState {
 
     var selectedRepeatWeekdays: Set<RoutineWeekday> {
         switch repeatPreset {
+        case .everyDay:
+            return RoutineWeekday.everyDay
         case .weekdays:
             return RoutineWeekday.weekdays
         case .weekends:

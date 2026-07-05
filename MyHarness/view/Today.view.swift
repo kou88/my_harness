@@ -7,11 +7,26 @@ struct TodayView: View {
 
     var body: some View {
         List {
+            DateNavigatorView(
+                title: state.selectedDateTitle,
+                detail: state.selectedDateDetail,
+                onPrevious: {
+                    Task { await state.moveSelectedDate(by: -1) }
+                },
+                onToday: {
+                    Task { await state.selectToday() }
+                },
+                onNext: {
+                    Task { await state.moveSelectedDate(by: 1) }
+                }
+            )
+            .listRowSeparator(.hidden)
+
             if state.rows.isEmpty, !state.isLoading {
                 ContentUnavailableView(
                     "項目がありません",
                     systemImage: "checklist",
-                    description: Text("右上の追加ボタンから作成します。")
+                    description: Text("右下の追加ボタンから作成します。")
                 )
                 .listRowSeparator(.hidden)
             }
@@ -126,12 +141,10 @@ private struct TodayItemRow: View {
                     .foregroundStyle(row.isCompleted ? .secondary : .primary)
                     .lineLimit(1)
 
-                if row.item.repeatWeekdays != RoutineWeekday.everyDay {
-                    Text(row.item.repeatWeekdaysLabel)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
+                Text(row.item.repeatWeekdaysLabel)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
 
             Spacer(minLength: 0)
@@ -154,6 +167,48 @@ private struct TodayItemRow: View {
         .accessibilityAction {
             onToggle()
         }
+    }
+}
+
+private struct DateNavigatorView: View {
+    let title: String
+    let detail: String
+    let onPrevious: () -> Void
+    let onToday: () -> Void
+    let onNext: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Button(action: onPrevious) {
+                Image(systemName: "chevron.left")
+                    .frame(width: 36, height: 36)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("前の日")
+
+            Button(action: onToday) {
+                VStack(spacing: 2) {
+                    Text(title)
+                        .font(.headline)
+                        .lineLimit(1)
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, minHeight: 42)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("今日へ移動")
+
+            Button(action: onNext) {
+                Image(systemName: "chevron.right")
+                    .frame(width: 36, height: 36)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("次の日")
+        }
+        .padding(.vertical, 4)
     }
 }
 

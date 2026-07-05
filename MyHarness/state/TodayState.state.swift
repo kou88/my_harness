@@ -12,11 +12,15 @@ struct TodayItemRowState: Identifiable, Hashable {
 @Observable
 final class TodayState {
     var rows: [TodayItemRowState] = []
+    var selectedDate = Calendar.autoupdatingCurrent.startOfDay(for: Date())
     var isLoading = false
     var errorMessage: String?
     var copiedMessage: String?
 
     private let useCases: AppUseCases
+    private var calendar: Calendar {
+        Calendar.autoupdatingCurrent
+    }
 
     init(useCases: AppUseCases) {
         self.useCases = useCases
@@ -28,17 +32,45 @@ final class TodayState {
 
         do {
             try await useCases.syncWidgetUpdates.execute()
-            rows = try await useCases.loadToday.execute().map { snapshot in
-                TodayItemRowState(
-                    item: snapshot.item,
-                    isCompleted: snapshot.entry?.isCompleted ?? false
-                )
-            }
-            try await publishWidgetSnapshot()
+            rows = try await rowStates(for: selectedDate)
+            try await publishWidgetSnapshotForToday()
             errorMessage = nil
         } catch {
             errorMessage = "読み込みに失敗しました: \(error.localizedDescription)"
         }
+    }
+
+    var selectedDateTitle: String {
+        let components = calendar.dateComponents([.month, .day, .weekday], from: selectedDate)
+        let weekday = RoutineWeekday(rawValue: components.weekday ?? 1)?.shortLabel ?? "日"
+        return "\(components.month ?? 0)/\(components.day ?? 0)(\(weekday))"
+    }
+
+    var selectedDateDetail: String {
+        if calendar.isDateInToday(selectedDate) {
+            return "今日"
+        }
+        if calendar.isDateInYesterday(selectedDate) {
+            return "昨日"
+        }
+        if calendar.isDateInTomorrow(selectedDate) {
+            return "明日"
+        }
+
+        let components = calendar.dateComponents([.year], from: selectedDate)
+        return "\(components.year ?? 0)"
+    }
+
+    func moveSelectedDate(by dayOffset: Int) async {
+        selectedDate = calendar.startOfDay(
+            for: calendar.date(byAdding: .day, value: dayOffset, to: selectedDate) ?? selectedDate
+        )
+        await load()
+    }
+
+    func selectToday() async {
+        selectedDate = calendar.startOfDay(for: Date())
+        await load()
     }
 
     func item(id: UUID) -> RoutineItem? {
@@ -112,17 +144,29 @@ final class TodayState {
         do {
             try await useCases.updateDayEntry.execute(
                 itemId: row.id,
+                date: selectedDate,
                 isCompleted: row.isCompleted
             )
-            try await publishWidgetSnapshot()
+            try await publishWidgetSnapshotForToday()
             errorMessage = nil
         } catch {
             errorMessage = "保存に失敗しました: \(error.localizedDescription)"
         }
     }
 
-    private func publishWidgetSnapshot() async throws {
-        try await useCases.publishWidgetSnapshot.execute(rows: rows.map { row in
+    private func rowStates(for date: Date) async throws -> [TodayItemRowState] {
+        try await useCases.loadToday.execute(date: date).map { snapshot in
+            TodayItemRowState(
+                item: snapshot.item,
+                isCompleted: snapshot.entry?.isCompleted ?? false
+            )
+        }
+    }
+
+    private func publishWidgetSnapshotForToday() async throws {
+        let today = Date()
+        let todayRows = calendar.isDate(selectedDate, inSameDayAs: today) ? rows : try await rowStates(for: today)
+        try await useCases.publishWidgetSnapshot.execute(rows: todayRows.map { row in
             WidgetItemSnapshot(
                 id: row.item.id,
                 title: row.item.title,

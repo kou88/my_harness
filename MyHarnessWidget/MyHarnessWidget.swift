@@ -173,8 +173,6 @@ private struct MyHarnessWidgetView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            header
-
             if visibleItems.isEmpty {
                 Text("項目なし")
                     .font(.caption)
@@ -201,17 +199,6 @@ private struct MyHarnessWidgetView: View {
             Spacer(minLength: 0)
         }
         .containerBackground(.background, for: .widget)
-    }
-
-    private var header: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "checklist")
-                .font(.caption.weight(.semibold))
-            Text("my harness")
-                .font(.caption.weight(.semibold))
-                .lineLimit(1)
-            Spacer(minLength: 0)
-        }
     }
 }
 
