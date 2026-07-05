@@ -17,7 +17,6 @@ Private SwiftUI app for a nightly checklist.
 - Per-item daily repeat settings
 - Today view with completion state
 - Weekday local notifications with one configurable time
-- Weekly plain-text export to clipboard
 - Home Screen widget extension with interactive checklist toggles
 
 Cloud API/DB integration is intentionally not implemented in v0, but repository ports keep the app ready for a future `my_api` backed implementation.

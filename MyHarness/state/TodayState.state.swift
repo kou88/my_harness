@@ -72,6 +72,29 @@ final class TodayState {
         }
     }
 
+    func moveRow(id sourceId: UUID, before targetId: UUID) async {
+        guard
+            sourceId != targetId,
+            let sourceIndex = rows.firstIndex(where: { $0.id == sourceId })
+        else {
+            return
+        }
+
+        var nextRows = rows
+        let moving = nextRows.remove(at: sourceIndex)
+        let targetIndex = nextRows.firstIndex(where: { $0.id == targetId }) ?? nextRows.count
+        nextRows.insert(moving, at: targetIndex)
+        rows = nextRows
+
+        do {
+            try await useCases.reorderRoutineItems.execute(ids: rows.map(\.id))
+            errorMessage = nil
+        } catch {
+            errorMessage = "並べ替えに失敗しました: \(error.localizedDescription)"
+            await load()
+        }
+    }
+
     func buildAndCopyWeeklyExport() async -> String? {
         do {
             let text = try await useCases.buildWeeklyExport.execute()
