@@ -4,12 +4,14 @@ import SwiftUI
 struct TodayView: View {
     @Environment(AppRouter.self) private var router
     let state: TodayState
+    @State private var showsWeekOverview = false
 
     var body: some View {
         List {
             DateNavigatorView(
                 title: state.selectedDateTitle,
                 detail: state.selectedDateDetail,
+                isWeekOverviewVisible: showsWeekOverview,
                 onPrevious: {
                     Task { await state.moveSelectedDate(by: -1) }
                 },
@@ -18,12 +20,17 @@ struct TodayView: View {
                 },
                 onNext: {
                     Task { await state.moveSelectedDate(by: 1) }
+                },
+                onToggleWeekOverview: {
+                    showsWeekOverview.toggle()
                 }
             )
             .listRowSeparator(.hidden)
 
-            WeekdayTaskOverviewView(groups: state.weekdayTaskGroups)
-                .listRowSeparator(.hidden)
+            if showsWeekOverview {
+                WeekdayTaskOverviewView(groups: state.weekdayTaskGroups)
+                    .listRowSeparator(.hidden)
+            }
 
             if state.rows.isEmpty, !state.isLoading {
                 ContentUnavailableView(
@@ -208,9 +215,11 @@ private struct WeekdayTaskOverviewView: View {
 private struct DateNavigatorView: View {
     let title: String
     let detail: String
+    let isWeekOverviewVisible: Bool
     let onPrevious: () -> Void
     let onToday: () -> Void
     let onNext: () -> Void
+    let onToggleWeekOverview: () -> Void
 
     var body: some View {
         HStack(spacing: 8) {
@@ -242,6 +251,18 @@ private struct DateNavigatorView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("次の日")
+
+            Button(action: onToggleWeekOverview) {
+                Image(systemName: "calendar")
+                    .frame(width: 36, height: 36)
+                    .foregroundStyle(isWeekOverviewVisible ? .white : .primary)
+                    .background(
+                        isWeekOverviewVisible ? Color.black : Color.clear,
+                        in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    )
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(isWeekOverviewVisible ? "週表示を閉じる" : "週表示を開く")
         }
         .padding(.vertical, 4)
     }
