@@ -14,6 +14,9 @@ struct ItemEditorView: View {
             Section {
                 TextField("項目名", text: $state.title)
                     .submitLabel(.done)
+                    .onSubmit {
+                        submitAndDismiss()
+                    }
             }
 
             Section("繰り返し") {
@@ -54,7 +57,7 @@ struct ItemEditorView: View {
             ToolbarItem(placement: .cancellationAction) {
                 Button("閉じる") {
                     Task {
-                        await saveImmediately()
+                        _ = await saveImmediately()
                         dismiss()
                     }
                 }
@@ -81,17 +84,28 @@ struct ItemEditorView: View {
         autosaveTask = Task {
             try? await Task.sleep(nanoseconds: 450_000_000)
             guard !Task.isCancelled else { return }
-            await saveImmediately()
+            _ = await saveImmediately()
         }
     }
 
     @MainActor
-    private func saveImmediately() async {
+    private func submitAndDismiss() {
+        Task {
+            if await saveImmediately() {
+                dismiss()
+            }
+        }
+    }
+
+    @MainActor
+    private func saveImmediately() async -> Bool {
         autosaveTask?.cancel()
         autosaveTask = nil
         if await state.autosaveIfNeeded() {
             await afterSave()
+            return true
         }
+        return state.canSubmitWithoutSaving
     }
 }
 

@@ -39,7 +39,7 @@ final class ItemEditorState {
         self.editingItem = editingItem
         title = editingItem?.title ?? ""
         lastSavedTitle = editingItem?.title.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let savedWeekdays = editingItem?.repeatWeekdays ?? RoutineWeekday.everyDay
+        let savedWeekdays = editingItem?.repeatWeekdays ?? RoutineWeekday.weekends
         lastSavedRepeatWeekdays = savedWeekdays
 
         if savedWeekdays == RoutineWeekday.weekdays {
@@ -60,6 +60,15 @@ final class ItemEditorState {
 
     var isValid: Bool {
         !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !selectedRepeatWeekdays.isEmpty
+    }
+
+    var canSubmitWithoutSaving: Bool {
+        isValid && editingItem != nil && !hasUnsavedChanges
+    }
+
+    private var hasUnsavedChanges: Bool {
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedTitle != lastSavedTitle || selectedRepeatWeekdays != lastSavedRepeatWeekdays
     }
 
     var selectedRepeatWeekdays: Set<RoutineWeekday> {
@@ -88,7 +97,7 @@ final class ItemEditorState {
         guard !trimmedTitle.isEmpty, !repeatWeekdays.isEmpty else {
             return false
         }
-        guard trimmedTitle != lastSavedTitle || repeatWeekdays != lastSavedRepeatWeekdays else {
+        guard hasUnsavedChanges else {
             return false
         }
 
