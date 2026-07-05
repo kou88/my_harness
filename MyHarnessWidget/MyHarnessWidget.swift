@@ -202,6 +202,43 @@ private struct MyHarnessWidgetView: View {
     }
 }
 
+private struct MyHarnessButtonWidgetView: View {
+    let entry: HarnessTimelineEntry
+
+    private var targetItem: WidgetItemSnapshot? {
+        entry.snapshot.items.first { !$0.isCompleted } ?? entry.snapshot.items.first
+    }
+
+    var body: some View {
+        VStack {
+            if let item = targetItem {
+                Button(intent: ToggleHarnessItemIntent(itemId: item.id)) {
+                    VStack(spacing: 10) {
+                        Image(systemName: item.isCompleted ? "checkmark.circle.fill" : "circle")
+                            .font(.title)
+                            .foregroundStyle(.black)
+
+                        Text(item.title)
+                            .font(.headline)
+                            .foregroundStyle(.black)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.7)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+                .buttonStyle(.plain)
+            } else {
+                Text("項目なし")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .containerBackground(.background, for: .widget)
+    }
+}
+
 struct MyHarnessWidget: Widget {
     let kind = "MyHarnessWidget"
 
@@ -215,10 +252,24 @@ struct MyHarnessWidget: Widget {
     }
 }
 
+struct MyHarnessButtonWidget: Widget {
+    let kind = "MyHarnessButtonWidget"
+
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: kind, provider: HarnessTimelineProvider()) { entry in
+            MyHarnessButtonWidgetView(entry: entry)
+        }
+        .configurationDisplayName("my harness button")
+        .description("今日の未完了項目を1つだけ表示して、タップで完了状態を切り替えます。")
+        .supportedFamilies([.systemSmall])
+    }
+}
+
 @main
 struct MyHarnessWidgetBundle: WidgetBundle {
     var body: some Widget {
         MyHarnessWidget()
+        MyHarnessButtonWidget()
     }
 }
 
@@ -239,6 +290,23 @@ struct MyHarnessWidgetBundle: WidgetBundle {
                 id: UUID(),
                 title: "机を戻す",
                 sortOrder: 1,
+                isCompleted: false
+            )
+        ]
+    ))
+}
+
+#Preview("Button", as: .systemSmall) {
+    MyHarnessButtonWidget()
+} timeline: {
+    HarnessTimelineEntry(date: Date(), snapshot: WidgetTodaySnapshot(
+        dateKey: WidgetTodaySnapshot.todayDateKey(),
+        updatedAt: Date(),
+        items: [
+            WidgetItemSnapshot(
+                id: UUID(),
+                title: "机を戻す",
+                sortOrder: 0,
                 isCompleted: false
             )
         ]

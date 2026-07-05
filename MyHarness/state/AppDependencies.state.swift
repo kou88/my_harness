@@ -50,6 +50,7 @@ struct AppDependencies {
             updateRoutineItem: UpdateRoutineItemUseCase(repository: itemRepository),
             deleteRoutineItem: DeleteRoutineItemUseCase(repository: itemRepository),
             reorderRoutineItems: ReorderRoutineItemsUseCase(repository: itemRepository),
+            loadWeekdayTaskGroups: LoadWeekdayTaskGroupsUseCase(repository: itemRepository),
             updateDayEntry: UpdateDayEntryUseCase(repository: entryRepository, calendar: calendar),
             buildWeeklyExport: BuildWeeklyExportUseCase(readStore: weekReadStore, calendar: calendar),
             copyText: CopyTextUseCase(clipboard: clipboard),

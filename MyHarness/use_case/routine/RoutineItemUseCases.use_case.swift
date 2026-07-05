@@ -48,3 +48,18 @@ struct ReorderRoutineItemsUseCase {
         try await repository.reorder(ids: ids)
     }
 }
+
+@MainActor
+struct LoadWeekdayTaskGroupsUseCase {
+    let repository: RoutineItemRepository
+
+    func execute() async throws -> [WeekdayTaskGroup] {
+        let items = try await repository.listActive()
+        return RoutineWeekday.allCases.map { weekday in
+            WeekdayTaskGroup(
+                weekday: weekday,
+                items: items.filter { $0.repeatWeekdays.contains(weekday) }
+            )
+        }
+    }
+}

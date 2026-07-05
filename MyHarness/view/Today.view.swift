@@ -22,6 +22,9 @@ struct TodayView: View {
             )
             .listRowSeparator(.hidden)
 
+            WeekdayTaskOverviewView(groups: state.weekdayTaskGroups)
+                .listRowSeparator(.hidden)
+
             if state.rows.isEmpty, !state.isLoading {
                 ContentUnavailableView(
                     "項目がありません",
@@ -167,6 +170,38 @@ private struct TodayItemRow: View {
         .accessibilityAction {
             onToggle()
         }
+    }
+}
+
+private struct WeekdayTaskOverviewView: View {
+    let groups: [WeekdayTaskGroup]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(groups) { group in
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Text(group.weekday.shortLabel)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 18, alignment: .center)
+
+                    Text(taskSummary(for: group))
+                        .font(.caption)
+                        .foregroundStyle(group.items.isEmpty ? .tertiary : .secondary)
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(minHeight: 20)
+            }
+        }
+        .padding(.vertical, 4)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("曜日ごとの項目")
+    }
+
+    private func taskSummary(for group: WeekdayTaskGroup) -> String {
+        let titles = group.items.map(\.title)
+        return titles.isEmpty ? "なし" : titles.joined(separator: "、")
     }
 }
 

@@ -12,6 +12,7 @@ struct TodayItemRowState: Identifiable, Hashable {
 @Observable
 final class TodayState {
     var rows: [TodayItemRowState] = []
+    var weekdayTaskGroups: [WeekdayTaskGroup] = []
     var selectedDate = Calendar.autoupdatingCurrent.startOfDay(for: Date())
     var isLoading = false
     var errorMessage: String?
@@ -33,6 +34,7 @@ final class TodayState {
         do {
             try await useCases.syncWidgetUpdates.execute()
             rows = try await rowStates(for: selectedDate)
+            weekdayTaskGroups = try await useCases.loadWeekdayTaskGroups.execute()
             try await publishWidgetSnapshotForToday()
             errorMessage = nil
         } catch {
@@ -97,6 +99,7 @@ final class TodayState {
 
         do {
             try await useCases.reorderRoutineItems.execute(ids: rows.map(\.id))
+            weekdayTaskGroups = try await useCases.loadWeekdayTaskGroups.execute()
             errorMessage = nil
         } catch {
             errorMessage = "並べ替えに失敗しました: \(error.localizedDescription)"
@@ -120,6 +123,7 @@ final class TodayState {
 
         do {
             try await useCases.reorderRoutineItems.execute(ids: rows.map(\.id))
+            weekdayTaskGroups = try await useCases.loadWeekdayTaskGroups.execute()
             errorMessage = nil
         } catch {
             errorMessage = "並べ替えに失敗しました: \(error.localizedDescription)"

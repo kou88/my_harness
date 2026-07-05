@@ -5,6 +5,7 @@ struct AppUseCases {
     let updateRoutineItem: UpdateRoutineItemUseCase
     let deleteRoutineItem: DeleteRoutineItemUseCase
     let reorderRoutineItems: ReorderRoutineItemsUseCase
+    let loadWeekdayTaskGroups: LoadWeekdayTaskGroupsUseCase
     let updateDayEntry: UpdateDayEntryUseCase
     let buildWeeklyExport: BuildWeeklyExportUseCase
     let copyText: CopyTextUseCase

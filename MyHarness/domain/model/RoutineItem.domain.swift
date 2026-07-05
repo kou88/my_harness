@@ -121,3 +121,10 @@ struct RoutineItem: Identifiable, Codable, Hashable {
         return ordered.map(\.shortLabel).joined(separator: "・")
     }
 }
+
+struct WeekdayTaskGroup: Identifiable, Hashable {
+    let weekday: RoutineWeekday
+    var items: [RoutineItem]
+
+    var id: Int { weekday.rawValue }
+}
