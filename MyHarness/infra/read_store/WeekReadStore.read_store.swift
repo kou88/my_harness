@@ -26,6 +26,7 @@ final class SwiftDataWeekReadStore: WeekReadStore {
         let dateKeys = dates.map { calendar.dateKey(for: $0) }
         let items = try await itemRepository.listActive()
         let entries = try await dayEntryRepository.entries(dateKeys: dateKeys)
+        let completedDateKeyByItemId = try await completedDateKeysByItemId()
 
         var entryByDateKeyAndItemId: [String: [UUID: DayEntry]] = [:]
         for entry in entries {
@@ -35,11 +36,32 @@ final class SwiftDataWeekReadStore: WeekReadStore {
         return zip(dates, dateKeys).map { date, dateKey in
             let entriesForDay = entryByDateKeyAndItemId[dateKey] ?? [:]
             let snapshots = items
-                .filter { $0.isActive(on: date, calendar: calendar.calendar) }
+                .filter { item in
+                    item.isVisible(
+                        on: date,
+                        dateKey: dateKey,
+                        createdDateKey: calendar.dateKey(for: item.createdAt),
+                        completedDateKey: completedDateKeyByItemId[item.id],
+                        calendar: calendar.calendar
+                    )
+                }
                 .map { item in
                     TodayItemSnapshot(item: item, entry: entriesForDay[item.id])
                 }
             return WeekDaySnapshot(date: date, dateKey: dateKey, items: snapshots)
         }
+    }
+
+    private func completedDateKeysByItemId() async throws -> [UUID: String] {
+        let completedEntries = try await dayEntryRepository.completedEntries()
+        var result: [UUID: String] = [:]
+        for entry in completedEntries {
+            if let existingDateKey = result[entry.itemId] {
+                result[entry.itemId] = min(existingDateKey, entry.dateKey)
+            } else {
+                result[entry.itemId] = entry.dateKey
+            }
+        }
+        return result
     }
 }

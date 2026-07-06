@@ -19,19 +19,30 @@ struct ItemEditorView: View {
                     }
             }
 
-            Section("繰り返し") {
-                Picker("繰り返し", selection: $state.repeatPreset) {
-                    ForEach(RoutineRepeatPreset.allCases) { preset in
-                        Text(preset.label).tag(preset)
+            Section("種類") {
+                Picker("種類", selection: $state.scheduleKind) {
+                    ForEach(RoutineScheduleKind.allCases) { kind in
+                        Text(kind.label).tag(kind)
                     }
                 }
                 .pickerStyle(.segmented)
+            }
 
-                if state.repeatPreset == .custom {
-                    WeekdaySelectionView(
-                        selectedWeekdays: $state.customRepeatWeekdays,
-                        onToggle: state.toggleWeekday
-                    )
+            if state.scheduleKind == .routine {
+                Section("繰り返し") {
+                    Picker("繰り返し", selection: $state.repeatPreset) {
+                        ForEach(RoutineRepeatPreset.allCases) { preset in
+                            Text(preset.label).tag(preset)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    if state.repeatPreset == .custom {
+                        WeekdaySelectionView(
+                            selectedWeekdays: $state.customRepeatWeekdays,
+                            onToggle: state.toggleWeekday
+                        )
+                    }
                 }
             }
 
@@ -64,6 +75,9 @@ struct ItemEditorView: View {
             }
         }
         .onChange(of: state.title) { _, _ in
+            scheduleAutosave()
+        }
+        .onChange(of: state.scheduleKind) { _, _ in
             scheduleAutosave()
         }
         .onChange(of: state.repeatPreset) { _, _ in

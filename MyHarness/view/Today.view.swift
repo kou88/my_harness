@@ -147,10 +147,7 @@ private struct TodayItemRow: View {
                     .foregroundStyle(row.isCompleted ? .secondary : .primary)
                     .lineLimit(1)
 
-                Text(row.item.repeatWeekdaysLabel)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                ScheduleKindMetaView(item: row.item)
             }
 
             Spacer(minLength: 0)
@@ -172,6 +169,25 @@ private struct TodayItemRow: View {
         .accessibilityHint("タップして完了状態を切り替え")
         .accessibilityAction {
             onToggle()
+        }
+    }
+}
+
+private struct ScheduleKindMetaView: View {
+    let item: RoutineItem
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if item.scheduleKind == .oneShot {
+                Text("🎯")
+                    .font(.caption)
+                    .accessibilityLabel("単発")
+            } else {
+                Text(item.repeatWeekdaysLabel)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
         }
     }
 }

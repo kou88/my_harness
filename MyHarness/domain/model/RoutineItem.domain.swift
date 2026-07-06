@@ -68,10 +68,27 @@ enum RoutineItemType: String, Codable, Hashable, Identifiable {
     }
 }
 
+enum RoutineScheduleKind: String, CaseIterable, Codable, Hashable, Identifiable {
+    case routine
+    case oneShot
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .routine:
+            return "ルーチン"
+        case .oneShot:
+            return "単発"
+        }
+    }
+}
+
 struct RoutineItem: Identifiable, Codable, Hashable {
     let id: UUID
     var title: String
     var type: RoutineItemType
+    var scheduleKind: RoutineScheduleKind
     var sortOrder: Int
     var repeatWeekdays: Set<RoutineWeekday>
     var isArchived: Bool
@@ -82,6 +99,7 @@ struct RoutineItem: Identifiable, Codable, Hashable {
         id: UUID = UUID(),
         title: String,
         type: RoutineItemType = .check,
+        scheduleKind: RoutineScheduleKind,
         sortOrder: Int,
         repeatWeekdays: Set<RoutineWeekday> = RoutineWeekday.everyDay,
         isArchived: Bool = false,
@@ -91,6 +109,7 @@ struct RoutineItem: Identifiable, Codable, Hashable {
         self.id = id
         self.title = title
         self.type = type
+        self.scheduleKind = scheduleKind
         self.sortOrder = sortOrder
         self.repeatWeekdays = repeatWeekdays.isEmpty ? RoutineWeekday.everyDay : repeatWeekdays
         self.isArchived = isArchived
@@ -99,11 +118,29 @@ struct RoutineItem: Identifiable, Codable, Hashable {
     }
 
     func isActive(on date: Date, calendar: Calendar) -> Bool {
+        guard scheduleKind == .routine else { return true }
         let weekday = calendar.component(.weekday, from: date)
         guard let day = RoutineWeekday(rawValue: weekday) else {
             return true
         }
         return repeatWeekdays.contains(day)
+    }
+
+    func isVisible(
+        on date: Date,
+        dateKey: String,
+        createdDateKey: String,
+        completedDateKey: String?,
+        calendar: Calendar
+    ) -> Bool {
+        switch scheduleKind {
+        case .routine:
+            return isActive(on: date, calendar: calendar)
+        case .oneShot:
+            guard dateKey >= createdDateKey else { return false }
+            guard let completedDateKey else { return true }
+            return dateKey <= completedDateKey
+        }
     }
 
     var repeatWeekdaysLabel: String {

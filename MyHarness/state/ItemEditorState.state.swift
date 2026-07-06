@@ -27,6 +27,7 @@ enum RoutineRepeatPreset: String, CaseIterable, Hashable, Identifiable {
 @Observable
 final class ItemEditorState {
     var title: String
+    var scheduleKind: RoutineScheduleKind
     var repeatPreset: RoutineRepeatPreset
     var customRepeatWeekdays: Set<RoutineWeekday>
     var errorMessage: String?
@@ -34,6 +35,7 @@ final class ItemEditorState {
 
     private var editingItem: RoutineItem?
     private var lastSavedTitle: String
+    private var lastSavedScheduleKind: RoutineScheduleKind
     private var lastSavedRepeatWeekdays: Set<RoutineWeekday>
     private let useCases: AppUseCases
 
@@ -42,6 +44,8 @@ final class ItemEditorState {
         self.editingItem = editingItem
         title = editingItem?.title ?? ""
         lastSavedTitle = editingItem?.title.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        scheduleKind = editingItem?.scheduleKind ?? .routine
+        lastSavedScheduleKind = editingItem?.scheduleKind ?? .routine
         let savedWeekdays = editingItem?.repeatWeekdays ?? RoutineWeekday.weekends
         lastSavedRepeatWeekdays = savedWeekdays
 
@@ -65,7 +69,8 @@ final class ItemEditorState {
     }
 
     var isValid: Bool {
-        !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !selectedRepeatWeekdays.isEmpty
+        !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && (scheduleKind == .oneShot || !selectedRepeatWeekdays.isEmpty)
     }
 
     var canSubmitWithoutSaving: Bool {
@@ -74,10 +79,16 @@ final class ItemEditorState {
 
     private var hasUnsavedChanges: Bool {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmedTitle != lastSavedTitle || selectedRepeatWeekdays != lastSavedRepeatWeekdays
+        return trimmedTitle != lastSavedTitle
+            || scheduleKind != lastSavedScheduleKind
+            || selectedRepeatWeekdays != lastSavedRepeatWeekdays
     }
 
     var selectedRepeatWeekdays: Set<RoutineWeekday> {
+        guard scheduleKind == .routine else {
+            return RoutineWeekday.everyDay
+        }
+
         switch repeatPreset {
         case .everyDay:
             return RoutineWeekday.everyDay
@@ -114,14 +125,25 @@ final class ItemEditorState {
 
         do {
             if var editingItem {
-                try await useCases.updateRoutineItem.execute(id: editingItem.id, title: trimmedTitle, repeatWeekdays: repeatWeekdays)
+                try await useCases.updateRoutineItem.execute(
+                    id: editingItem.id,
+                    title: trimmedTitle,
+                    scheduleKind: scheduleKind,
+                    repeatWeekdays: repeatWeekdays
+                )
                 editingItem.title = trimmedTitle
+                editingItem.scheduleKind = scheduleKind
                 editingItem.repeatWeekdays = repeatWeekdays
                 self.editingItem = editingItem
             } else {
-                editingItem = try await useCases.createRoutineItem.execute(title: trimmedTitle, repeatWeekdays: repeatWeekdays)
+                editingItem = try await useCases.createRoutineItem.execute(
+                    title: trimmedTitle,
+                    scheduleKind: scheduleKind,
+                    repeatWeekdays: repeatWeekdays
+                )
             }
             lastSavedTitle = trimmedTitle
+            lastSavedScheduleKind = scheduleKind
             lastSavedRepeatWeekdays = repeatWeekdays
             errorMessage = nil
             return true

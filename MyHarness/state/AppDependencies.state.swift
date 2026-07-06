@@ -25,6 +25,7 @@ struct AppDependencies {
         ])
         let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: isStoredInMemoryOnly)
         let container = try ModelContainer(for: schema, configurations: [configuration])
+        try backfillRoutineScheduleKindIfNeeded(context: container.mainContext)
 
         let calendar = SystemCalendar()
         let itemRepository = SwiftDataRoutineItemRepository(context: container.mainContext)
@@ -83,13 +84,14 @@ struct AppDependencies {
         calendar: CalendarProviding
     ) throws {
         let items = [
-            RoutineItem(title: "明日の服を出す", sortOrder: 0),
+            RoutineItem(title: "明日の服を出す", scheduleKind: .routine, sortOrder: 0),
             RoutineItem(
                 title: "ごみ出し準備",
+                scheduleKind: .routine,
                 sortOrder: 1,
                 repeatWeekdays: [.monday, .thursday]
             ),
-            RoutineItem(title: "机を戻す", sortOrder: 2)
+            RoutineItem(title: "机を戻す", scheduleKind: .routine, sortOrder: 2)
         ]
 
         for item in items {
@@ -110,5 +112,19 @@ struct AppDependencies {
             completedAt: Date()
         )))
         try context.save()
+    }
+
+    private static func backfillRoutineScheduleKindIfNeeded(context: ModelContext) throws {
+        let items = try context.fetch(FetchDescriptor<RoutineItemModel>())
+        var didChange = false
+
+        for item in items where RoutineScheduleKind(rawValue: item.scheduleKindRawValue) == nil {
+            item.scheduleKindRawValue = RoutineScheduleKind.routine.rawValue
+            didChange = true
+        }
+
+        if didChange {
+            try context.save()
+        }
     }
 }
