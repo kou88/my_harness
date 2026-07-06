@@ -188,8 +188,10 @@ private struct ScheduleKindMetaView: View {
     var body: some View {
         HStack(spacing: 6) {
             if item.scheduleKind == .oneShot {
-                Text("🎯")
+                Text("単発")
                     .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
                     .accessibilityLabel("単発")
             } else {
                 Text(item.repeatWeekdaysLabel)

@@ -1,4 +1,5 @@
 import AppIntents
+import SwiftData
 import SwiftUI
 import WidgetKit
 
@@ -17,6 +18,32 @@ private struct WidgetItemSnapshot: Identifiable, Codable, Hashable {
     var title: String
     var sortOrder: Int
     var isCompleted: Bool
+}
+
+private enum WidgetScheduleKind: String {
+    case routine
+    case oneShot
+}
+
+private enum WidgetRoutineWeekday: Int, CaseIterable {
+    case sunday = 1
+    case monday = 2
+    case tuesday = 3
+    case wednesday = 4
+    case thursday = 5
+    case friday = 6
+    case saturday = 7
+
+    static var everyDay: Set<WidgetRoutineWeekday> {
+        Set(allCases)
+    }
+
+    static func set(fromStorageValue value: String?) -> Set<WidgetRoutineWeekday> {
+        let days = value?
+            .split(separator: ",")
+            .compactMap { Int($0).flatMap(WidgetRoutineWeekday.init(rawValue:)) } ?? []
+        return days.isEmpty ? everyDay : Set(days)
+    }
 }
 
 private struct WidgetTodaySnapshot: Codable, Hashable {
@@ -73,19 +100,216 @@ private struct WidgetPendingEntryUpdate: Identifiable, Codable {
     var updatedAt: Date
 }
 
+@Model
+final class RoutineItemModel {
+    @Attribute(.unique) var id: UUID
+    var title: String
+    var typeRawValue: String
+    var scheduleKindRawValue: String = WidgetScheduleKind.routine.rawValue
+    var sortOrder: Int
+    var repeatWeekdaysRawValue: String?
+    var isArchived: Bool
+    var createdAt: Date
+    var updatedAt: Date
+
+    init(
+        id: UUID,
+        title: String,
+        typeRawValue: String,
+        scheduleKindRawValue: String,
+        sortOrder: Int,
+        repeatWeekdaysRawValue: String?,
+        isArchived: Bool,
+        createdAt: Date,
+        updatedAt: Date
+    ) {
+        self.id = id
+        self.title = title
+        self.typeRawValue = typeRawValue
+        self.scheduleKindRawValue = scheduleKindRawValue
+        self.sortOrder = sortOrder
+        self.repeatWeekdaysRawValue = repeatWeekdaysRawValue
+        self.isArchived = isArchived
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+}
+
+@Model
+final class DayEntryModel {
+    @Attribute(.unique) var id: UUID
+    var dateKey: String
+    var itemId: UUID
+    var isCompleted: Bool
+    var logText: String
+    var completedAt: Date?
+    var updatedAt: Date
+
+    init(
+        id: UUID,
+        dateKey: String,
+        itemId: UUID,
+        isCompleted: Bool,
+        logText: String,
+        completedAt: Date?,
+        updatedAt: Date
+    ) {
+        self.id = id
+        self.dateKey = dateKey
+        self.itemId = itemId
+        self.isCompleted = isCompleted
+        self.logText = logText
+        self.completedAt = completedAt
+        self.updatedAt = updatedAt
+    }
+}
+
+@Model
+final class HarnessSettingsModel {
+    @Attribute(.unique) var key: String
+    var notificationHour: Int
+    var notificationMinute: Int
+
+    init(key: String, notificationHour: Int, notificationMinute: Int) {
+        self.key = key
+        self.notificationHour = notificationHour
+        self.notificationMinute = notificationMinute
+    }
+}
+
+private enum WidgetSwiftDataStore {
+    static func readTodaySnapshot(on date: Date) -> WidgetTodaySnapshot? {
+        guard
+            let storeURL = FileManager.default
+                .containerURL(forSecurityApplicationGroupIdentifier: WidgetAppGroup.identifier)?
+                .appendingPathComponent("Library/Application Support/default.store"),
+            FileManager.default.fileExists(atPath: storeURL.path)
+        else {
+            return nil
+        }
+
+        do {
+            let schema = Schema([
+                RoutineItemModel.self,
+                DayEntryModel.self,
+                HarnessSettingsModel.self
+            ])
+            let configuration = ModelConfiguration(schema: schema, url: storeURL, allowsSave: false)
+            let container = try ModelContainer(for: schema, configurations: [configuration])
+            let context = ModelContext(container)
+            return try todaySnapshot(on: date, context: context)
+        } catch {
+            return nil
+        }
+    }
+
+    private static func todaySnapshot(on date: Date, context: ModelContext) throws -> WidgetTodaySnapshot {
+        let dateKey = WidgetTodaySnapshot.todayDateKey(date: date)
+        let activeItems = try context.fetch(FetchDescriptor<RoutineItemModel>(
+            predicate: #Predicate { item in
+                item.isArchived == false
+            },
+            sortBy: [
+                SortDescriptor(\RoutineItemModel.sortOrder, order: .forward),
+                SortDescriptor(\RoutineItemModel.createdAt, order: .forward)
+            ]
+        ))
+        let entries = try context.fetch(FetchDescriptor<DayEntryModel>(
+            predicate: #Predicate { entry in
+                entry.dateKey == dateKey
+            }
+        ))
+        let completedEntries = try context.fetch(FetchDescriptor<DayEntryModel>(
+            predicate: #Predicate { entry in
+                entry.isCompleted == true
+            },
+            sortBy: [
+                SortDescriptor(\DayEntryModel.dateKey, order: .forward),
+                SortDescriptor(\DayEntryModel.updatedAt, order: .forward)
+            ]
+        ))
+        let entryByItemId = Dictionary(uniqueKeysWithValues: entries.map { ($0.itemId, $0) })
+        let completedDateKeyByItemId = earliestCompletedDateKeys(from: completedEntries)
+        let calendar = Calendar.autoupdatingCurrent
+        let todayWeekday = calendar.component(.weekday, from: date)
+
+        let snapshots = activeItems.compactMap { item -> WidgetItemSnapshot? in
+            guard
+                let scheduleKind = WidgetScheduleKind(rawValue: item.scheduleKindRawValue),
+                isVisible(
+                    item: item,
+                    scheduleKind: scheduleKind,
+                    dateKey: dateKey,
+                    todayWeekday: todayWeekday,
+                    completedDateKey: completedDateKeyByItemId[item.id]
+                )
+            else {
+                return nil
+            }
+
+            return WidgetItemSnapshot(
+                id: item.id,
+                title: item.title,
+                sortOrder: item.sortOrder,
+                isCompleted: entryByItemId[item.id]?.isCompleted == true
+            )
+        }
+
+        return WidgetTodaySnapshot(dateKey: dateKey, updatedAt: Date(), items: snapshots)
+    }
+
+    private static func earliestCompletedDateKeys(from entries: [DayEntryModel]) -> [UUID: String] {
+        var result: [UUID: String] = [:]
+        for entry in entries {
+            if let existingDateKey = result[entry.itemId] {
+                result[entry.itemId] = min(existingDateKey, entry.dateKey)
+            } else {
+                result[entry.itemId] = entry.dateKey
+            }
+        }
+        return result
+    }
+
+    private static func isVisible(
+        item: RoutineItemModel,
+        scheduleKind: WidgetScheduleKind,
+        dateKey: String,
+        todayWeekday: Int,
+        completedDateKey: String?
+    ) -> Bool {
+        switch scheduleKind {
+        case .routine:
+            let weekdays = WidgetRoutineWeekday.set(fromStorageValue: item.repeatWeekdaysRawValue)
+            guard let weekday = WidgetRoutineWeekday(rawValue: todayWeekday) else {
+                return true
+            }
+            return weekdays.contains(weekday)
+        case .oneShot:
+            let createdDateKey = WidgetTodaySnapshot.todayDateKey(date: item.createdAt)
+            guard dateKey >= createdDateKey else { return false }
+            guard let completedDateKey else { return true }
+            return dateKey <= completedDateKey
+        }
+    }
+}
+
 private enum WidgetSharedStore {
     static var defaults: UserDefaults {
         UserDefaults(suiteName: WidgetAppGroup.identifier) ?? .standard
     }
 
     static func readSnapshot(on date: Date) -> WidgetTodaySnapshot {
+        if let snapshot = WidgetSwiftDataStore.readTodaySnapshot(on: date) {
+            return applyPendingUpdates(to: snapshot)
+        }
+
         guard
             let data = defaults.data(forKey: WidgetStoreKey.snapshot),
             let snapshot = try? JSONDecoder().decode(WidgetTodaySnapshot.self, from: data)
         else {
             return WidgetTodaySnapshot.empty(dateKey: WidgetTodaySnapshot.todayDateKey(date: date), updatedAt: date)
         }
-        return WidgetTodaySnapshot.visibleSnapshot(snapshot, on: date)
+        return applyPendingUpdates(to: WidgetTodaySnapshot.visibleSnapshot(snapshot, on: date))
     }
 
     static func writeSnapshot(_ snapshot: WidgetTodaySnapshot) {
@@ -106,16 +330,38 @@ private enum WidgetSharedStore {
 
     static func appendPendingUpdate(_ update: WidgetPendingEntryUpdate) {
         var updates: [WidgetPendingEntryUpdate] = []
-        if
-            let data = defaults.data(forKey: WidgetStoreKey.pendingUpdates),
-            let decoded = try? JSONDecoder().decode([WidgetPendingEntryUpdate].self, from: data)
-        {
-            updates = decoded
-        }
+        updates = readPendingUpdates()
         updates.append(update)
         if let data = try? JSONEncoder().encode(updates) {
             defaults.set(data, forKey: WidgetStoreKey.pendingUpdates)
         }
+    }
+
+    private static func readPendingUpdates() -> [WidgetPendingEntryUpdate] {
+        guard
+            let data = defaults.data(forKey: WidgetStoreKey.pendingUpdates),
+            let decoded = try? JSONDecoder().decode([WidgetPendingEntryUpdate].self, from: data)
+        else {
+            return []
+        }
+        return decoded
+    }
+
+    private static func applyPendingUpdates(to snapshot: WidgetTodaySnapshot) -> WidgetTodaySnapshot {
+        let updates = readPendingUpdates()
+            .filter { $0.dateKey == snapshot.dateKey }
+            .sorted { $0.updatedAt < $1.updatedAt }
+        guard !updates.isEmpty else { return snapshot }
+
+        var snapshot = snapshot
+        for update in updates {
+            guard let index = snapshot.items.firstIndex(where: { $0.id == update.itemId }) else {
+                continue
+            }
+            snapshot.items[index].isCompleted = update.isCompleted
+            snapshot.updatedAt = max(snapshot.updatedAt, update.updatedAt)
+        }
+        return snapshot
     }
 }
 
