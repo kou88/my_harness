@@ -28,6 +28,18 @@ private struct WidgetTodaySnapshot: Codable, Hashable {
         WidgetTodaySnapshot(dateKey: Self.todayDateKey(), updatedAt: Date(), items: [])
     }
 
+    static func empty(dateKey: String, updatedAt: Date) -> WidgetTodaySnapshot {
+        WidgetTodaySnapshot(dateKey: dateKey, updatedAt: updatedAt, items: [])
+    }
+
+    static func visibleSnapshot(_ snapshot: WidgetTodaySnapshot, on date: Date) -> WidgetTodaySnapshot {
+        let todayDateKey = Self.todayDateKey(date: date)
+        guard snapshot.dateKey == todayDateKey else {
+            return Self.empty(dateKey: todayDateKey, updatedAt: date)
+        }
+        return snapshot
+    }
+
     static func todayDateKey(date: Date = Date()) -> String {
         let calendar = Calendar.autoupdatingCurrent
         let components = calendar.dateComponents([.year, .month, .day], from: date)
@@ -66,14 +78,14 @@ private enum WidgetSharedStore {
         UserDefaults(suiteName: WidgetAppGroup.identifier) ?? .standard
     }
 
-    static func readSnapshot() -> WidgetTodaySnapshot {
+    static func readSnapshot(on date: Date) -> WidgetTodaySnapshot {
         guard
             let data = defaults.data(forKey: WidgetStoreKey.snapshot),
             let snapshot = try? JSONDecoder().decode(WidgetTodaySnapshot.self, from: data)
         else {
-            return .empty
+            return WidgetTodaySnapshot.empty(dateKey: WidgetTodaySnapshot.todayDateKey(date: date), updatedAt: date)
         }
-        return snapshot
+        return WidgetTodaySnapshot.visibleSnapshot(snapshot, on: date)
     }
 
     static func writeSnapshot(_ snapshot: WidgetTodaySnapshot) {
@@ -128,7 +140,7 @@ struct ToggleHarnessItemIntent: AppIntent {
             return .result()
         }
 
-        var snapshot = WidgetSharedStore.readSnapshot()
+        var snapshot = WidgetSharedStore.readSnapshot(on: Date())
         guard let index = snapshot.items.firstIndex(where: { $0.id == uuid }) else {
             return .result()
         }
@@ -193,19 +205,31 @@ private struct HarnessTimelineProvider: TimelineProvider {
     func getSnapshot(in context: Context, completion: @escaping (HarnessTimelineEntry) -> Void) {
         completion(HarnessTimelineEntry(
             date: Date(),
-            snapshot: WidgetSharedStore.readSnapshot(),
+            snapshot: WidgetSharedStore.readSnapshot(on: Date()),
             displaySettings: WidgetSharedStore.readDisplaySettings()
         ))
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<HarnessTimelineEntry>) -> Void) {
+        let now = Date()
         let entry = HarnessTimelineEntry(
-            date: Date(),
-            snapshot: WidgetSharedStore.readSnapshot(),
+            date: now,
+            snapshot: WidgetSharedStore.readSnapshot(on: now),
             displaySettings: WidgetSharedStore.readDisplaySettings()
         )
-        let nextReload = Calendar.autoupdatingCurrent.date(byAdding: .minute, value: 30, to: Date()) ?? Date()
+        let nextReload = nextTimelineReload(after: now)
         completion(Timeline(entries: [entry], policy: .after(nextReload)))
+    }
+
+    private func nextTimelineReload(after date: Date) -> Date {
+        let calendar = Calendar.autoupdatingCurrent
+        let nextRegularReload = calendar.date(byAdding: .minute, value: 30, to: date) ?? date.addingTimeInterval(1_800)
+        let nextDateChange = calendar.nextDate(
+            after: date,
+            matching: DateComponents(hour: 0, minute: 0, second: 1),
+            matchingPolicy: .nextTime
+        ) ?? nextRegularReload
+        return min(nextRegularReload, nextDateChange)
     }
 }
 

@@ -1,7 +1,9 @@
 import SwiftUI
+import UIKit
 
 @MainActor
 struct TodayView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(AppRouter.self) private var router
     let state: TodayState
     @State private var showsWeekOverview = false
@@ -121,6 +123,13 @@ struct TodayView: View {
         }
         .task {
             await state.load()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else { return }
+            Task { await state.load() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.significantTimeChangeNotification)) { _ in
+            Task { await state.load() }
         }
     }
 

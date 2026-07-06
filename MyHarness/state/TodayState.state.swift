@@ -19,6 +19,7 @@ final class TodayState {
     var copiedMessage: String?
 
     private let useCases: AppUseCases
+    private var followsSystemToday = true
     private var calendar: Calendar {
         Calendar.autoupdatingCurrent
     }
@@ -28,6 +29,7 @@ final class TodayState {
     }
 
     func load() async {
+        syncSelectedDateWithSystemTodayIfNeeded()
         isLoading = true
         defer { isLoading = false }
 
@@ -64,6 +66,7 @@ final class TodayState {
     }
 
     func moveSelectedDate(by dayOffset: Int) async {
+        followsSystemToday = false
         selectedDate = calendar.startOfDay(
             for: calendar.date(byAdding: .day, value: dayOffset, to: selectedDate) ?? selectedDate
         )
@@ -71,6 +74,7 @@ final class TodayState {
     }
 
     func selectToday() async {
+        followsSystemToday = true
         selectedDate = calendar.startOfDay(for: Date())
         await load()
     }
@@ -165,6 +169,11 @@ final class TodayState {
                 isCompleted: snapshot.entry?.isCompleted ?? false
             )
         }
+    }
+
+    private func syncSelectedDateWithSystemTodayIfNeeded() {
+        guard followsSystemToday else { return }
+        selectedDate = calendar.startOfDay(for: Date())
     }
 
     private func publishWidgetSnapshotForToday() async throws {
