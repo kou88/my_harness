@@ -512,6 +512,15 @@ private struct MyHarnessWidgetView: View {
     }
 
     var body: some View {
+        Button(intent: OpenMyHarnessIntent()) {
+            content
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("my harnessを開く")
+        .containerBackground(.background, for: .widget)
+    }
+
+    private var content: some View {
         VStack(alignment: .leading, spacing: 8) {
             if showsTitle {
                 WidgetHeaderView(textDirection: entry.displaySettings.textDirection)
@@ -536,7 +545,6 @@ private struct MyHarnessWidgetView: View {
 
             Spacer(minLength: 0)
         }
-        .containerBackground(.background, for: .widget)
     }
 
     private var showsTitle: Bool {
@@ -584,36 +592,12 @@ private struct WidgetHeaderView: View {
     let textDirection: WidgetTextDirection
 
     var body: some View {
-        HStack(spacing: 8) {
-            if textDirection == .vertical {
-                WidgetOpenButton()
-            }
-
-            Text("my harness")
-                .font(.headline)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: textDirection == .vertical ? .trailing : .leading)
-
-            if textDirection == .horizontal {
-                WidgetOpenButton()
-            }
-        }
+        Text("my harness")
+            .font(.headline)
+            .lineLimit(1)
+            .frame(maxWidth: .infinity, alignment: textDirection == .vertical ? .trailing : .leading)
         .frame(height: 28, alignment: .center)
         .padding(.top, 2)
-    }
-}
-
-private struct WidgetOpenButton: View {
-    var body: some View {
-        Button(intent: OpenMyHarnessIntent()) {
-            Image(systemName: "arrow.up.forward.app")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.primary)
-                .frame(width: 26, height: 26)
-                .background(.black.opacity(0.06), in: Circle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("アプリを開く")
     }
 }
 
@@ -638,18 +622,15 @@ private struct WidgetChecklistRowView: View {
     let item: WidgetItemSnapshot
 
     var body: some View {
-        Button(intent: ToggleHarnessItemIntent(itemId: item.id)) {
-            HStack(spacing: 6) {
-                Image(systemName: item.isCompleted ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(item.isCompleted ? .green : .secondary)
-                Text(item.title)
-                    .font(.caption)
-                    .lineLimit(1)
-                    .strikethrough(item.isCompleted)
-                Spacer(minLength: 0)
-            }
+        HStack(spacing: 6) {
+            Image(systemName: item.isCompleted ? "checkmark.circle.fill" : "circle")
+                .foregroundStyle(item.isCompleted ? .green : .secondary)
+            Text(item.title)
+                .font(.caption)
+                .lineLimit(1)
+                .strikethrough(item.isCompleted)
+            Spacer(minLength: 0)
         }
-        .buttonStyle(.plain)
     }
 }
 
@@ -681,24 +662,21 @@ private struct WidgetVerticalItemView: View {
     let titleFont: Font
 
     var body: some View {
-        Button(intent: ToggleHarnessItemIntent(itemId: item.id)) {
-            VStack(spacing: 2) {
-                Image(systemName: item.isCompleted ? "checkmark.circle.fill" : "circle")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(item.isCompleted ? .green : .secondary)
+        VStack(spacing: 2) {
+            Image(systemName: item.isCompleted ? "checkmark.circle.fill" : "circle")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(item.isCompleted ? .green : .secondary)
 
-                WidgetVerticalTitleView(
-                    title: item.title,
-                    isCompleted: item.isCompleted,
-                    characterLimit: characterLimit,
-                    font: titleFont
-                )
-            }
-            .frame(width: itemWidth)
-            .frame(maxHeight: .infinity, alignment: .top)
-            .clipped()
+            WidgetVerticalTitleView(
+                title: item.title,
+                isCompleted: item.isCompleted,
+                characterLimit: characterLimit,
+                font: titleFont
+            )
         }
-        .buttonStyle(.plain)
+        .frame(width: itemWidth)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .clipped()
     }
 }
 
@@ -799,7 +777,7 @@ struct MyHarnessWidget: Widget {
             MyHarnessWidgetView(entry: entry)
         }
         .configurationDisplayName("my harness")
-        .description("今日のチェック項目を表示して、ウィジェットから完了状態を切り替えます。")
+        .description("今日のチェック項目を表示して、タップでmy harnessを開きます。")
         .supportedFamilies([.systemSmall, .systemMedium, .systemLarge, .accessoryRectangular])
     }
 }
