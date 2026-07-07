@@ -74,6 +74,15 @@ enum RoutineScheduleKind: String, CaseIterable, Codable, Hashable, Identifiable 
 
     var id: String { rawValue }
 
+    var displayPriority: Int {
+        switch self {
+        case .oneShot:
+            return 0
+        case .routine:
+            return 1
+        }
+    }
+
     var label: String {
         switch self {
         case .routine:
@@ -156,6 +165,18 @@ struct RoutineItem: Identifiable, Codable, Hashable {
 
         let ordered = RoutineWeekday.allCases.filter { repeatWeekdays.contains($0) }
         return ordered.map(\.shortLabel).joined(separator: "・")
+    }
+
+    static func displayOrdered(_ items: [RoutineItem]) -> [RoutineItem] {
+        items.sorted { first, second in
+            if first.scheduleKind.displayPriority != second.scheduleKind.displayPriority {
+                return first.scheduleKind.displayPriority < second.scheduleKind.displayPriority
+            }
+            if first.sortOrder != second.sortOrder {
+                return first.sortOrder < second.sortOrder
+            }
+            return first.createdAt < second.createdAt
+        }
     }
 }
 

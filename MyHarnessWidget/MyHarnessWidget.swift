@@ -23,6 +23,22 @@ private struct WidgetItemSnapshot: Identifiable, Codable, Hashable {
 private enum WidgetScheduleKind: String {
     case routine
     case oneShot
+
+    var displayPriority: Int {
+        switch self {
+        case .oneShot:
+            return 0
+        case .routine:
+            return 1
+        }
+    }
+
+    static func displayPriority(rawValue: String) -> Int {
+        guard let kind = WidgetScheduleKind(rawValue: rawValue) else {
+            return 2
+        }
+        return kind.displayPriority
+    }
 }
 
 private enum WidgetRoutineWeekday: Int, CaseIterable {
@@ -213,7 +229,17 @@ private enum WidgetSwiftDataStore {
                 SortDescriptor(\RoutineItemModel.sortOrder, order: .forward),
                 SortDescriptor(\RoutineItemModel.createdAt, order: .forward)
             ]
-        ))
+        )).sorted { first, second in
+            let firstPriority = WidgetScheduleKind.displayPriority(rawValue: first.scheduleKindRawValue)
+            let secondPriority = WidgetScheduleKind.displayPriority(rawValue: second.scheduleKindRawValue)
+            if firstPriority != secondPriority {
+                return firstPriority < secondPriority
+            }
+            if first.sortOrder != second.sortOrder {
+                return first.sortOrder < second.sortOrder
+            }
+            return first.createdAt < second.createdAt
+        }
         let entries = try context.fetch(FetchDescriptor<DayEntryModel>(
             predicate: #Predicate { entry in
                 entry.dateKey == dateKey

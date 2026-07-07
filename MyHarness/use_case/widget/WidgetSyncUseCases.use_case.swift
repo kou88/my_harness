@@ -9,9 +9,7 @@ struct PublishWidgetSnapshotUseCase {
         let snapshot = WidgetTodaySnapshot(
             dateKey: calendar.dateKey(for: date),
             updatedAt: Date(),
-            items: rows.sorted { first, second in
-                first.sortOrder < second.sortOrder
-            }
+            items: rows
         )
         try await repository.publish(snapshot)
     }

@@ -99,7 +99,7 @@ final class TodayState {
     }
 
     func moveRows(from offsets: IndexSet, to destination: Int) async {
-        rows = reordered(rows, from: offsets, to: destination)
+        rows = pinOneShotRows(reordered(rows, from: offsets, to: destination))
 
         do {
             try await useCases.reorderRoutineItems.execute(ids: rows.map(\.id))
@@ -123,7 +123,7 @@ final class TodayState {
         let moving = nextRows.remove(at: sourceIndex)
         let targetIndex = nextRows.firstIndex(where: { $0.id == targetId }) ?? nextRows.count
         nextRows.insert(moving, at: targetIndex)
-        rows = nextRows
+        rows = pinOneShotRows(nextRows)
 
         do {
             try await useCases.reorderRoutineItems.execute(ids: rows.map(\.id))
@@ -163,12 +163,12 @@ final class TodayState {
     }
 
     private func rowStates(for date: Date) async throws -> [TodayItemRowState] {
-        try await useCases.loadToday.execute(date: date).map { snapshot in
+        pinOneShotRows(try await useCases.loadToday.execute(date: date).map { snapshot in
             TodayItemRowState(
                 item: snapshot.item,
                 isCompleted: snapshot.entry?.isCompleted ?? false
             )
-        }
+        })
     }
 
     private func syncSelectedDateWithSystemTodayIfNeeded() {
@@ -198,5 +198,10 @@ final class TodayState {
         let insertionIndex = max(0, min(destination - offsets.filter { $0 < destination }.count, result.count))
         result.insert(contentsOf: moving, at: insertionIndex)
         return result
+    }
+
+    private func pinOneShotRows(_ values: [TodayItemRowState]) -> [TodayItemRowState] {
+        values.filter { $0.item.scheduleKind == .oneShot }
+            + values.filter { $0.item.scheduleKind == .routine }
     }
 }
