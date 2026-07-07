@@ -7,6 +7,10 @@ private enum WidgetAppGroup {
     static let identifier = "group.com.kou888.myharness"
 }
 
+private enum WidgetDeepLink {
+    static let openApp = URL(string: "myharness://open")!
+}
+
 private enum WidgetStoreKey {
     static let snapshot = "my_harness.widget.snapshot"
     static let pendingUpdates = "my_harness.widget.pending_updates"
@@ -432,16 +436,6 @@ struct ToggleHarnessItemIntent: AppIntent {
     }
 }
 
-struct OpenMyHarnessIntent: AppIntent {
-    static var title: LocalizedStringResource = "Open my harness"
-    static var description = IntentDescription("Open my harness.")
-    static var openAppWhenRun = true
-
-    func perform() async throws -> some IntentResult {
-        .result()
-    }
-}
-
 private struct HarnessTimelineEntry: TimelineEntry {
     let date: Date
     let snapshot: WidgetTodaySnapshot
@@ -538,10 +532,8 @@ private struct MyHarnessWidgetView: View {
     }
 
     var body: some View {
-        Button(intent: OpenMyHarnessIntent()) {
-            content
-        }
-        .buttonStyle(.plain)
+        content
+        .widgetURL(WidgetDeepLink.openApp)
         .accessibilityLabel("my harnessを開く")
         .containerBackground(.background, for: .widget)
     }
@@ -776,6 +768,7 @@ private struct MyHarnessOpenWidgetView: View {
             Image(systemName: "checklist")
                 .font(.title3.weight(.semibold))
                 .widgetLabel("my harness")
+                .widgetURL(WidgetDeepLink.openApp)
                 .containerBackground(.background, for: .widget)
         default:
             VStack(spacing: 10) {
@@ -790,6 +783,7 @@ private struct MyHarnessOpenWidgetView: View {
                     .minimumScaleFactor(0.75)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .widgetURL(WidgetDeepLink.openApp)
             .containerBackground(.background, for: .widget)
         }
     }
