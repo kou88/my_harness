@@ -5,6 +5,15 @@ import Observation
 @Observable
 final class AppRouter {
     var presentedSheet: AppSheet?
+    var path: [AppRoute] = []
+
+    func push(_ route: AppRoute) {
+        path.append(route)
+    }
+}
+
+enum AppRoute: Hashable {
+    case oneShotTasks
 }
 
 enum AppSheet: Identifiable, Hashable {

@@ -28,6 +28,18 @@ final class TodayState {
         self.useCases = useCases
     }
 
+    var routineRows: [TodayItemRowState] {
+        rows.filter { $0.item.scheduleKind == .routine }
+    }
+
+    var oneShotRows: [TodayItemRowState] {
+        rows.filter { $0.item.scheduleKind == .oneShot }
+    }
+
+    var oneShotCount: Int {
+        oneShotRows.count
+    }
+
     func load() async {
         syncSelectedDateWithSystemTodayIfNeeded()
         isLoading = true
@@ -98,8 +110,9 @@ final class TodayState {
         }
     }
 
-    func moveRows(from offsets: IndexSet, to destination: Int) async {
-        rows = pinOneShotRows(reordered(rows, from: offsets, to: destination))
+    func moveRoutineRows(from offsets: IndexSet, to destination: Int) async {
+        let reorderedRoutineRows = reordered(routineRows, from: offsets, to: destination)
+        rows = oneShotRows + reorderedRoutineRows
 
         do {
             try await useCases.reorderRoutineItems.execute(ids: rows.map(\.id))
@@ -114,16 +127,16 @@ final class TodayState {
     func moveRow(id sourceId: UUID, before targetId: UUID) async {
         guard
             sourceId != targetId,
-            let sourceIndex = rows.firstIndex(where: { $0.id == sourceId })
+            let sourceIndex = routineRows.firstIndex(where: { $0.id == sourceId })
         else {
             return
         }
 
-        var nextRows = rows
+        var nextRows = routineRows
         let moving = nextRows.remove(at: sourceIndex)
         let targetIndex = nextRows.firstIndex(where: { $0.id == targetId }) ?? nextRows.count
         nextRows.insert(moving, at: targetIndex)
-        rows = pinOneShotRows(nextRows)
+        rows = oneShotRows + nextRows
 
         do {
             try await useCases.reorderRoutineItems.execute(ids: rows.map(\.id))

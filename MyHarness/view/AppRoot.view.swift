@@ -15,8 +15,14 @@ struct AppRootView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(
+            path: Binding(
+                get: { router.path },
+                set: { router.path = $0 }
+            )
+        ) {
             TodayView(state: todayState)
+                .navigationDestination(for: AppRoute.self, destination: routeContent)
         }
         .environment(router)
         .sheet(
@@ -26,6 +32,14 @@ struct AppRootView: View {
             ),
             content: sheetContent
         )
+    }
+
+    @ViewBuilder
+    private func routeContent(_ route: AppRoute) -> some View {
+        switch route {
+        case .oneShotTasks:
+            OneShotTasksView(state: todayState)
+        }
     }
 
     @ViewBuilder
@@ -60,4 +74,3 @@ struct AppRootView: View {
 #Preview {
     AppRootView(dependencies: try! AppDependencies.preview())
 }
-

@@ -14,8 +14,12 @@ struct TodayView: View {
                 title: state.selectedDateTitle,
                 detail: state.selectedDateDetail,
                 isWeekOverviewVisible: showsWeekOverview,
+                oneShotCount: state.oneShotCount,
                 onSettings: {
                     router.presentedSheet = .settings
+                },
+                onOneShotTasks: {
+                    router.push(.oneShotTasks)
                 },
                 onPrevious: {
                     Task { await state.moveSelectedDate(by: -1) }
@@ -38,18 +42,19 @@ struct TodayView: View {
                     .listRowSeparator(.hidden)
             }
 
-            if state.rows.isEmpty, !state.isLoading {
+            if state.routineRows.isEmpty, !state.isLoading {
                 ContentUnavailableView(
-                    "項目がありません",
+                    state.oneShotCount > 0 ? "ルーチン項目がありません" : "項目がありません",
                     systemImage: "checklist",
                     description: Text("右下の追加ボタンから作成します。")
                 )
                 .listRowSeparator(.hidden)
             }
 
-            ForEach(state.rows) { row in
+            ForEach(state.routineRows) { row in
                 TodayItemRow(
                     row: row,
+                    showsMoveHandle: true,
                     onToggle: {
                         Task { await state.toggleCompletion(for: row.id) }
                     }
@@ -80,7 +85,7 @@ struct TodayView: View {
                 }
             }
             .onMove { offsets, destination in
-                Task { await state.moveRows(from: offsets, to: destination) }
+                Task { await state.moveRoutineRows(from: offsets, to: destination) }
             }
         }
         .listStyle(.plain)
@@ -140,6 +145,7 @@ struct TodayView: View {
 
 private struct TodayItemRow: View {
     let row: TodayItemRowState
+    let showsMoveHandle: Bool
     let onToggle: () -> Void
 
     var body: some View {
@@ -161,13 +167,15 @@ private struct TodayItemRow: View {
 
             Spacer(minLength: 0)
 
-            Image(systemName: "line.3.horizontal")
-                .font(.title3)
-                .foregroundStyle(.tertiary)
-                .frame(width: 38, height: 38)
-                .contentShape(Rectangle())
-                .draggable(row.id.uuidString)
-                .accessibilityLabel("移動")
+            if showsMoveHandle {
+                Image(systemName: "line.3.horizontal")
+                    .font(.title3)
+                    .foregroundStyle(.tertiary)
+                    .frame(width: 38, height: 38)
+                    .contentShape(Rectangle())
+                    .draggable(row.id.uuidString)
+                    .accessibilityLabel("移動")
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 6)
@@ -178,6 +186,73 @@ private struct TodayItemRow: View {
         .accessibilityHint("タップして完了状態を切り替え")
         .accessibilityAction {
             onToggle()
+        }
+    }
+}
+
+@MainActor
+struct OneShotTasksView: View {
+    @Environment(AppRouter.self) private var router
+    let state: TodayState
+
+    var body: some View {
+        List {
+            HStack(spacing: 8) {
+                Text(state.selectedDateTitle)
+                    .font(.headline)
+                    .lineLimit(1)
+                Text(state.selectedDateDetail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .listRowSeparator(.hidden)
+
+            if state.oneShotRows.isEmpty, !state.isLoading {
+                ContentUnavailableView(
+                    "単発タスクはありません",
+                    systemImage: "target",
+                    description: Text("新規作成で単発を選ぶとここに表示されます。")
+                )
+                .listRowSeparator(.hidden)
+            }
+
+            ForEach(state.oneShotRows) { row in
+                TodayItemRow(
+                    row: row,
+                    showsMoveHandle: false,
+                    onToggle: {
+                        Task { await state.toggleCompletion(for: row.id) }
+                    }
+                )
+                .swipeActions(edge: .trailing) {
+                    Button(role: .destructive) {
+                        Task { await state.deleteItem(id: row.id) }
+                    } label: {
+                        Label("削除", systemImage: "trash")
+                    }
+
+                    Button {
+                        router.presentedSheet = .editItem(row.item)
+                    } label: {
+                        Label("編集", systemImage: "pencil")
+                    }
+                    .tint(.blue)
+                }
+            }
+        }
+        .listStyle(.plain)
+        .environment(\.defaultMinListRowHeight, 48)
+        .navigationTitle("単発")
+        .navigationBarTitleDisplayMode(.inline)
+        .overlay {
+            if state.isLoading {
+                ProgressView()
+            }
+        }
+        .task {
+            await state.load()
         }
     }
 }
@@ -239,7 +314,9 @@ private struct DateNavigatorView: View {
     let title: String
     let detail: String
     let isWeekOverviewVisible: Bool
+    let oneShotCount: Int
     let onSettings: () -> Void
+    let onOneShotTasks: () -> Void
     let onPrevious: () -> Void
     let onToday: () -> Void
     let onNext: () -> Void
@@ -253,6 +330,29 @@ private struct DateNavigatorView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("設定")
+
+            Button(action: onOneShotTasks) {
+                HStack(spacing: 4) {
+                    Text("単発")
+                    Text("\(oneShotCount)")
+                        .monospacedDigit()
+                        .fontWeight(.semibold)
+                }
+                .font(.caption)
+                .foregroundStyle(oneShotCount > 0 ? .white : .primary)
+                .padding(.horizontal, 8)
+                .frame(height: 32)
+                .background(
+                    oneShotCount > 0 ? Color.black : Color.clear,
+                    in: Capsule()
+                )
+                .overlay {
+                    Capsule()
+                        .stroke(.black.opacity(0.16), lineWidth: 1)
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("単発タスク \(oneShotCount)件")
 
             Button(action: onPrevious) {
                 Image(systemName: "chevron.left")
