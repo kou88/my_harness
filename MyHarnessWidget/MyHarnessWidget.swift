@@ -506,15 +506,15 @@ private struct MyHarnessWidgetView: View {
     private var visibleItems: [WidgetItemSnapshot] {
         switch family {
         case .systemSmall:
-            Array(entry.snapshot.items.prefix(3))
+            Array(entry.snapshot.items.prefix(4))
         case .systemMedium:
-            Array(entry.snapshot.items.prefix(entry.displaySettings.textDirection == .vertical ? 4 : 8))
+            Array(entry.snapshot.items.prefix(entry.displaySettings.textDirection == .vertical ? 5 : 10))
         case .systemLarge:
-            Array(entry.snapshot.items.prefix(entry.displaySettings.textDirection == .vertical ? 7 : 16))
+            Array(entry.snapshot.items.prefix(entry.displaySettings.textDirection == .vertical ? 8 : 18))
         case .accessoryRectangular:
             Array(entry.snapshot.items.prefix(2))
         default:
-            Array(entry.snapshot.items.prefix(8))
+            Array(entry.snapshot.items.prefix(10))
         }
     }
 
@@ -540,10 +540,6 @@ private struct MyHarnessWidgetView: View {
 
     private var content: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if showsTitle {
-                WidgetHeaderView(textDirection: entry.displaySettings.textDirection)
-            }
-
             if visibleItems.isEmpty {
                 Text("項目なし")
                     .font(.caption)
@@ -562,15 +558,6 @@ private struct MyHarnessWidgetView: View {
             }
 
             Spacer(minLength: 0)
-        }
-    }
-
-    private var showsTitle: Bool {
-        switch family {
-        case .accessoryRectangular:
-            return false
-        default:
-            return true
         }
     }
 
@@ -603,19 +590,6 @@ private struct MyHarnessWidgetView: View {
         default:
             return .system(size: 11)
         }
-    }
-}
-
-private struct WidgetHeaderView: View {
-    let textDirection: WidgetTextDirection
-
-    var body: some View {
-        Text("my harness")
-            .font(.headline)
-            .lineLimit(1)
-            .frame(maxWidth: .infinity, alignment: textDirection == .vertical ? .trailing : .leading)
-        .frame(height: 28, alignment: .center)
-        .padding(.top, 2)
     }
 }
 
