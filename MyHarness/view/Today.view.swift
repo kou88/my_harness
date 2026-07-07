@@ -331,29 +331,6 @@ private struct DateNavigatorView: View {
             .buttonStyle(.plain)
             .accessibilityLabel("設定")
 
-            Button(action: onOneShotTasks) {
-                HStack(spacing: 4) {
-                    Text("単発")
-                    Text("\(oneShotCount)")
-                        .monospacedDigit()
-                        .fontWeight(.semibold)
-                }
-                .font(.caption)
-                .foregroundStyle(oneShotCount > 0 ? .white : .primary)
-                .padding(.horizontal, 8)
-                .frame(height: 32)
-                .background(
-                    oneShotCount > 0 ? Color.black : Color.clear,
-                    in: Capsule()
-                )
-                .overlay {
-                    Capsule()
-                        .stroke(.black.opacity(0.16), lineWidth: 1)
-                }
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("単発タスク \(oneShotCount)件")
-
             Button(action: onPrevious) {
                 Image(systemName: "chevron.left")
                     .frame(width: 36, height: 36)
@@ -382,6 +359,29 @@ private struct DateNavigatorView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("次の日")
+
+            Button(action: onOneShotTasks) {
+                HStack(spacing: 4) {
+                    Text("単発")
+                    Text("\(oneShotCount)")
+                        .monospacedDigit()
+                        .fontWeight(.semibold)
+                }
+                .font(.caption)
+                .foregroundStyle(oneShotCount > 0 ? .white : .primary)
+                .padding(.horizontal, 8)
+                .frame(height: 32)
+                .background(
+                    oneShotCount > 0 ? Color.black : Color.clear,
+                    in: Capsule()
+                )
+                .overlay {
+                    Capsule()
+                        .stroke(.black.opacity(0.16), lineWidth: 1)
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("単発タスク \(oneShotCount)件")
 
             Button(action: onToggleWeekOverview) {
                 Image(systemName: "calendar")

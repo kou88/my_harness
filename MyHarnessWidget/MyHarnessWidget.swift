@@ -70,13 +70,41 @@ private struct WidgetTodaySnapshot: Codable, Hashable {
     var dateKey: String
     var updatedAt: Date
     var items: [WidgetItemSnapshot]
+    var oneShotCount: Int
+
+    private enum CodingKeys: String, CodingKey {
+        case dateKey
+        case updatedAt
+        case items
+        case oneShotCount
+    }
+
+    init(
+        dateKey: String,
+        updatedAt: Date,
+        items: [WidgetItemSnapshot],
+        oneShotCount: Int
+    ) {
+        self.dateKey = dateKey
+        self.updatedAt = updatedAt
+        self.items = items
+        self.oneShotCount = oneShotCount
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        dateKey = try container.decode(String.self, forKey: .dateKey)
+        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        items = try container.decode([WidgetItemSnapshot].self, forKey: .items)
+        oneShotCount = try container.decodeIfPresent(Int.self, forKey: .oneShotCount) ?? 0
+    }
 
     static var empty: WidgetTodaySnapshot {
-        WidgetTodaySnapshot(dateKey: Self.todayDateKey(), updatedAt: Date(), items: [])
+        WidgetTodaySnapshot(dateKey: Self.todayDateKey(), updatedAt: Date(), items: [], oneShotCount: 0)
     }
 
     static func empty(dateKey: String, updatedAt: Date) -> WidgetTodaySnapshot {
-        WidgetTodaySnapshot(dateKey: dateKey, updatedAt: updatedAt, items: [])
+        WidgetTodaySnapshot(dateKey: dateKey, updatedAt: updatedAt, items: [], oneShotCount: 0)
     }
 
     static func visibleSnapshot(_ snapshot: WidgetTodaySnapshot, on date: Date) -> WidgetTodaySnapshot {
@@ -263,7 +291,9 @@ private enum WidgetSwiftDataStore {
         let calendar = Calendar.autoupdatingCurrent
         let todayWeekday = calendar.component(.weekday, from: date)
 
-        let snapshots = activeItems.compactMap { item -> WidgetItemSnapshot? in
+        var snapshots: [WidgetItemSnapshot] = []
+        var oneShotCount = 0
+        for item in activeItems {
             guard
                 let scheduleKind = WidgetScheduleKind(rawValue: item.scheduleKindRawValue),
                 isVisible(
@@ -274,18 +304,28 @@ private enum WidgetSwiftDataStore {
                     completedDateKey: completedDateKeyByItemId[item.id]
                 )
             else {
-                return nil
+                continue
             }
 
-            return WidgetItemSnapshot(
+            guard scheduleKind == .routine else {
+                oneShotCount += 1
+                continue
+            }
+
+            snapshots.append(WidgetItemSnapshot(
                 id: item.id,
                 title: item.title,
                 sortOrder: item.sortOrder,
                 isCompleted: entryByItemId[item.id]?.isCompleted == true
-            )
+            ))
         }
 
-        return WidgetTodaySnapshot(dateKey: dateKey, updatedAt: Date(), items: snapshots)
+        return WidgetTodaySnapshot(
+            dateKey: dateKey,
+            updatedAt: Date(),
+            items: snapshots,
+            oneShotCount: oneShotCount
+        )
     }
 
     private static func earliestCompletedDateKeys(from entries: [DayEntryModel]) -> [UUID: String] {
@@ -464,7 +504,8 @@ private struct HarnessTimelineProvider: TimelineProvider {
                     sortOrder: 0,
                     isCompleted: false
                 )
-            ]
+            ],
+            oneShotCount: 0
         ))
     }
 
@@ -506,15 +547,23 @@ private struct MyHarnessWidgetView: View {
     private var visibleItems: [WidgetItemSnapshot] {
         switch family {
         case .systemSmall:
-            Array(entry.snapshot.items.prefix(4))
+            Array(entry.snapshot.items.prefix(showsOneShotChip ? 3 : 4))
         case .systemMedium:
-            Array(entry.snapshot.items.prefix(entry.displaySettings.textDirection == .vertical ? 5 : 10))
+            if entry.displaySettings.textDirection == .vertical {
+                Array(entry.snapshot.items.prefix(showsOneShotChip ? 4 : 5))
+            } else {
+                Array(entry.snapshot.items.prefix(showsOneShotChip ? 8 : 10))
+            }
         case .systemLarge:
-            Array(entry.snapshot.items.prefix(entry.displaySettings.textDirection == .vertical ? 8 : 18))
+            if entry.displaySettings.textDirection == .vertical {
+                Array(entry.snapshot.items.prefix(showsOneShotChip ? 7 : 8))
+            } else {
+                Array(entry.snapshot.items.prefix(showsOneShotChip ? 16 : 18))
+            }
         case .accessoryRectangular:
             Array(entry.snapshot.items.prefix(2))
         default:
-            Array(entry.snapshot.items.prefix(10))
+            Array(entry.snapshot.items.prefix(showsOneShotChip ? 8 : 10))
         }
     }
 
@@ -539,7 +588,11 @@ private struct MyHarnessWidgetView: View {
     }
 
     private var content: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
+            if showsOneShotChip {
+                WidgetOneShotChip(count: entry.snapshot.oneShotCount)
+            }
+
             if visibleItems.isEmpty {
                 Text("項目なし")
                     .font(.caption)
@@ -558,6 +611,15 @@ private struct MyHarnessWidgetView: View {
             }
 
             Spacer(minLength: 0)
+        }
+    }
+
+    private var showsOneShotChip: Bool {
+        switch family {
+        case .accessoryRectangular:
+            return false
+        default:
+            return entry.snapshot.oneShotCount > 0
         }
     }
 
@@ -589,6 +651,27 @@ private struct MyHarnessWidgetView: View {
             return .system(size: 12)
         default:
             return .system(size: 11)
+        }
+    }
+}
+
+private struct WidgetOneShotChip: View {
+    let count: Int
+
+    var body: some View {
+        HStack {
+            Spacer(minLength: 0)
+            HStack(spacing: 4) {
+                Text("単発")
+                Text("\(count)")
+                    .monospacedDigit()
+                    .fontWeight(.semibold)
+            }
+            .font(.caption2)
+            .foregroundStyle(.white)
+            .padding(.horizontal, 8)
+            .frame(height: 22)
+            .background(.black, in: Capsule())
         }
     }
 }
@@ -830,7 +913,8 @@ struct MyHarnessWidgetBundle: WidgetBundle {
                 sortOrder: 1,
                 isCompleted: false
             )
-        ]
+        ],
+        oneShotCount: 1
     ))
 }
 
@@ -847,7 +931,8 @@ struct MyHarnessWidgetBundle: WidgetBundle {
             WidgetItemSnapshot(id: UUID(), title: "ランニングする", sortOrder: 3, isCompleted: false),
             WidgetItemSnapshot(id: UUID(), title: "夜 薬飲む", sortOrder: 4, isCompleted: true),
             WidgetItemSnapshot(id: UUID(), title: "洗濯", sortOrder: 5, isCompleted: false)
-        ]
+        ],
+        oneShotCount: 2
     ))
 }
 
@@ -866,7 +951,8 @@ struct MyHarnessWidgetBundle: WidgetBundle {
             WidgetItemSnapshot(id: UUID(), title: "お弁当作る", sortOrder: 5, isCompleted: false),
             WidgetItemSnapshot(id: UUID(), title: "水 1L 飲む", sortOrder: 6, isCompleted: true),
             WidgetItemSnapshot(id: UUID(), title: "洗濯", sortOrder: 7, isCompleted: false)
-        ]
+        ],
+        oneShotCount: 3
     ))
 }
 
@@ -882,7 +968,8 @@ struct MyHarnessWidgetBundle: WidgetBundle {
             WidgetItemSnapshot(id: UUID(), title: "水 1L 飲む", sortOrder: 2, isCompleted: true),
             WidgetItemSnapshot(id: UUID(), title: "ランニングする", sortOrder: 3, isCompleted: false),
             WidgetItemSnapshot(id: UUID(), title: "夜 薬飲む", sortOrder: 4, isCompleted: true)
-        ]
+        ],
+        oneShotCount: 1
     ), displaySettings: WidgetDisplaySettings(textDirection: .vertical))
 }
 
@@ -911,6 +998,7 @@ struct MyHarnessWidgetBundle: WidgetBundle {
                 sortOrder: 0,
                 isCompleted: false
             )
-        ]
+        ],
+        oneShotCount: 0
     ))
 }

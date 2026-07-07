@@ -5,11 +5,16 @@ struct PublishWidgetSnapshotUseCase {
     let repository: WidgetSnapshotRepository
     let calendar: CalendarProviding
 
-    func execute(rows: [WidgetItemSnapshot], date: Date = Date()) async throws {
+    func execute(
+        rows: [WidgetItemSnapshot],
+        oneShotCount: Int,
+        date: Date = Date()
+    ) async throws {
         let snapshot = WidgetTodaySnapshot(
             dateKey: calendar.dateKey(for: date),
             updatedAt: Date(),
-            items: rows
+            items: rows,
+            oneShotCount: oneShotCount
         )
         try await repository.publish(snapshot)
     }

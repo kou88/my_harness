@@ -15,9 +15,10 @@ struct WidgetTodaySnapshot: Codable, Hashable {
     var dateKey: String
     var updatedAt: Date
     var items: [WidgetItemSnapshot]
+    var oneShotCount: Int
 
     static func empty(dateKey: String) -> WidgetTodaySnapshot {
-        WidgetTodaySnapshot(dateKey: dateKey, updatedAt: Date(), items: [])
+        WidgetTodaySnapshot(dateKey: dateKey, updatedAt: Date(), items: [], oneShotCount: 0)
     }
 }
 

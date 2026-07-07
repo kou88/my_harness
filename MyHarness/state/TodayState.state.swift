@@ -192,14 +192,19 @@ final class TodayState {
     private func publishWidgetSnapshotForToday() async throws {
         let today = Date()
         let todayRows = calendar.isDate(selectedDate, inSameDayAs: today) ? rows : try await rowStates(for: today)
-        try await useCases.publishWidgetSnapshot.execute(rows: todayRows.map { row in
-            WidgetItemSnapshot(
-                id: row.item.id,
-                title: row.item.title,
-                sortOrder: row.item.sortOrder,
-                isCompleted: row.isCompleted
-            )
-        })
+        let routineRows = todayRows.filter { $0.item.scheduleKind == .routine }
+        let oneShotCount = todayRows.filter { $0.item.scheduleKind == .oneShot }.count
+        try await useCases.publishWidgetSnapshot.execute(
+            rows: routineRows.map { row in
+                WidgetItemSnapshot(
+                    id: row.item.id,
+                    title: row.item.title,
+                    sortOrder: row.item.sortOrder,
+                    isCompleted: row.isCompleted
+                )
+            },
+            oneShotCount: oneShotCount
+        )
     }
 
     private func reordered<T>(_ values: [T], from offsets: IndexSet, to destination: Int) -> [T] {
