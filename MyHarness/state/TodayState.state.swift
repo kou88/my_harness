@@ -17,6 +17,7 @@ final class TodayState {
     var isLoading = false
     var errorMessage: String?
     var copiedMessage: String?
+    var showsCompletedOneShotRows: Bool
 
     private let useCases: AppUseCases
     private var followsSystemToday = true
@@ -26,6 +27,7 @@ final class TodayState {
 
     init(useCases: AppUseCases) {
         self.useCases = useCases
+        showsCompletedOneShotRows = false
     }
 
     var routineRows: [TodayItemRowState] {
@@ -36,8 +38,20 @@ final class TodayState {
         rows.filter { $0.item.scheduleKind == .oneShot }
     }
 
+    var visibleOneShotRows: [TodayItemRowState] {
+        if showsCompletedOneShotRows {
+            return oneShotRows
+        }
+
+        return oneShotRows.filter { !$0.isCompleted }
+    }
+
     var oneShotCount: Int {
         oneShotRows.count
+    }
+
+    var hiddenCompletedOneShotCount: Int {
+        oneShotRows.filter(\.isCompleted).count
     }
 
     func load() async {
@@ -161,6 +175,17 @@ final class TodayState {
         }
     }
 
+    func toggleCompletedOneShotVisibility() {
+        showsCompletedOneShotRows.toggle()
+    }
+
+    func copyVisibleOneShotTasksMarkdown() {
+        let text = oneShotTasksMarkdown(rows: visibleOneShotRows)
+        useCases.copyText.execute(text)
+        copiedMessage = "単発タスクをコピーしました"
+        errorMessage = nil
+    }
+
     private func persistRow(_ row: TodayItemRowState) async {
         do {
             try await useCases.updateDayEntry.execute(
@@ -221,5 +246,21 @@ final class TodayState {
     private func pinOneShotRows(_ values: [TodayItemRowState]) -> [TodayItemRowState] {
         values.filter { $0.item.scheduleKind == .oneShot }
             + values.filter { $0.item.scheduleKind == .routine }
+    }
+
+    private func oneShotTasksMarkdown(rows: [TodayItemRowState]) -> String {
+        let lines = rows.map { row in
+            let mark = row.isCompleted ? "x" : " "
+            return "- [\(mark)] \(sanitizedMarkdownTitle(row.item.title))"
+        }
+
+        let body = lines.isEmpty ? "- なし" : lines.joined(separator: "\n")
+        return "# 単発タスク\n\n\(body)"
+    }
+
+    private func sanitizedMarkdownTitle(_ title: String) -> String {
+        title
+            .replacingOccurrences(of: "\r", with: " ")
+            .replacingOccurrences(of: "\n", with: " ")
     }
 }

@@ -206,19 +206,62 @@ struct OneShotTasksView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 Spacer(minLength: 0)
+
+                Button {
+                    state.toggleCompletedOneShotVisibility()
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: state.showsCompletedOneShotRows ? "eye" : "eye.slash")
+                        if state.hiddenCompletedOneShotCount > 0 {
+                            Text("\(state.hiddenCompletedOneShotCount)")
+                                .monospacedDigit()
+                        }
+                    }
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .padding(.horizontal, 8)
+                    .frame(height: 32)
+                    .background(
+                        state.showsCompletedOneShotRows ? Color.black.opacity(0.08) : Color.clear,
+                        in: Capsule()
+                    )
+                    .overlay {
+                        Capsule()
+                            .stroke(.black.opacity(0.14), lineWidth: 1)
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(
+                    state.showsCompletedOneShotRows ? "完了済み単発タスクを非表示" : "完了済み単発タスクを表示"
+                )
+
+                Button {
+                    state.copyVisibleOneShotTasksMarkdown()
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .frame(width: 32, height: 32)
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .stroke(.black.opacity(0.14), lineWidth: 1)
+                        }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("単発タスクをMarkdownでコピー")
             }
             .listRowSeparator(.hidden)
 
-            if state.oneShotRows.isEmpty, !state.isLoading {
-                ContentUnavailableView(
-                    "単発タスクはありません",
-                    systemImage: "target",
-                    description: Text("新規作成で単発を選ぶとここに表示されます。")
-                )
+            if state.visibleOneShotRows.isEmpty, !state.isLoading {
+                ContentUnavailableView {
+                    Label(emptyTitle, systemImage: "target")
+                } description: {
+                    Text(emptyDescription)
+                }
                 .listRowSeparator(.hidden)
             }
 
-            ForEach(state.oneShotRows) { row in
+            ForEach(state.visibleOneShotRows) { row in
                 TodayItemRow(
                     row: row,
                     showsMoveHandle: false,
@@ -251,9 +294,32 @@ struct OneShotTasksView: View {
                 ProgressView()
             }
         }
+        .safeAreaInset(edge: .bottom) {
+            if let error = state.errorMessage {
+                MessageBar(text: error, systemImage: "exclamationmark.triangle")
+            } else if let message = state.copiedMessage {
+                MessageBar(text: message, systemImage: "checkmark.circle")
+            }
+        }
         .task {
             await state.load()
         }
+    }
+
+    private var emptyTitle: String {
+        if state.hiddenCompletedOneShotCount > 0 && !state.showsCompletedOneShotRows {
+            return "未完了の単発タスクはありません"
+        }
+
+        return "単発タスクはありません"
+    }
+
+    private var emptyDescription: String {
+        if state.hiddenCompletedOneShotCount > 0 && !state.showsCompletedOneShotRows {
+            return "完了済みを表示すると確認できます。"
+        }
+
+        return "新規作成で単発を選ぶとここに表示されます。"
     }
 }
 
