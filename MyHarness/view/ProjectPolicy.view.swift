@@ -76,16 +76,9 @@ struct ProjectPolicyView: View {
                 }
                 .listRowSeparator(.hidden)
             case .loaded(let policy):
-                Section("基本") {
-                    PolicyTextRow(title: "目的", text: policy.productGoal)
-                    PolicyTextRow(title: "対象", text: policy.targetPersona)
-                    PolicyTextRow(title: "提供価値", text: policy.valueProposition)
-                    PolicyTextRow(title: "価格仮説", text: policy.pricingHypothesis)
+                Section {
+                    PolicyMarkdownBody(markdown: policy.bodyMarkdown)
                 }
-
-                PolicyArraySection(title: "重視する観点", values: policy.evaluationCriteria)
-                PolicyArraySection(title: "やらないこと", values: policy.nonGoals)
-                PolicyArraySection(title: "制約", values: policy.constraints)
 
                 Section("更新") {
                     HStack {
@@ -109,82 +102,41 @@ struct ProjectPolicyView: View {
     }
 }
 
-private struct PolicyTextRow: View {
-    let title: String
-    let text: String
+private struct PolicyMarkdownBody: View {
+    let markdown: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-            Text(text)
-                .font(.subheadline)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(.vertical, 3)
+        Text(renderedMarkdown)
+            .font(.body)
+            .textSelection(.enabled)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.vertical, 4)
     }
-}
 
-private struct PolicyArraySection: View {
-    let title: String
-    let values: [String]
-
-    var body: some View {
-        Section(title) {
-            if values.isEmpty {
-                Text("未設定")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(values, id: \.self) { value in
-                    Text(value)
-                        .font(.subheadline)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-        }
+    private var renderedMarkdown: AttributedString {
+        (try? AttributedString(markdown: markdown)) ?? AttributedString(markdown)
     }
 }
 
 private struct ProjectPolicyEditSheet: View {
     @Environment(\.dismiss) private var dismiss
     let state: ProductOpsState
-    @State private var targetPersona: String
-    @State private var productGoal: String
-    @State private var valueProposition: String
-    @State private var pricingHypothesis: String
-    @State private var evaluationCriteriaText: String
-    @State private var nonGoalsText: String
-    @State private var constraintsText: String
+    @State private var bodyMarkdown: String
 
     init(state: ProductOpsState, policy: ProjectPolicy) {
         self.state = state
-        _targetPersona = State(initialValue: policy.targetPersona)
-        _productGoal = State(initialValue: policy.productGoal)
-        _valueProposition = State(initialValue: policy.valueProposition)
-        _pricingHypothesis = State(initialValue: policy.pricingHypothesis)
-        _evaluationCriteriaText = State(initialValue: policy.evaluationCriteria.joined(separator: "\n"))
-        _nonGoalsText = State(initialValue: policy.nonGoals.joined(separator: "\n"))
-        _constraintsText = State(initialValue: policy.constraints.joined(separator: "\n"))
+        _bodyMarkdown = State(initialValue: policy.bodyMarkdown)
     }
 
     var body: some View {
         Form {
-            Section("基本") {
-                TextField("目的", text: $productGoal, axis: .vertical)
-                    .lineLimit(2...4)
-                TextField("対象", text: $targetPersona, axis: .vertical)
-                    .lineLimit(2...4)
-                TextField("提供価値", text: $valueProposition, axis: .vertical)
-                    .lineLimit(2...4)
-                TextField("価格仮説", text: $pricingHypothesis, axis: .vertical)
-                    .lineLimit(2...4)
+            Section("Markdown") {
+                TextEditor(text: $bodyMarkdown)
+                    .font(.body.monospaced())
+                    .frame(minHeight: 460)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
             }
-
-            multilineSection("重視する観点", text: $evaluationCriteriaText)
-            multilineSection("やらないこと", text: $nonGoalsText)
-            multilineSection("制約", text: $constraintsText)
         }
         .navigationTitle("方針を編集")
         .navigationBarTitleDisplayMode(.inline)
@@ -204,37 +156,17 @@ private struct ProjectPolicyEditSheet: View {
                         Text("保存")
                     }
                 }
-                .disabled(state.isSavingPolicy)
+                .disabled(state.isSavingPolicy || bodyMarkdown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
-        }
-    }
-
-    private func multilineSection(_ title: String, text: Binding<String>) -> some View {
-        Section(title) {
-            TextEditor(text: text)
-                .frame(minHeight: 120)
         }
     }
 
     private func save() async {
         let fields = ProjectPolicyEditableFields(
-            targetPersona: targetPersona.trimmingCharacters(in: .whitespacesAndNewlines),
-            productGoal: productGoal.trimmingCharacters(in: .whitespacesAndNewlines),
-            valueProposition: valueProposition.trimmingCharacters(in: .whitespacesAndNewlines),
-            pricingHypothesis: pricingHypothesis.trimmingCharacters(in: .whitespacesAndNewlines),
-            evaluationCriteria: lines(from: evaluationCriteriaText),
-            constraints: lines(from: constraintsText),
-            nonGoals: lines(from: nonGoalsText)
+            bodyMarkdown: bodyMarkdown.trimmingCharacters(in: .whitespacesAndNewlines)
         )
         if await state.updatePolicy(fields: fields) != nil {
             dismiss()
         }
-    }
-
-    private func lines(from text: String) -> [String] {
-        text
-            .split(whereSeparator: \.isNewline)
-            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
     }
 }

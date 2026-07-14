@@ -77,48 +77,21 @@ struct ProjectPolicy: Identifiable, Decodable, Hashable {
     var evaluationCriteria: [String]
     var constraints: [String]
     var nonGoals: [String]
+    var bodyMarkdown: String
     var version: Int
     var createdAt: Date
     var updatedAt: Date
 }
 
 struct ProjectPolicyEditableFields: Encodable, Hashable {
-    var targetPersona: String
-    var productGoal: String
-    var valueProposition: String
-    var pricingHypothesis: String
-    var evaluationCriteria: [String]
-    var constraints: [String]
-    var nonGoals: [String]
+    var bodyMarkdown: String
 
-    init(
-        targetPersona: String,
-        productGoal: String,
-        valueProposition: String,
-        pricingHypothesis: String,
-        evaluationCriteria: [String],
-        constraints: [String],
-        nonGoals: [String]
-    ) {
-        self.targetPersona = targetPersona
-        self.productGoal = productGoal
-        self.valueProposition = valueProposition
-        self.pricingHypothesis = pricingHypothesis
-        self.evaluationCriteria = evaluationCriteria
-        self.constraints = constraints
-        self.nonGoals = nonGoals
+    init(bodyMarkdown: String) {
+        self.bodyMarkdown = bodyMarkdown
     }
 
     init(policy: ProjectPolicy) {
-        self.init(
-            targetPersona: policy.targetPersona,
-            productGoal: policy.productGoal,
-            valueProposition: policy.valueProposition,
-            pricingHypothesis: policy.pricingHypothesis,
-            evaluationCriteria: policy.evaluationCriteria,
-            constraints: policy.constraints,
-            nonGoals: policy.nonGoals
-        )
+        bodyMarkdown = policy.bodyMarkdown
     }
 }
 
