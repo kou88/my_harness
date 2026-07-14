@@ -541,11 +541,161 @@ struct ActionSuggestionEvidenceItem: Identifiable, Decodable, Hashable {
     }
 }
 
+private struct DynamicCodingKey: CodingKey {
+    var stringValue: String
+    var intValue: Int?
+
+    init?(stringValue: String) {
+        self.stringValue = stringValue
+    }
+
+    init?(intValue: Int) {
+        self.stringValue = String(intValue)
+        self.intValue = intValue
+    }
+}
+
+private enum JSONValue: Decodable, Hashable {
+    case string(String)
+    case number(Double)
+    case bool(Bool)
+    case object([String: JSONValue])
+    case array([JSONValue])
+    case null
+
+    init(from decoder: Decoder) throws {
+        if let object = try? decoder.container(keyedBy: DynamicCodingKey.self) {
+            var values: [String: JSONValue] = [:]
+            for key in object.allKeys {
+                values[key.stringValue] = try object.decode(JSONValue.self, forKey: key)
+            }
+            self = .object(values)
+            return
+        }
+
+        if var array = try? decoder.unkeyedContainer() {
+            var values: [JSONValue] = []
+            while !array.isAtEnd {
+                values.append(try array.decode(JSONValue.self))
+            }
+            self = .array(values)
+            return
+        }
+
+        let single = try decoder.singleValueContainer()
+        if single.decodeNil() {
+            self = .null
+        } else if let value = try? single.decode(Bool.self) {
+            self = .bool(value)
+        } else if let value = try? single.decode(Double.self) {
+            self = .number(value)
+        } else {
+            self = .string(try single.decode(String.self))
+        }
+    }
+
+    var objectValue: [String: JSONValue]? {
+        if case .object(let value) = self {
+            return value
+        }
+        return nil
+    }
+
+    var arrayValue: [JSONValue]? {
+        if case .array(let value) = self {
+            return value
+        }
+        return nil
+    }
+
+    var stringValue: String? {
+        switch self {
+        case .string(let value):
+            return value
+        case .number(let value):
+            return value.truncatingRemainder(dividingBy: 1) == 0 ? String(Int(value)) : String(value)
+        case .bool(let value):
+            return String(value)
+        case .object, .array, .null:
+            return nil
+        }
+    }
+
+    var foundationValue: Any {
+        switch self {
+        case .string(let value):
+            return value
+        case .number(let value):
+            return value
+        case .bool(let value):
+            return value
+        case .object(let value):
+            return value.mapValues(\.foundationValue)
+        case .array(let value):
+            return value.map(\.foundationValue)
+        case .null:
+            return NSNull()
+        }
+    }
+
+    var prettyPrinted: String {
+        let value = foundationValue
+        if JSONSerialization.isValidJSONObject(value),
+           let data = try? JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted, .sortedKeys]),
+           let text = String(data: data, encoding: .utf8) {
+            return text
+        }
+        return stringValue ?? String(describing: value)
+    }
+}
+
+private extension Dictionary where Key == String, Value == JSONValue {
+    func firstText(_ keys: [String]) -> String? {
+        for key in keys {
+            if let value = self[key]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty {
+                return value
+            }
+        }
+        return nil
+    }
+
+    func firstTextArray(_ keys: [String]) -> [String] {
+        for key in keys {
+            guard let value = self[key] else { continue }
+            let values: [String]
+            if let array = value.arrayValue {
+                values = array.compactMap { item in
+                    item.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
+                }.filter { !$0.isEmpty }
+            } else if let text = value.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty {
+                values = [text]
+            } else {
+                values = []
+            }
+            if !values.isEmpty {
+                return values
+            }
+        }
+        return []
+    }
+}
+
+struct ActionSuggestionResultDetail: Identifiable, Hashable {
+    var label: String
+    var values: [String]
+
+    var id: String { label }
+}
+
 struct ActionSuggestionResearchResult: Identifiable, Decodable, Hashable {
     var id: String
     var title: String?
     var summary: String?
     var body: String?
+    var resultType: String?
+    var artifactURL: URL?
+    var details: [ActionSuggestionResultDetail]
+    var rawResultJSON: String?
     var sourceItems: [ActionSuggestionEvidenceItem]
     var needEvidence: [ActionSuggestionEvidenceItem]
 
@@ -555,6 +705,9 @@ struct ActionSuggestionResearchResult: Identifiable, Decodable, Hashable {
         }
         if let summary, !summary.isEmpty {
             return summary
+        }
+        if let resultType, !resultType.isEmpty {
+            return resultType
         }
         return id
     }
@@ -566,7 +719,7 @@ struct ActionSuggestionResearchResult: Identifiable, Decodable, Hashable {
         if let summary, !summary.isEmpty {
             return summary
         }
-        return "調査結果本文はありません。"
+        return "結果本文はありません。"
     }
 
     enum CodingKeys: String, CodingKey {
@@ -580,12 +733,18 @@ struct ActionSuggestionResearchResult: Identifiable, Decodable, Hashable {
         case needEvidence
         case resultType
         case result
+        case artifactUrl
+        case artifactURL
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         title = try container.decodeIfPresent(String.self, forKey: .title)
+        resultType = try container.decodeIfPresent(String.self, forKey: .resultType)
+        artifactURL = try container.decodeIfPresent(URL.self, forKey: .artifactURL)
+            ?? container.decodeIfPresent(URL.self, forKey: .artifactUrl)
         let resultPayload = try container.decodeIfPresent(ActionSuggestionResearchReportPayload.self, forKey: .result)
+        let rawResult = try container.decodeIfPresent(JSONValue.self, forKey: .result)
         summary = try container.decodeIfPresent(String.self, forKey: .summary)
             ?? resultPayload?.summary
         body = try container.decodeIfPresent(String.self, forKey: .body)
@@ -593,11 +752,60 @@ struct ActionSuggestionResearchResult: Identifiable, Decodable, Hashable {
             ?? resultPayload?.summary
         sourceItems = (try container.decodeIfPresent([ActionSuggestionEvidenceItem].self, forKey: .sourceItems) ?? []) + (resultPayload?.sources ?? [])
         needEvidence = try container.decodeIfPresent([ActionSuggestionEvidenceItem].self, forKey: .needEvidence) ?? []
+        details = Self.details(resultType: resultType, artifactURL: artifactURL, rawResult: rawResult)
+        rawResultJSON = rawResult?.prettyPrinted
         id = try container.decodeIfPresent(String.self, forKey: .id)
             ?? container.decodeIfPresent(String.self, forKey: .resultId)
             ?? title
             ?? summary
             ?? decoder.codingPath.map(\.stringValue).joined(separator: ".")
+    }
+
+    private static func details(resultType: String?, artifactURL: URL?, rawResult: JSONValue?) -> [ActionSuggestionResultDetail] {
+        guard let object = rawResult?.objectValue else {
+            return artifactURL.map { [ActionSuggestionResultDetail(label: "Artifact", values: [$0.absoluteString])] } ?? []
+        }
+
+        var details: [ActionSuggestionResultDetail] = []
+        if resultType == "development_spec" {
+            details.append(contentsOf: [
+                ActionSuggestionResultDetail(label: "対象リポジトリ", values: object.firstTextArray(["repositories", "repos"])),
+                ActionSuggestionResultDetail(label: "仕様", values: object.firstTextArray(["spec", "requirements", "body"])),
+                ActionSuggestionResultDetail(label: "合格条件", values: object.firstTextArray(["acceptanceCriteria", "acceptance_criteria"])),
+            ])
+        } else if resultType == "codex_result" {
+            let pullRequest = object["pullRequest"]?.objectValue ?? object["pr"]?.objectValue
+            let prURL = object.firstText(["pullRequestUrl", "pullRequestURL", "prUrl", "prURL", "url"])
+                ?? pullRequest?.firstText(["url", "htmlUrl", "html_url"])
+                ?? artifactURL?.absoluteString
+            details.append(contentsOf: [
+                ActionSuggestionResultDetail(label: "PR", values: prURL.map { [$0] } ?? []),
+                ActionSuggestionResultDetail(label: "変更", values: changedFiles(from: object)),
+                ActionSuggestionResultDetail(label: "テスト", values: object.firstTextArray(["tests", "testResults", "test_results"])),
+                ActionSuggestionResultDetail(label: "レビュー", values: object.firstTextArray(["review", "reviewResults", "review_results"])),
+                ActionSuggestionResultDetail(label: "残リスク", values: object.firstTextArray(["residualRisk", "residualRisks", "risks"])),
+            ])
+        }
+
+        if let artifactURL {
+            details.append(ActionSuggestionResultDetail(label: "Artifact", values: [artifactURL.absoluteString]))
+        }
+        return details.filter { !$0.values.isEmpty }
+    }
+
+    private static func changedFiles(from object: [String: JSONValue]) -> [String] {
+        let direct = object.firstTextArray(["changedFiles", "files"])
+        if !direct.isEmpty {
+            return direct
+        }
+
+        return (object["repositories"]?.arrayValue ?? []).flatMap { repository -> [String] in
+            guard let item = repository.objectValue else { return [] }
+            let repositoryName = item.firstText(["repository", "repo", "name"])
+            return item.firstTextArray(["changedFiles", "files"]).map { file in
+                repositoryName.map { "\($0): \(file)" } ?? file
+            }
+        }
     }
 }
 
