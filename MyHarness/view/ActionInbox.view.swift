@@ -422,7 +422,7 @@ struct ActionSuggestionDetailView: View {
         }
 
         if !suggestion.researchResults.isEmpty {
-            Section("調査結果") {
+            Section("実行結果") {
                 ForEach(suggestion.researchResults) { result in
                     ActionResearchResultView(result: result)
                 }
@@ -621,13 +621,66 @@ private struct ActionResearchResultView: View {
     let result: ActionSuggestionResearchResult
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(result.displayTitle)
-                .font(.subheadline.weight(.semibold))
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Text(result.displayTitle)
+                    .font(.subheadline.weight(.semibold))
+                Spacer(minLength: 0)
+                if let resultType = result.resultType {
+                    Text(resultType)
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             Text(result.displayBody)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
+
+            if !result.details.isEmpty {
+                VStack(alignment: .leading, spacing: 7) {
+                    ForEach(result.details) { detail in
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(detail.label)
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            ForEach(detail.values, id: \.self) { value in
+                                if let url = URL(string: value), let scheme = url.scheme, !scheme.isEmpty {
+                                    Link(value, destination: url)
+                                        .font(.caption)
+                                } else {
+                                    Text(value)
+                                        .font(.caption)
+                                        .foregroundStyle(.primary)
+                                        .textSelection(.enabled)
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding(.top, 2)
+            }
+
+            if let artifactURL = result.artifactURL {
+                Link(destination: artifactURL) {
+                    Label("Artifactを開く", systemImage: "link")
+                }
+                .font(.caption)
+            }
+
+            if let rawResultJSON = result.rawResultJSON, !rawResultJSON.isEmpty {
+                DisclosureGroup("結果JSON") {
+                    Text(rawResultJSON)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.top, 4)
+                }
+                .font(.caption.weight(.semibold))
+            }
+
             if !result.needEvidence.isEmpty || !result.sourceItems.isEmpty {
                 Text("Evidence \(result.needEvidence.count) / Source \(result.sourceItems.count)")
                     .font(.caption2.monospacedDigit())
