@@ -19,7 +19,7 @@ final class SwiftDataRoutineItemRepository: RoutineItemRepository {
                 SortDescriptor(\RoutineItemModel.createdAt, order: .forward)
             ]
         )
-        return try context.fetch(descriptor).map(\.domain)
+        return RoutineItem.displayOrdered(try context.fetch(descriptor).map(\.domain))
     }
 
     func item(id: UUID) async throws -> RoutineItem? {
@@ -75,4 +75,3 @@ final class SwiftDataRoutineItemRepository: RoutineItemRepository {
         return try context.fetch(descriptor).first
     }
 }
-

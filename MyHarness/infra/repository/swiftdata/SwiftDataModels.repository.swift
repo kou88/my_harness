@@ -6,7 +6,9 @@ final class RoutineItemModel {
     @Attribute(.unique) var id: UUID
     var title: String
     var typeRawValue: String
+    var scheduleKindRawValue: String = RoutineScheduleKind.routine.rawValue
     var sortOrder: Int
+    var repeatWeekdaysRawValue: String?
     var isArchived: Bool
     var createdAt: Date
     var updatedAt: Date
@@ -15,7 +17,9 @@ final class RoutineItemModel {
         id = item.id
         title = item.title
         typeRawValue = item.type.rawValue
+        scheduleKindRawValue = item.scheduleKind.rawValue
         sortOrder = item.sortOrder
+        repeatWeekdaysRawValue = RoutineWeekday.storageValue(for: item.repeatWeekdays)
         isArchived = item.isArchived
         createdAt = item.createdAt
         updatedAt = item.updatedAt
@@ -24,7 +28,9 @@ final class RoutineItemModel {
     func update(from item: RoutineItem) {
         title = item.title
         typeRawValue = item.type.rawValue
+        scheduleKindRawValue = item.scheduleKind.rawValue
         sortOrder = item.sortOrder
+        repeatWeekdaysRawValue = RoutineWeekday.storageValue(for: item.repeatWeekdays)
         isArchived = item.isArchived
         createdAt = item.createdAt
         updatedAt = item.updatedAt
@@ -35,11 +41,20 @@ final class RoutineItemModel {
             id: id,
             title: title,
             type: RoutineItemType(rawValue: typeRawValue) ?? .check,
+            scheduleKind: resolvedScheduleKind,
             sortOrder: sortOrder,
+            repeatWeekdays: RoutineWeekday.set(fromStorageValue: repeatWeekdaysRawValue),
             isArchived: isArchived,
             createdAt: createdAt,
             updatedAt: updatedAt
         )
+    }
+
+    private var resolvedScheduleKind: RoutineScheduleKind {
+        guard let scheduleKind = RoutineScheduleKind(rawValue: scheduleKindRawValue) else {
+            preconditionFailure("Invalid RoutineItemModel schedule kind: \(scheduleKindRawValue)")
+        }
+        return scheduleKind
     }
 }
 
@@ -97,4 +112,3 @@ final class HarnessSettingsModel {
         self.notificationMinute = notificationMinute
     }
 }
-

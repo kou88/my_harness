@@ -26,11 +26,6 @@ struct BuildWeeklyExportUseCase {
                     let completed = snapshot.entry?.isCompleted == true
                     let mark = completed ? "x" : " "
                     lines.append("- [\(mark)] \(snapshot.item.title)")
-
-                    let logText = snapshot.entry?.logText.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                    if snapshot.item.type == .checkLog, !logText.isEmpty {
-                        lines.append("  - log: \(logText)")
-                    }
                 }
             }
 
@@ -49,4 +44,3 @@ struct CopyTextUseCase {
         clipboard.write(text)
     }
 }
-

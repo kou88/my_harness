@@ -1,6 +1,8 @@
 name: TestFlight (Stage)
 
 on:
+  push:
+    branches: [stage]
   pull_request:
     branches: [stage]
     types: [closed]
@@ -17,6 +19,7 @@ jobs:
   build_and_upload:
     if: |
       github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'push' ||
       (
         github.event.pull_request.merged == true &&
         github.event.pull_request.head.repo.full_name == github.repository &&
@@ -63,8 +66,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          ORIG_DEFAULT_KEYCHAIN="$(security default-keychain | tr -d '"')"
-          security list-keychains -d user | tr -d '"' > "$RUNNER_TEMP/orig_keychains.txt"
+          ORIG_DEFAULT_KEYCHAIN="$(security default-keychain 2>/dev/null | tr -d '"' | sed 's/^ *//; s/ *$//' || true)"
+          security list-keychains -d user | tr -d '"' | sed 's/^ *//; s/ *$//' > "$RUNNER_TEMP/orig_keychains.txt"
           echo "ORIG_DEFAULT_KEYCHAIN=$ORIG_DEFAULT_KEYCHAIN" >> "$GITHUB_ENV"
           echo "ORIG_KEYCHAINS_FILE=$RUNNER_TEMP/orig_keychains.txt" >> "$GITHUB_ENV"
 
@@ -133,20 +136,19 @@ jobs:
         run: |
           set -euo pipefail
           PBXPROJ="MyHarness.xcodeproj/project.pbxproj"
-          TEAM_ID="$APP_TEAM_ID"
 
-          perl -0pi -e "s/(CA0B1C2D3E4F567801234567 \\/\\* Debug \\*\\/ = \\{.*?buildSettings = \\{.*?DEVELOPMENT_TEAM = )\"\";/${1}$TEAM_ID;/s" "$PBXPROJ"
-          perl -0pi -e "s/(DA0B1C2D3E4F567801234567 \\/\\* Release \\*\\/ = \\{.*?buildSettings = \\{.*?DEVELOPMENT_TEAM = )\"\";/${1}$TEAM_ID;/s" "$PBXPROJ"
-          perl -0pi -e "s/(E4F5A6B7C8D9E0F112345678 \\/\\* Debug \\*\\/ = \\{.*?buildSettings = \\{.*?DEVELOPMENT_TEAM = )\"\";/${1}$TEAM_ID;/s" "$PBXPROJ"
-          perl -0pi -e "s/(F5A6B7C8D9E0F11212345678 \\/\\* Release \\*\\/ = \\{.*?buildSettings = \\{.*?DEVELOPMENT_TEAM = )\"\";/${1}$TEAM_ID;/s" "$PBXPROJ"
+          perl -0pi -e 's/(CA0B1C2D3E4F567801234567 \/\* Debug \*\/ = \{.*?buildSettings = \{.*?DEVELOPMENT_TEAM = )"";/${1}$ENV{APP_TEAM_ID};/s' "$PBXPROJ"
+          perl -0pi -e 's/(DA0B1C2D3E4F567801234567 \/\* Release \*\/ = \{.*?buildSettings = \{.*?DEVELOPMENT_TEAM = )"";/${1}$ENV{APP_TEAM_ID};/s' "$PBXPROJ"
+          perl -0pi -e 's/(E4F5A6B7C8D9E0F112345678 \/\* Debug \*\/ = \{.*?buildSettings = \{.*?DEVELOPMENT_TEAM = )"";/${1}$ENV{APP_TEAM_ID};/s' "$PBXPROJ"
+          perl -0pi -e 's/(F5A6B7C8D9E0F11212345678 \/\* Release \*\/ = \{.*?buildSettings = \{.*?DEVELOPMENT_TEAM = )"";/${1}$ENV{APP_TEAM_ID};/s' "$PBXPROJ"
 
           perl -pi -e "s/CODE_SIGN_STYLE = Automatic;/CODE_SIGN_STYLE = Manual;/g" "$PBXPROJ"
           perl -pi -e "s/CODE_SIGN_IDENTITY = \"?Apple Development\"?;/CODE_SIGN_IDENTITY = \"Apple Distribution\";/g" "$PBXPROJ"
 
-          perl -0pi -e "s/(CA0B1C2D3E4F567801234567 \\/\\* Debug \\*\\/ = \\{.*?buildSettings = \\{)/$1\\n\\t\\t\\t\\tPROVISIONING_PROFILE_SPECIFIER = \"$ENV{APP_PROFILE_NAME}\";/s" "$PBXPROJ"
-          perl -0pi -e "s/(DA0B1C2D3E4F567801234567 \\/\\* Release \\*\\/ = \\{.*?buildSettings = \\{)/$1\\n\\t\\t\\t\\tPROVISIONING_PROFILE_SPECIFIER = \"$ENV{APP_PROFILE_NAME}\";/s" "$PBXPROJ"
-          perl -0pi -e "s/(E4F5A6B7C8D9E0F112345678 \\/\\* Debug \\*\\/ = \\{.*?buildSettings = \\{)/$1\\n\\t\\t\\t\\tPROVISIONING_PROFILE_SPECIFIER = \"$ENV{WIDGET_PROFILE_NAME}\";/s" "$PBXPROJ"
-          perl -0pi -e "s/(F5A6B7C8D9E0F11212345678 \\/\\* Release \\*\\/ = \\{.*?buildSettings = \\{)/$1\\n\\t\\t\\t\\tPROVISIONING_PROFILE_SPECIFIER = \"$ENV{WIDGET_PROFILE_NAME}\";/s" "$PBXPROJ"
+          perl -0pi -e 's/(CA0B1C2D3E4F567801234567 \/\* Debug \*\/ = \{.*?buildSettings = \{)/${1}\n\t\t\t\tPROVISIONING_PROFILE_SPECIFIER = "$ENV{APP_PROFILE_NAME}";/s' "$PBXPROJ"
+          perl -0pi -e 's/(DA0B1C2D3E4F567801234567 \/\* Release \*\/ = \{.*?buildSettings = \{)/${1}\n\t\t\t\tPROVISIONING_PROFILE_SPECIFIER = "$ENV{APP_PROFILE_NAME}";/s' "$PBXPROJ"
+          perl -0pi -e 's/(E4F5A6B7C8D9E0F112345678 \/\* Debug \*\/ = \{.*?buildSettings = \{)/${1}\n\t\t\t\tPROVISIONING_PROFILE_SPECIFIER = "$ENV{WIDGET_PROFILE_NAME}";/s' "$PBXPROJ"
+          perl -0pi -e 's/(F5A6B7C8D9E0F11212345678 \/\* Release \*\/ = \{.*?buildSettings = \{)/${1}\n\t\t\t\tPROVISIONING_PROFILE_SPECIFIER = "$ENV{WIDGET_PROFILE_NAME}";/s' "$PBXPROJ"
 
           grep -n "DEVELOPMENT_TEAM\\|CODE_SIGN_STYLE\\|PROVISIONING_PROFILE_SPECIFIER\\|CODE_SIGN_IDENTITY" "$PBXPROJ" | head -120
 
@@ -194,6 +196,7 @@ jobs:
             -destination 'generic/platform=iOS' \
             -archivePath "$RUNNER_TEMP/MyHarness.xcarchive" \
             CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
             archive
 
       - name: Upload to TestFlight

@@ -1,4 +1,5 @@
 import AppIntents
+import SwiftData
 import SwiftUI
 import WidgetKit
 
@@ -6,32 +7,114 @@ private enum WidgetAppGroup {
     static let identifier = "group.com.kou888.myharness"
 }
 
+private enum WidgetDeepLink {
+    static let openApp = URL(string: "myharness://open")!
+    static let suggestions = URL(string: "myharness://suggestions")!
+}
+
 private enum WidgetStoreKey {
     static let snapshot = "my_harness.widget.snapshot"
     static let pendingUpdates = "my_harness.widget.pending_updates"
-}
-
-private enum WidgetItemType: String, Codable {
-    case check
-    case checkLog
+    static let displaySettings = "my_harness.widget.display_settings"
+    static let actionSuggestionsSnapshot = "my_harness.action_suggestions.widget_snapshot"
 }
 
 private struct WidgetItemSnapshot: Identifiable, Codable, Hashable {
     let id: UUID
     var title: String
-    var type: WidgetItemType
     var sortOrder: Int
     var isCompleted: Bool
-    var logText: String
+}
+
+private enum WidgetScheduleKind: String {
+    case routine
+    case oneShot
+
+    var displayPriority: Int {
+        switch self {
+        case .oneShot:
+            return 0
+        case .routine:
+            return 1
+        }
+    }
+
+    static func displayPriority(rawValue: String) -> Int {
+        guard let kind = WidgetScheduleKind(rawValue: rawValue) else {
+            return 2
+        }
+        return kind.displayPriority
+    }
+}
+
+private enum WidgetRoutineWeekday: Int, CaseIterable {
+    case sunday = 1
+    case monday = 2
+    case tuesday = 3
+    case wednesday = 4
+    case thursday = 5
+    case friday = 6
+    case saturday = 7
+
+    static var everyDay: Set<WidgetRoutineWeekday> {
+        Set(allCases)
+    }
+
+    static func set(fromStorageValue value: String?) -> Set<WidgetRoutineWeekday> {
+        let days = value?
+            .split(separator: ",")
+            .compactMap { Int($0).flatMap(WidgetRoutineWeekday.init(rawValue:)) } ?? []
+        return days.isEmpty ? everyDay : Set(days)
+    }
 }
 
 private struct WidgetTodaySnapshot: Codable, Hashable {
     var dateKey: String
     var updatedAt: Date
     var items: [WidgetItemSnapshot]
+    var oneShotCount: Int
+
+    private enum CodingKeys: String, CodingKey {
+        case dateKey
+        case updatedAt
+        case items
+        case oneShotCount
+    }
+
+    init(
+        dateKey: String,
+        updatedAt: Date,
+        items: [WidgetItemSnapshot],
+        oneShotCount: Int
+    ) {
+        self.dateKey = dateKey
+        self.updatedAt = updatedAt
+        self.items = items
+        self.oneShotCount = oneShotCount
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        dateKey = try container.decode(String.self, forKey: .dateKey)
+        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        items = try container.decode([WidgetItemSnapshot].self, forKey: .items)
+        oneShotCount = try container.decodeIfPresent(Int.self, forKey: .oneShotCount) ?? 0
+    }
 
     static var empty: WidgetTodaySnapshot {
-        WidgetTodaySnapshot(dateKey: Self.todayDateKey(), updatedAt: Date(), items: [])
+        WidgetTodaySnapshot(dateKey: Self.todayDateKey(), updatedAt: Date(), items: [], oneShotCount: 0)
+    }
+
+    static func empty(dateKey: String, updatedAt: Date) -> WidgetTodaySnapshot {
+        WidgetTodaySnapshot(dateKey: dateKey, updatedAt: updatedAt, items: [], oneShotCount: 0)
+    }
+
+    static func visibleSnapshot(_ snapshot: WidgetTodaySnapshot, on date: Date) -> WidgetTodaySnapshot {
+        let todayDateKey = Self.todayDateKey(date: date)
+        guard snapshot.dateKey == todayDateKey else {
+            return Self.empty(dateKey: todayDateKey, updatedAt: date)
+        }
+        return snapshot
     }
 
     static func todayDateKey(date: Date = Date()) -> String {
@@ -46,6 +129,38 @@ private struct WidgetTodaySnapshot: Codable, Hashable {
     }
 }
 
+private struct WidgetActionSuggestionItem: Identifiable, Codable, Hashable {
+    var id: String
+    var title: String
+    var summary: String
+    var riskLabel: String
+    var updatedAt: Date?
+}
+
+private struct WidgetActionSuggestionSnapshot: Codable, Hashable {
+    var updatedAt: Date
+    var pendingCount: Int
+    var highRiskCount: Int
+    var items: [WidgetActionSuggestionItem]
+
+    static var empty: WidgetActionSuggestionSnapshot {
+        WidgetActionSuggestionSnapshot(updatedAt: Date(), pendingCount: 0, highRiskCount: 0, items: [])
+    }
+}
+
+private enum WidgetTextDirection: String, Codable, Hashable {
+    case horizontal
+    case vertical
+}
+
+private struct WidgetDisplaySettings: Codable, Hashable {
+    var textDirection: WidgetTextDirection
+
+    static var `default`: WidgetDisplaySettings {
+        WidgetDisplaySettings(textDirection: .horizontal)
+    }
+}
+
 private struct WidgetPendingEntryUpdate: Identifiable, Codable {
     let id: UUID
     var dateKey: String
@@ -54,19 +169,238 @@ private struct WidgetPendingEntryUpdate: Identifiable, Codable {
     var updatedAt: Date
 }
 
+@Model
+final class RoutineItemModel {
+    @Attribute(.unique) var id: UUID
+    var title: String
+    var typeRawValue: String
+    var scheduleKindRawValue: String = WidgetScheduleKind.routine.rawValue
+    var sortOrder: Int
+    var repeatWeekdaysRawValue: String?
+    var isArchived: Bool
+    var createdAt: Date
+    var updatedAt: Date
+
+    init(
+        id: UUID,
+        title: String,
+        typeRawValue: String,
+        scheduleKindRawValue: String,
+        sortOrder: Int,
+        repeatWeekdaysRawValue: String?,
+        isArchived: Bool,
+        createdAt: Date,
+        updatedAt: Date
+    ) {
+        self.id = id
+        self.title = title
+        self.typeRawValue = typeRawValue
+        self.scheduleKindRawValue = scheduleKindRawValue
+        self.sortOrder = sortOrder
+        self.repeatWeekdaysRawValue = repeatWeekdaysRawValue
+        self.isArchived = isArchived
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+}
+
+@Model
+final class DayEntryModel {
+    @Attribute(.unique) var id: UUID
+    var dateKey: String
+    var itemId: UUID
+    var isCompleted: Bool
+    var logText: String
+    var completedAt: Date?
+    var updatedAt: Date
+
+    init(
+        id: UUID,
+        dateKey: String,
+        itemId: UUID,
+        isCompleted: Bool,
+        logText: String,
+        completedAt: Date?,
+        updatedAt: Date
+    ) {
+        self.id = id
+        self.dateKey = dateKey
+        self.itemId = itemId
+        self.isCompleted = isCompleted
+        self.logText = logText
+        self.completedAt = completedAt
+        self.updatedAt = updatedAt
+    }
+}
+
+@Model
+final class HarnessSettingsModel {
+    @Attribute(.unique) var key: String
+    var notificationHour: Int
+    var notificationMinute: Int
+
+    init(key: String, notificationHour: Int, notificationMinute: Int) {
+        self.key = key
+        self.notificationHour = notificationHour
+        self.notificationMinute = notificationMinute
+    }
+}
+
+private enum WidgetSwiftDataStore {
+    static func readTodaySnapshot(on date: Date) -> WidgetTodaySnapshot? {
+        guard
+            let storeURL = FileManager.default
+                .containerURL(forSecurityApplicationGroupIdentifier: WidgetAppGroup.identifier)?
+                .appendingPathComponent("Library/Application Support/default.store"),
+            FileManager.default.fileExists(atPath: storeURL.path)
+        else {
+            return nil
+        }
+
+        do {
+            let schema = Schema([
+                RoutineItemModel.self,
+                DayEntryModel.self,
+                HarnessSettingsModel.self
+            ])
+            let configuration = ModelConfiguration(schema: schema, url: storeURL, allowsSave: false)
+            let container = try ModelContainer(for: schema, configurations: [configuration])
+            let context = ModelContext(container)
+            return try todaySnapshot(on: date, context: context)
+        } catch {
+            return nil
+        }
+    }
+
+    private static func todaySnapshot(on date: Date, context: ModelContext) throws -> WidgetTodaySnapshot {
+        let dateKey = WidgetTodaySnapshot.todayDateKey(date: date)
+        let activeItems = try context.fetch(FetchDescriptor<RoutineItemModel>(
+            predicate: #Predicate { item in
+                item.isArchived == false
+            },
+            sortBy: [
+                SortDescriptor(\RoutineItemModel.sortOrder, order: .forward),
+                SortDescriptor(\RoutineItemModel.createdAt, order: .forward)
+            ]
+        )).sorted { first, second in
+            let firstPriority = WidgetScheduleKind.displayPriority(rawValue: first.scheduleKindRawValue)
+            let secondPriority = WidgetScheduleKind.displayPriority(rawValue: second.scheduleKindRawValue)
+            if firstPriority != secondPriority {
+                return firstPriority < secondPriority
+            }
+            if first.sortOrder != second.sortOrder {
+                return first.sortOrder < second.sortOrder
+            }
+            return first.createdAt < second.createdAt
+        }
+        let entries = try context.fetch(FetchDescriptor<DayEntryModel>(
+            predicate: #Predicate { entry in
+                entry.dateKey == dateKey
+            }
+        ))
+        let completedEntries = try context.fetch(FetchDescriptor<DayEntryModel>(
+            predicate: #Predicate { entry in
+                entry.isCompleted == true
+            },
+            sortBy: [
+                SortDescriptor(\DayEntryModel.dateKey, order: .forward),
+                SortDescriptor(\DayEntryModel.updatedAt, order: .forward)
+            ]
+        ))
+        let entryByItemId = Dictionary(uniqueKeysWithValues: entries.map { ($0.itemId, $0) })
+        let completedDateKeyByItemId = earliestCompletedDateKeys(from: completedEntries)
+        let calendar = Calendar.autoupdatingCurrent
+        let todayWeekday = calendar.component(.weekday, from: date)
+
+        var snapshots: [WidgetItemSnapshot] = []
+        var oneShotCount = 0
+        for item in activeItems {
+            guard
+                let scheduleKind = WidgetScheduleKind(rawValue: item.scheduleKindRawValue),
+                isVisible(
+                    item: item,
+                    scheduleKind: scheduleKind,
+                    dateKey: dateKey,
+                    todayWeekday: todayWeekday,
+                    completedDateKey: completedDateKeyByItemId[item.id]
+                )
+            else {
+                continue
+            }
+
+            guard scheduleKind == .routine else {
+                oneShotCount += 1
+                continue
+            }
+
+            snapshots.append(WidgetItemSnapshot(
+                id: item.id,
+                title: item.title,
+                sortOrder: item.sortOrder,
+                isCompleted: entryByItemId[item.id]?.isCompleted == true
+            ))
+        }
+
+        return WidgetTodaySnapshot(
+            dateKey: dateKey,
+            updatedAt: Date(),
+            items: snapshots,
+            oneShotCount: oneShotCount
+        )
+    }
+
+    private static func earliestCompletedDateKeys(from entries: [DayEntryModel]) -> [UUID: String] {
+        var result: [UUID: String] = [:]
+        for entry in entries {
+            if let existingDateKey = result[entry.itemId] {
+                result[entry.itemId] = min(existingDateKey, entry.dateKey)
+            } else {
+                result[entry.itemId] = entry.dateKey
+            }
+        }
+        return result
+    }
+
+    private static func isVisible(
+        item: RoutineItemModel,
+        scheduleKind: WidgetScheduleKind,
+        dateKey: String,
+        todayWeekday: Int,
+        completedDateKey: String?
+    ) -> Bool {
+        switch scheduleKind {
+        case .routine:
+            let weekdays = WidgetRoutineWeekday.set(fromStorageValue: item.repeatWeekdaysRawValue)
+            guard let weekday = WidgetRoutineWeekday(rawValue: todayWeekday) else {
+                return true
+            }
+            return weekdays.contains(weekday)
+        case .oneShot:
+            let createdDateKey = WidgetTodaySnapshot.todayDateKey(date: item.createdAt)
+            guard dateKey >= createdDateKey else { return false }
+            guard let completedDateKey else { return true }
+            return dateKey <= completedDateKey
+        }
+    }
+}
+
 private enum WidgetSharedStore {
     static var defaults: UserDefaults {
         UserDefaults(suiteName: WidgetAppGroup.identifier) ?? .standard
     }
 
-    static func readSnapshot() -> WidgetTodaySnapshot {
+    static func readSnapshot(on date: Date) -> WidgetTodaySnapshot {
+        if let snapshot = WidgetSwiftDataStore.readTodaySnapshot(on: date) {
+            return applyPendingUpdates(to: snapshot)
+        }
+
         guard
             let data = defaults.data(forKey: WidgetStoreKey.snapshot),
             let snapshot = try? JSONDecoder().decode(WidgetTodaySnapshot.self, from: data)
         else {
-            return .empty
+            return WidgetTodaySnapshot.empty(dateKey: WidgetTodaySnapshot.todayDateKey(date: date), updatedAt: date)
         }
-        return snapshot
+        return applyPendingUpdates(to: WidgetTodaySnapshot.visibleSnapshot(snapshot, on: date))
     }
 
     static func writeSnapshot(_ snapshot: WidgetTodaySnapshot) {
@@ -75,18 +409,66 @@ private enum WidgetSharedStore {
         }
     }
 
+    static func readDisplaySettings() -> WidgetDisplaySettings {
+        guard
+            let data = defaults.data(forKey: WidgetStoreKey.displaySettings),
+            let settings = try? JSONDecoder().decode(WidgetDisplaySettings.self, from: data)
+        else {
+            return .default
+        }
+        return settings
+    }
+
     static func appendPendingUpdate(_ update: WidgetPendingEntryUpdate) {
         var updates: [WidgetPendingEntryUpdate] = []
-        if
-            let data = defaults.data(forKey: WidgetStoreKey.pendingUpdates),
-            let decoded = try? JSONDecoder().decode([WidgetPendingEntryUpdate].self, from: data)
-        {
-            updates = decoded
-        }
+        updates = readPendingUpdates()
         updates.append(update)
         if let data = try? JSONEncoder().encode(updates) {
             defaults.set(data, forKey: WidgetStoreKey.pendingUpdates)
         }
+    }
+
+    private static func readPendingUpdates() -> [WidgetPendingEntryUpdate] {
+        guard
+            let data = defaults.data(forKey: WidgetStoreKey.pendingUpdates),
+            let decoded = try? JSONDecoder().decode([WidgetPendingEntryUpdate].self, from: data)
+        else {
+            return []
+        }
+        return decoded
+    }
+
+    private static func applyPendingUpdates(to snapshot: WidgetTodaySnapshot) -> WidgetTodaySnapshot {
+        let updates = readPendingUpdates()
+            .filter { $0.dateKey == snapshot.dateKey }
+            .sorted { $0.updatedAt < $1.updatedAt }
+        guard !updates.isEmpty else { return snapshot }
+
+        var snapshot = snapshot
+        for update in updates {
+            guard let index = snapshot.items.firstIndex(where: { $0.id == update.itemId }) else {
+                continue
+            }
+            snapshot.items[index].isCompleted = update.isCompleted
+            snapshot.updatedAt = max(snapshot.updatedAt, update.updatedAt)
+        }
+        return snapshot
+    }
+}
+
+private enum WidgetActionSuggestionStore {
+    static var defaults: UserDefaults {
+        UserDefaults(suiteName: WidgetAppGroup.identifier) ?? .standard
+    }
+
+    static func readSnapshot() -> WidgetActionSuggestionSnapshot {
+        guard
+            let data = defaults.data(forKey: WidgetStoreKey.actionSuggestionsSnapshot),
+            let snapshot = try? JSONDecoder().decode(WidgetActionSuggestionSnapshot.self, from: data)
+        else {
+            return .empty
+        }
+        return snapshot
     }
 }
 
@@ -111,7 +493,7 @@ struct ToggleHarnessItemIntent: AppIntent {
             return .result()
         }
 
-        var snapshot = WidgetSharedStore.readSnapshot()
+        var snapshot = WidgetSharedStore.readSnapshot(on: Date())
         guard let index = snapshot.items.firstIndex(where: { $0.id == uuid }) else {
             return .result()
         }
@@ -134,6 +516,17 @@ struct ToggleHarnessItemIntent: AppIntent {
 private struct HarnessTimelineEntry: TimelineEntry {
     let date: Date
     let snapshot: WidgetTodaySnapshot
+    let displaySettings: WidgetDisplaySettings
+
+    init(
+        date: Date,
+        snapshot: WidgetTodaySnapshot,
+        displaySettings: WidgetDisplaySettings = .default
+    ) {
+        self.date = date
+        self.snapshot = snapshot
+        self.displaySettings = displaySettings
+    }
 }
 
 private struct HarnessTimelineProvider: TimelineProvider {
@@ -145,23 +538,42 @@ private struct HarnessTimelineProvider: TimelineProvider {
                 WidgetItemSnapshot(
                     id: UUID(),
                     title: "睡眠メモ",
-                    type: .checkLog,
                     sortOrder: 0,
-                    isCompleted: false,
-                    logText: ""
+                    isCompleted: false
                 )
-            ]
+            ],
+            oneShotCount: 0
         ))
     }
 
     func getSnapshot(in context: Context, completion: @escaping (HarnessTimelineEntry) -> Void) {
-        completion(HarnessTimelineEntry(date: Date(), snapshot: WidgetSharedStore.readSnapshot()))
+        completion(HarnessTimelineEntry(
+            date: Date(),
+            snapshot: WidgetSharedStore.readSnapshot(on: Date()),
+            displaySettings: WidgetSharedStore.readDisplaySettings()
+        ))
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<HarnessTimelineEntry>) -> Void) {
-        let entry = HarnessTimelineEntry(date: Date(), snapshot: WidgetSharedStore.readSnapshot())
-        let nextReload = Calendar.autoupdatingCurrent.date(byAdding: .minute, value: 30, to: Date()) ?? Date()
+        let now = Date()
+        let entry = HarnessTimelineEntry(
+            date: now,
+            snapshot: WidgetSharedStore.readSnapshot(on: now),
+            displaySettings: WidgetSharedStore.readDisplaySettings()
+        )
+        let nextReload = nextTimelineReload(after: now)
         completion(Timeline(entries: [entry], policy: .after(nextReload)))
+    }
+
+    private func nextTimelineReload(after date: Date) -> Date {
+        let calendar = Calendar.autoupdatingCurrent
+        let nextRegularReload = calendar.date(byAdding: .minute, value: 30, to: date) ?? date.addingTimeInterval(1_800)
+        let nextDateChange = calendar.nextDate(
+            after: date,
+            matching: DateComponents(hour: 0, minute: 0, second: 1),
+            matchingPolicy: .nextTime
+        ) ?? nextRegularReload
+        return min(nextRegularReload, nextDateChange)
     }
 }
 
@@ -172,54 +584,420 @@ private struct MyHarnessWidgetView: View {
     private var visibleItems: [WidgetItemSnapshot] {
         switch family {
         case .systemSmall:
-            Array(entry.snapshot.items.prefix(3))
+            Array(entry.snapshot.items.prefix(showsOneShotChip ? 3 : 4))
+        case .systemMedium:
+            if entry.displaySettings.textDirection == .vertical {
+                Array(entry.snapshot.items.prefix(showsOneShotChip ? 4 : 5))
+            } else {
+                Array(entry.snapshot.items.prefix(showsOneShotChip ? 8 : 10))
+            }
+        case .systemLarge:
+            if entry.displaySettings.textDirection == .vertical {
+                Array(entry.snapshot.items.prefix(showsOneShotChip ? 7 : 8))
+            } else {
+                Array(entry.snapshot.items.prefix(showsOneShotChip ? 16 : 18))
+            }
         case .accessoryRectangular:
             Array(entry.snapshot.items.prefix(2))
         default:
-            Array(entry.snapshot.items.prefix(6))
+            Array(entry.snapshot.items.prefix(showsOneShotChip ? 8 : 10))
+        }
+    }
+
+    private var checklistColumns: [[WidgetItemSnapshot]] {
+        switch family {
+        case .systemMedium, .systemLarge:
+            let leadingCount = (visibleItems.count + 1) / 2
+            return [
+                Array(visibleItems.prefix(leadingCount)),
+                Array(visibleItems.dropFirst(leadingCount))
+            ].filter { !$0.isEmpty }
+        default:
+            return [visibleItems]
         }
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            header
+        content
+        .widgetURL(WidgetDeepLink.openApp)
+        .accessibilityLabel("my harnessを開く")
+        .containerBackground(.background, for: .widget)
+    }
+
+    private var content: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if showsOneShotChip {
+                WidgetOneShotChip(count: entry.snapshot.oneShotCount)
+            }
 
             if visibleItems.isEmpty {
                 Text("項目なし")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
+                if entry.displaySettings.textDirection == .vertical {
+                    WidgetVerticalChecklistView(
+                        items: visibleItems,
+                        characterLimit: verticalCharacterLimit,
+                        itemWidth: verticalItemWidth,
+                        titleFont: verticalTitleFont
+                    )
+                } else {
+                    WidgetChecklistColumnsView(columns: checklistColumns)
+                }
+            }
+
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var showsOneShotChip: Bool {
+        switch family {
+        case .accessoryRectangular:
+            return false
+        default:
+            return entry.snapshot.oneShotCount > 0
+        }
+    }
+
+    private var verticalCharacterLimit: Int {
+        switch family {
+        case .systemLarge:
+            return 7
+        case .systemMedium:
+            return 5
+        default:
+            return 5
+        }
+    }
+
+    private var verticalItemWidth: CGFloat {
+        switch family {
+        case .systemLarge:
+            return 34
+        case .systemMedium:
+            return 32
+        default:
+            return 28
+        }
+    }
+
+    private var verticalTitleFont: Font {
+        switch family {
+        case .systemLarge:
+            return .system(size: 12)
+        default:
+            return .system(size: 11)
+        }
+    }
+}
+
+private struct WidgetOneShotChip: View {
+    let count: Int
+
+    var body: some View {
+        HStack {
+            Spacer(minLength: 0)
+            HStack(spacing: 4) {
+                Text("単発")
+                Text("\(count)")
+                    .monospacedDigit()
+                    .fontWeight(.semibold)
+            }
+            .font(.caption2)
+            .foregroundStyle(.white)
+            .padding(.horizontal, 8)
+            .frame(height: 22)
+            .background(.black, in: Capsule())
+        }
+    }
+}
+
+private struct WidgetChecklistColumnsView: View {
+    let columns: [[WidgetItemSnapshot]]
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            ForEach(Array(columns.enumerated()), id: \.offset) { _, column in
                 VStack(alignment: .leading, spacing: 6) {
+                    ForEach(column) { item in
+                        WidgetChecklistRowView(item: item)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+}
+
+private struct WidgetChecklistRowView: View {
+    let item: WidgetItemSnapshot
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: item.isCompleted ? "checkmark.circle.fill" : "circle")
+                .foregroundStyle(item.isCompleted ? .green : .secondary)
+            Text(item.title)
+                .font(.caption)
+                .lineLimit(1)
+                .strikethrough(item.isCompleted)
+            Spacer(minLength: 0)
+        }
+    }
+}
+
+private struct WidgetVerticalChecklistView: View {
+    let items: [WidgetItemSnapshot]
+    let characterLimit: Int
+    let itemWidth: CGFloat
+    let titleFont: Font
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 5) {
+            ForEach(Array(items.reversed())) { item in
+                WidgetVerticalItemView(
+                    item: item,
+                    characterLimit: characterLimit,
+                    itemWidth: itemWidth,
+                    titleFont: titleFont
+                )
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+}
+
+private struct WidgetVerticalItemView: View {
+    let item: WidgetItemSnapshot
+    let characterLimit: Int
+    let itemWidth: CGFloat
+    let titleFont: Font
+
+    var body: some View {
+        VStack(spacing: 2) {
+            Image(systemName: item.isCompleted ? "checkmark.circle.fill" : "circle")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(item.isCompleted ? .green : .secondary)
+
+            WidgetVerticalTitleView(
+                title: item.title,
+                isCompleted: item.isCompleted,
+                characterLimit: characterLimit,
+                font: titleFont
+            )
+        }
+        .frame(width: itemWidth)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .clipped()
+    }
+}
+
+private struct WidgetVerticalTitleView: View {
+    let title: String
+    let isCompleted: Bool
+    let characterLimit: Int
+    let font: Font
+
+    private var characters: [Character] {
+        Array(title.filter { !$0.isWhitespace }.prefix(characterLimit))
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ForEach(Array(characters.enumerated()), id: \.offset) { _, character in
+                Text(String(character))
+                    .font(font)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .strikethrough(isCompleted)
+            }
+        }
+        .foregroundStyle(isCompleted ? .secondary : .primary)
+    }
+}
+
+private struct MyHarnessButtonWidgetView: View {
+    let entry: HarnessTimelineEntry
+
+    private var targetItem: WidgetItemSnapshot? {
+        entry.snapshot.items.first { !$0.isCompleted } ?? entry.snapshot.items.first
+    }
+
+    var body: some View {
+        VStack {
+            if let item = targetItem {
+                Button(intent: ToggleHarnessItemIntent(itemId: item.id)) {
+                    VStack(spacing: 10) {
+                        Image(systemName: item.isCompleted ? "checkmark.circle.fill" : "circle")
+                            .font(.title)
+                            .foregroundStyle(.black)
+
+                        Text(item.title)
+                            .font(.headline)
+                            .foregroundStyle(.black)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.7)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+                .buttonStyle(.plain)
+            } else {
+                Text("項目なし")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .containerBackground(.background, for: .widget)
+    }
+}
+
+private struct MyHarnessOpenWidgetView: View {
+    @Environment(\.widgetFamily) private var family
+
+    var body: some View {
+        switch family {
+        case .accessoryCircular:
+            Image(systemName: "checklist")
+                .font(.title3.weight(.semibold))
+                .widgetLabel("my harness")
+                .widgetURL(WidgetDeepLink.openApp)
+                .containerBackground(.background, for: .widget)
+        default:
+            VStack(spacing: 10) {
+                Image(systemName: "checklist")
+                    .font(.title.weight(.semibold))
+                    .foregroundStyle(.black)
+
+                Text("my harness")
+                    .font(.headline)
+                    .foregroundStyle(.black)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .widgetURL(WidgetDeepLink.openApp)
+            .containerBackground(.background, for: .widget)
+        }
+    }
+}
+
+private struct ActionSuggestionsTimelineEntry: TimelineEntry {
+    let date: Date
+    let snapshot: WidgetActionSuggestionSnapshot
+}
+
+private struct ActionSuggestionsTimelineProvider: TimelineProvider {
+    func placeholder(in context: Context) -> ActionSuggestionsTimelineEntry {
+        ActionSuggestionsTimelineEntry(
+            date: Date(),
+            snapshot: WidgetActionSuggestionSnapshot(
+                updatedAt: Date(),
+                pendingCount: 2,
+                highRiskCount: 1,
+                items: [
+                    WidgetActionSuggestionItem(
+                        id: "preview-1",
+                        title: "調査結果を確認",
+                        summary: "Evidence付きの提案があります",
+                        riskLabel: "低",
+                        updatedAt: Date()
+                    )
+                ]
+            )
+        )
+    }
+
+    func getSnapshot(in context: Context, completion: @escaping (ActionSuggestionsTimelineEntry) -> Void) {
+        completion(ActionSuggestionsTimelineEntry(date: Date(), snapshot: WidgetActionSuggestionStore.readSnapshot()))
+    }
+
+    func getTimeline(in context: Context, completion: @escaping (Timeline<ActionSuggestionsTimelineEntry>) -> Void) {
+        let now = Date()
+        let entry = ActionSuggestionsTimelineEntry(date: now, snapshot: WidgetActionSuggestionStore.readSnapshot())
+        let nextReload = Calendar.autoupdatingCurrent.date(byAdding: .minute, value: 30, to: now)
+            ?? now.addingTimeInterval(1_800)
+        completion(Timeline(entries: [entry], policy: .after(nextReload)))
+    }
+}
+
+private struct ActionSuggestionsWidgetView: View {
+    @Environment(\.widgetFamily) private var family
+    let entry: ActionSuggestionsTimelineEntry
+
+    private var visibleItems: [WidgetActionSuggestionItem] {
+        switch family {
+        case .systemSmall:
+            Array(entry.snapshot.items.prefix(2))
+        case .systemLarge:
+            Array(entry.snapshot.items.prefix(5))
+        case .accessoryRectangular:
+            Array(entry.snapshot.items.prefix(1))
+        default:
+            Array(entry.snapshot.items.prefix(3))
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "sparkles")
+                    .font(.caption.weight(.semibold))
+                Text("おすすめ")
+                    .font(.caption.weight(.semibold))
+                Spacer(minLength: 0)
+                Text("\(entry.snapshot.pendingCount)")
+                    .font(.caption.monospacedDigit().weight(.semibold))
+            }
+
+            if entry.snapshot.highRiskCount > 0 {
+                Label("\(entry.snapshot.highRiskCount)件は詳細確認", systemImage: "exclamationmark.triangle")
+                    .font(.caption2)
+                    .foregroundStyle(.red)
+                    .lineLimit(1)
+            }
+
+            if visibleItems.isEmpty {
+                Text("未処理なし")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                VStack(alignment: .leading, spacing: 5) {
                     ForEach(visibleItems) { item in
-                        Button(intent: ToggleHarnessItemIntent(itemId: item.id)) {
-                            HStack(spacing: 6) {
-                                Image(systemName: item.isCompleted ? "checkmark.circle.fill" : "circle")
-                                    .foregroundStyle(item.isCompleted ? .green : .secondary)
-                                Text(item.title)
-                                    .font(.caption)
-                                    .lineLimit(1)
-                                    .strikethrough(item.isCompleted)
-                                Spacer(minLength: 0)
-                            }
-                        }
-                        .buttonStyle(.plain)
+                        ActionSuggestionWidgetRow(item: item)
                     }
                 }
             }
 
             Spacer(minLength: 0)
         }
+        .widgetURL(WidgetDeepLink.suggestions)
+        .accessibilityLabel("Action Suggestionsを開く")
         .containerBackground(.background, for: .widget)
     }
+}
 
-    private var header: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "checklist")
-                .font(.caption.weight(.semibold))
-            Text("my harness")
-                .font(.caption.weight(.semibold))
+private struct ActionSuggestionWidgetRow: View {
+    let item: WidgetActionSuggestionItem
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 4) {
+                Text(item.title)
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                Text(item.riskLabel)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Text(item.summary)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
                 .lineLimit(1)
-            Spacer(minLength: 0)
         }
     }
 }
@@ -232,8 +1010,47 @@ struct MyHarnessWidget: Widget {
             MyHarnessWidgetView(entry: entry)
         }
         .configurationDisplayName("my harness")
-        .description("今日のチェック項目を表示して、ウィジェットから完了状態を切り替えます。")
-        .supportedFamilies([.systemSmall, .systemMedium, .accessoryRectangular])
+        .description("今日のチェック項目を表示して、タップでmy harnessを開きます。")
+        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge, .accessoryRectangular])
+    }
+}
+
+struct MyHarnessButtonWidget: Widget {
+    let kind = "MyHarnessButtonWidget"
+
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: kind, provider: HarnessTimelineProvider()) { entry in
+            MyHarnessButtonWidgetView(entry: entry)
+        }
+        .configurationDisplayName("my harness button")
+        .description("今日の未完了項目を1つだけ表示して、タップで完了状態を切り替えます。")
+        .supportedFamilies([.systemSmall])
+    }
+}
+
+struct MyHarnessOpenWidget: Widget {
+    let kind = "MyHarnessOpenWidget"
+
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: kind, provider: HarnessTimelineProvider()) { _ in
+            MyHarnessOpenWidgetView()
+        }
+        .configurationDisplayName("my harness open")
+        .description("my harnessを開くためのウィジェットです。")
+        .supportedFamilies([.systemSmall, .accessoryCircular])
+    }
+}
+
+struct ActionSuggestionsWidget: Widget {
+    let kind = "ActionSuggestionsWidget"
+
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: kind, provider: ActionSuggestionsTimelineProvider()) { entry in
+            ActionSuggestionsWidgetView(entry: entry)
+        }
+        .configurationDisplayName("Action Suggestions")
+        .description("未処理のおすすめ件数と上位項目を表示して、タップでmy harnessを開きます。")
+        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge, .accessoryRectangular])
     }
 }
 
@@ -241,6 +1058,9 @@ struct MyHarnessWidget: Widget {
 struct MyHarnessWidgetBundle: WidgetBundle {
     var body: some Widget {
         MyHarnessWidget()
+        MyHarnessButtonWidget()
+        MyHarnessOpenWidget()
+        ActionSuggestionsWidget()
     }
 }
 
@@ -254,19 +1074,101 @@ struct MyHarnessWidgetBundle: WidgetBundle {
             WidgetItemSnapshot(
                 id: UUID(),
                 title: "睡眠メモ",
-                type: .checkLog,
                 sortOrder: 0,
-                isCompleted: true,
-                logText: "23:30"
+                isCompleted: true
             ),
             WidgetItemSnapshot(
                 id: UUID(),
                 title: "机を戻す",
-                type: .check,
                 sortOrder: 1,
-                isCompleted: false,
-                logText: ""
+                isCompleted: false
             )
-        ]
+        ],
+        oneShotCount: 1
+    ))
+}
+
+#Preview("Large", as: .systemLarge) {
+    MyHarnessWidget()
+} timeline: {
+    HarnessTimelineEntry(date: Date(), snapshot: WidgetTodaySnapshot(
+        dateKey: WidgetTodaySnapshot.todayDateKey(),
+        updatedAt: Date(),
+        items: [
+            WidgetItemSnapshot(id: UUID(), title: "朝 薬飲む", sortOrder: 0, isCompleted: true),
+            WidgetItemSnapshot(id: UUID(), title: "風呂入る", sortOrder: 1, isCompleted: false),
+            WidgetItemSnapshot(id: UUID(), title: "水 1L 飲む", sortOrder: 2, isCompleted: true),
+            WidgetItemSnapshot(id: UUID(), title: "ランニングする", sortOrder: 3, isCompleted: false),
+            WidgetItemSnapshot(id: UUID(), title: "夜 薬飲む", sortOrder: 4, isCompleted: true),
+            WidgetItemSnapshot(id: UUID(), title: "洗濯", sortOrder: 5, isCompleted: false)
+        ],
+        oneShotCount: 2
+    ))
+}
+
+#Preview("Crowded", as: .systemMedium) {
+    MyHarnessWidget()
+} timeline: {
+    HarnessTimelineEntry(date: Date(), snapshot: WidgetTodaySnapshot(
+        dateKey: WidgetTodaySnapshot.todayDateKey(),
+        updatedAt: Date(),
+        items: [
+            WidgetItemSnapshot(id: UUID(), title: "朝 薬飲む", sortOrder: 0, isCompleted: false),
+            WidgetItemSnapshot(id: UUID(), title: "お弁当持っていく", sortOrder: 1, isCompleted: false),
+            WidgetItemSnapshot(id: UUID(), title: "風呂入る", sortOrder: 2, isCompleted: false),
+            WidgetItemSnapshot(id: UUID(), title: "夜 薬飲む", sortOrder: 3, isCompleted: false),
+            WidgetItemSnapshot(id: UUID(), title: "ランニングする", sortOrder: 4, isCompleted: false),
+            WidgetItemSnapshot(id: UUID(), title: "お弁当作る", sortOrder: 5, isCompleted: false),
+            WidgetItemSnapshot(id: UUID(), title: "水 1L 飲む", sortOrder: 6, isCompleted: true),
+            WidgetItemSnapshot(id: UUID(), title: "洗濯", sortOrder: 7, isCompleted: false)
+        ],
+        oneShotCount: 3
+    ))
+}
+
+#Preview("Vertical", as: .systemMedium) {
+    MyHarnessWidget()
+} timeline: {
+    HarnessTimelineEntry(date: Date(), snapshot: WidgetTodaySnapshot(
+        dateKey: WidgetTodaySnapshot.todayDateKey(),
+        updatedAt: Date(),
+        items: [
+            WidgetItemSnapshot(id: UUID(), title: "朝 薬飲む", sortOrder: 0, isCompleted: true),
+            WidgetItemSnapshot(id: UUID(), title: "風呂入る", sortOrder: 1, isCompleted: false),
+            WidgetItemSnapshot(id: UUID(), title: "水 1L 飲む", sortOrder: 2, isCompleted: true),
+            WidgetItemSnapshot(id: UUID(), title: "ランニングする", sortOrder: 3, isCompleted: false),
+            WidgetItemSnapshot(id: UUID(), title: "夜 薬飲む", sortOrder: 4, isCompleted: true)
+        ],
+        oneShotCount: 1
+    ), displaySettings: WidgetDisplaySettings(textDirection: .vertical))
+}
+
+#Preview("Open", as: .systemSmall) {
+    MyHarnessOpenWidget()
+} timeline: {
+    HarnessTimelineEntry(date: Date(), snapshot: WidgetTodaySnapshot.empty)
+}
+
+#Preview("Open Circular", as: .accessoryCircular) {
+    MyHarnessOpenWidget()
+} timeline: {
+    HarnessTimelineEntry(date: Date(), snapshot: WidgetTodaySnapshot.empty)
+}
+
+#Preview("Button", as: .systemSmall) {
+    MyHarnessButtonWidget()
+} timeline: {
+    HarnessTimelineEntry(date: Date(), snapshot: WidgetTodaySnapshot(
+        dateKey: WidgetTodaySnapshot.todayDateKey(),
+        updatedAt: Date(),
+        items: [
+            WidgetItemSnapshot(
+                id: UUID(),
+                title: "机を戻す",
+                sortOrder: 0,
+                isCompleted: false
+            )
+        ],
+        oneShotCount: 0
     ))
 }

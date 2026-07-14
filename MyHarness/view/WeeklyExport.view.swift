@@ -29,13 +29,11 @@ struct WeeklyExportView: View {
     NavigationStack {
         WeeklyExportView(text: """
         my harness
-        2026/07/06 - 2026/07/10
+        2026/07/06 - 2026/07/12
 
         月 2026/07/06
         - [x] 明日の服を出す
-        - [x] 睡眠メモ
-          - log: 23:30に寝る準備まで完了
+        - [x] 机を戻す
         """)
     }
 }
-

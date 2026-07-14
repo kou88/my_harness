@@ -1,6 +1,6 @@
 # my harness
 
-Private SwiftUI app for a nightly checklist plus one-line logs.
+Private SwiftUI app for a nightly checklist.
 
 ## v0 Scope
 
@@ -14,10 +14,9 @@ Private SwiftUI app for a nightly checklist plus one-line logs.
   - `state/**/*.state.swift`
   - `view/**/*.view.swift`
 - Routine item CRUD, delete, and reordering
-- Item types: `check` and `checkLog`
-- Today view with completion state and inline one-line logs
+- Per-item daily repeat settings
+- Today view with completion state
 - Weekday local notifications with one configurable time
-- Weekly plain-text export to clipboard
 - Home Screen widget extension with interactive checklist toggles
 
 Cloud API/DB integration is intentionally not implemented in v0, but repository ports keep the app ready for a future `my_api` backed implementation.
@@ -35,6 +34,26 @@ GitHub Actions uses a self-hosted Apple Silicon Mac runner:
 ```yaml
 runs-on: [self-hosted, macOS, ARM64]
 ```
+
+Current local runner:
+
+- Directory: `/Users/kou888/apps/actions-runner-my-harness`
+- Service: `actions.runner.kou88-my_harness.kou888-mac-my-harness`
+- Extra label: `my-harness`
+
+Useful runner commands:
+
+```sh
+cd /Users/kou888/apps/actions-runner-my-harness
+./svc.sh status
+./svc.sh stop
+./svc.sh start
+```
+
+Workflows:
+
+- `iOS Build`: manual dispatch, pushes to `develop`, and pull requests into `develop`, `stage`, or `prod`
+- `TestFlight (Stage)`: manual dispatch, pushes to `stage`, and merged `develop` -> `stage` pull requests
 
 Required repository variables:
 

@@ -7,19 +7,18 @@ enum HarnessAppGroup {
 struct WidgetItemSnapshot: Identifiable, Codable, Hashable {
     let id: UUID
     var title: String
-    var type: RoutineItemType
     var sortOrder: Int
     var isCompleted: Bool
-    var logText: String
 }
 
 struct WidgetTodaySnapshot: Codable, Hashable {
     var dateKey: String
     var updatedAt: Date
     var items: [WidgetItemSnapshot]
+    var oneShotCount: Int
 
     static func empty(dateKey: String) -> WidgetTodaySnapshot {
-        WidgetTodaySnapshot(dateKey: dateKey, updatedAt: Date(), items: [])
+        WidgetTodaySnapshot(dateKey: dateKey, updatedAt: Date(), items: [], oneShotCount: 0)
     }
 }
 
@@ -44,4 +43,3 @@ struct WidgetPendingEntryUpdate: Identifiable, Codable, Hashable {
         self.updatedAt = updatedAt
     }
 }
-

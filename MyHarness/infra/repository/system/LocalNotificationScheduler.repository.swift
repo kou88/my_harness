@@ -30,7 +30,7 @@ final class LocalNotificationScheduler: NotificationScheduler {
 
             let content = UNMutableNotificationContent()
             content.title = "my harness"
-            content.body = "今日のチェックと1行ログを残す時間です。"
+            content.body = "今日のチェックを確認する時間です。"
             content.sound = .default
 
             let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: true)
@@ -62,4 +62,3 @@ private extension NotificationPermissionState {
         }
     }
 }
-

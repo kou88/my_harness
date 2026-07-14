@@ -5,6 +5,7 @@ struct ItemEditorView: View {
     @Environment(\.dismiss) private var dismiss
     let state: ItemEditorState
     let afterSave: () async -> Void
+    @State private var autosaveTask: Task<Void, Never>?
 
     var body: some View {
         @Bindable var state = state
@@ -13,11 +14,43 @@ struct ItemEditorView: View {
             Section {
                 TextField("項目名", text: $state.title)
                     .submitLabel(.done)
-
-                Picker("タイプ", selection: $state.type) {
-                    ForEach(RoutineItemType.allCases) { type in
-                        Text(type.label).tag(type)
+                    .onSubmit {
+                        submitAndDismiss()
                     }
+            }
+
+            Section("種類") {
+                Picker("種類", selection: $state.scheduleKind) {
+                    ForEach(RoutineScheduleKind.allCases) { kind in
+                        Text(kind.label).tag(kind)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+
+            if state.scheduleKind == .routine {
+                Section("繰り返し") {
+                    Picker("繰り返し", selection: $state.repeatPreset) {
+                        ForEach(RoutineRepeatPreset.allCases) { preset in
+                            Text(preset.label).tag(preset)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    if state.repeatPreset == .custom {
+                        WeekdaySelectionView(
+                            selectedWeekdays: $state.customRepeatWeekdays,
+                            onToggle: state.toggleWeekday
+                        )
+                    }
+                }
+            }
+
+            if state.isSaving {
+                Section {
+                    Label("保存中", systemImage: "arrow.triangle.2.circlepath")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
             }
 
@@ -34,22 +67,87 @@ struct ItemEditorView: View {
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("閉じる") {
-                    dismiss()
-                }
-            }
-
-            ToolbarItem(placement: .confirmationAction) {
-                Button(state.isSaving ? "保存中" : "保存") {
                     Task {
-                        if await state.save() {
-                            await afterSave()
-                            dismiss()
-                        }
+                        _ = await saveImmediately()
+                        dismiss()
                     }
                 }
-                .disabled(!state.isValid || state.isSaving)
             }
         }
+        .onChange(of: state.title) { _, _ in
+            scheduleAutosave()
+        }
+        .onChange(of: state.scheduleKind) { _, _ in
+            scheduleAutosave()
+        }
+        .onChange(of: state.repeatPreset) { _, _ in
+            scheduleAutosave()
+        }
+        .onChange(of: state.customRepeatWeekdays) { _, _ in
+            scheduleAutosave()
+        }
+        .onDisappear {
+            autosaveTask?.cancel()
+            autosaveTask = nil
+        }
+    }
+
+    @MainActor
+    private func scheduleAutosave() {
+        autosaveTask?.cancel()
+        autosaveTask = Task {
+            try? await Task.sleep(nanoseconds: 450_000_000)
+            guard !Task.isCancelled else { return }
+            _ = await saveImmediately()
+        }
+    }
+
+    @MainActor
+    private func submitAndDismiss() {
+        Task {
+            if await saveImmediately() {
+                dismiss()
+            }
+        }
+    }
+
+    @MainActor
+    private func saveImmediately() async -> Bool {
+        autosaveTask?.cancel()
+        autosaveTask = nil
+        if await state.autosaveIfNeeded() {
+            await afterSave()
+            return true
+        }
+        return state.canSubmitWithoutSaving
+    }
+}
+
+private struct WeekdaySelectionView: View {
+    @Binding var selectedWeekdays: Set<RoutineWeekday>
+    let onToggle: (RoutineWeekday) -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ForEach(RoutineWeekday.allCases) { weekday in
+                Button {
+                    onToggle(weekday)
+                } label: {
+                    Text(weekday.shortLabel)
+                        .font(.callout.weight(.semibold))
+                        .frame(maxWidth: .infinity, minHeight: 34)
+                        .foregroundStyle(selectedWeekdays.contains(weekday) ? .white : .primary)
+                        .background(
+                            selectedWeekdays.contains(weekday) ? Color.green : Color(.secondarySystemGroupedBackground),
+                            in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(weekday.shortLabel)曜日")
+                .accessibilityAddTraits(selectedWeekdays.contains(weekday) ? .isSelected : [])
+            }
+        }
+        .padding(.vertical, 4)
     }
 }
 
@@ -61,4 +159,3 @@ struct ItemEditorView: View {
         )
     }
 }
-

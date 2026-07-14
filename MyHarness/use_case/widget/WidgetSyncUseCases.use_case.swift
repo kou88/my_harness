@@ -5,13 +5,16 @@ struct PublishWidgetSnapshotUseCase {
     let repository: WidgetSnapshotRepository
     let calendar: CalendarProviding
 
-    func execute(rows: [WidgetItemSnapshot], date: Date = Date()) async throws {
+    func execute(
+        rows: [WidgetItemSnapshot],
+        oneShotCount: Int,
+        date: Date = Date()
+    ) async throws {
         let snapshot = WidgetTodaySnapshot(
             dateKey: calendar.dateKey(for: date),
             updatedAt: Date(),
-            items: rows.sorted { first, second in
-                first.sortOrder < second.sortOrder
-            }
+            items: rows,
+            oneShotCount: oneShotCount
         )
         try await repository.publish(snapshot)
     }
@@ -34,7 +37,7 @@ struct SyncWidgetUpdatesUseCase {
                 dateKey: update.dateKey,
                 itemId: update.itemId,
                 isCompleted: update.isCompleted,
-                logText: existing?.logText ?? "",
+                logText: "",
                 completedAt: update.isCompleted ? (existing?.completedAt ?? update.updatedAt) : nil,
                 updatedAt: update.updatedAt
             )
@@ -43,3 +46,20 @@ struct SyncWidgetUpdatesUseCase {
     }
 }
 
+@MainActor
+struct LoadWidgetDisplaySettingsUseCase {
+    let repository: WidgetSettingsRepository
+
+    func execute() async throws -> WidgetDisplaySettings {
+        try await repository.loadDisplaySettings()
+    }
+}
+
+@MainActor
+struct SaveWidgetDisplaySettingsUseCase {
+    let repository: WidgetSettingsRepository
+
+    func execute(_ settings: WidgetDisplaySettings) async throws {
+        try await repository.saveDisplaySettings(settings)
+    }
+}
