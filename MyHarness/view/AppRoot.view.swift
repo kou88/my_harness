@@ -8,6 +8,7 @@ struct AppRootView: View {
     @State private var todayState: TodayState
     @State private var settingsState: SettingsState
     @State private var actionInboxState: ActionInboxState
+    @State private var productOpsState: ProductOpsState
 
     init(dependencies: AppDependencies) {
         self.dependencies = dependencies
@@ -17,6 +18,12 @@ struct AppRootView: View {
             authSession: dependencies.actionInbox.authSession,
             apiClient: dependencies.actionInbox.apiClient,
             widgetRepository: dependencies.actionInbox.widgetRepository,
+            configurationErrorMessage: dependencies.actionInbox.configurationErrorMessage
+        ))
+        _productOpsState = State(initialValue: ProductOpsState(
+            authSession: dependencies.actionInbox.authSession,
+            apiClient: dependencies.actionInbox.apiClient,
+            projectId: ProductOpsProject.landlordSaaS,
             configurationErrorMessage: dependencies.actionInbox.configurationErrorMessage
         ))
     }
@@ -48,13 +55,41 @@ struct AppRootView: View {
                     set: { router.suggestionsPath = $0 }
                 )
             ) {
-                ActionInboxView(state: actionInboxState)
+                ActionInboxView(state: actionInboxState, productOpsState: productOpsState)
                     .navigationDestination(for: AppRoute.self, destination: routeContent)
             }
             .tabItem {
                 Label("おすすめ", systemImage: "sparkles")
             }
             .tag(AppTab.suggestions)
+
+            NavigationStack(
+                path: Binding(
+                    get: { router.developmentPath },
+                    set: { router.developmentPath = $0 }
+                )
+            ) {
+                DevelopmentView(state: productOpsState, actionInboxState: actionInboxState)
+                    .navigationDestination(for: AppRoute.self, destination: routeContent)
+            }
+            .tabItem {
+                Label("開発", systemImage: "hammer")
+            }
+            .tag(AppTab.development)
+
+            NavigationStack(
+                path: Binding(
+                    get: { router.policyPath },
+                    set: { router.policyPath = $0 }
+                )
+            ) {
+                ProjectPolicyView(state: productOpsState)
+                    .navigationDestination(for: AppRoute.self, destination: routeContent)
+            }
+            .tabItem {
+                Label("方針", systemImage: "scope")
+            }
+            .tag(AppTab.policy)
         }
         .environment(router)
         .onOpenURL { url in
@@ -65,7 +100,10 @@ struct AppRootView: View {
             router.handleDeepLink(url)
         }
         .onReceive(NotificationCenter.default.publisher(for: .actionInboxShouldReload)) { _ in
-            Task { await actionInboxState.loadIfPossible() }
+            Task {
+                await actionInboxState.loadIfPossible()
+                await productOpsState.loadRecommendationsIfPossible()
+            }
         }
         .sheet(
             item: Binding(

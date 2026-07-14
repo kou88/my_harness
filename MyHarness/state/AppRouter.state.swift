@@ -8,6 +8,8 @@ final class AppRouter {
     var selectedTab: AppTab = .today
     var todayPath: [AppRoute] = []
     var suggestionsPath: [AppRoute] = []
+    var developmentPath: [AppRoute] = []
+    var policyPath: [AppRoute] = []
 
     func push(_ route: AppRoute) {
         switch route.preferredTab {
@@ -17,6 +19,12 @@ final class AppRouter {
         case .suggestions:
             selectedTab = .suggestions
             suggestionsPath.append(route)
+        case .development:
+            selectedTab = .development
+            developmentPath.append(route)
+        case .policy:
+            selectedTab = .policy
+            policyPath.append(route)
         }
     }
 
@@ -34,6 +42,12 @@ final class AppRouter {
         case "suggestions":
             selectedTab = .suggestions
             suggestionsPath = tail.first.map { [.actionSuggestionDetail(id: $0)] } ?? []
+        case "development":
+            selectedTab = .development
+            developmentPath = []
+        case "policy":
+            selectedTab = .policy
+            policyPath = []
         case "executions":
             routeSuggestionReference(.actionExecution(id: tail.first ?? ""))
         case "needs":
@@ -56,6 +70,8 @@ final class AppRouter {
 enum AppTab: Hashable {
     case today
     case suggestions
+    case development
+    case policy
 }
 
 enum AppRoute: Hashable {
