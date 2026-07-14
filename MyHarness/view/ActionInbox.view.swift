@@ -515,57 +515,85 @@ struct ActionSuggestionDetailView: View {
         }
     }
 
+    @ViewBuilder
     private func actionBar(_ suggestion: ActionSuggestion) -> some View {
-        VStack(spacing: 8) {
-            HStack(spacing: 8) {
-                Button(role: .destructive) {
-                    Task { await state.decide(suggestion: suggestion, decision: .rejected, decisionNote: decisionNote) }
-                } label: {
-                    Label("却下", systemImage: "xmark.circle")
-                }
-                .buttonStyle(.bordered)
-
-                Button {
-                    Task { await state.decide(suggestion: suggestion, decision: .later, decisionNote: decisionNote) }
-                } label: {
-                    Label("後で", systemImage: "clock")
-                }
-                .buttonStyle(.bordered)
-
-                Button {
-                    if suggestion.shouldConfirmApprovalInApp {
-                        confirmingAction = .approve
-                    } else {
-                        Task { await state.decide(suggestion: suggestion, decision: .approved, decisionNote: decisionNote) }
+        switch suggestion.status ?? "suggested" {
+        case "suggested":
+            actionBarContainer {
+                HStack(spacing: 8) {
+                    Button(role: .destructive) {
+                        Task { await state.decide(suggestion: suggestion, decision: .rejected, decisionNote: decisionNote) }
+                    } label: {
+                        Label("却下", systemImage: "xmark.circle")
                     }
-                } label: {
-                    Label("承認", systemImage: "checkmark.circle")
+                    .buttonStyle(.bordered)
+
+                    Button {
+                        Task { await state.decide(suggestion: suggestion, decision: .later, decisionNote: decisionNote) }
+                    } label: {
+                        Label("後で", systemImage: "clock")
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button {
+                        if suggestion.shouldConfirmApprovalInApp {
+                            confirmingAction = .approve
+                        } else {
+                            Task { await state.decide(suggestion: suggestion, decision: .approved, decisionNote: decisionNote) }
+                        }
+                    } label: {
+                        Label("承認", systemImage: "checkmark.circle")
+                    }
+                    .buttonStyle(.borderedProminent)
                 }
-                .buttonStyle(.borderedProminent)
             }
 
-            HStack(spacing: 8) {
-                Button {
-                    confirmingAction = .adoptResult
-                } label: {
-                    Label("結果採用", systemImage: "checkmark.seal")
-                }
-                .buttonStyle(.bordered)
+        case "awaiting_review":
+            actionBarContainer {
+                HStack(spacing: 8) {
+                    Button {
+                        confirmingAction = .adoptResult
+                    } label: {
+                        Label("結果採用", systemImage: "checkmark.seal")
+                    }
+                    .buttonStyle(.borderedProminent)
 
-                Button(role: .destructive) {
-                    confirmingAction = .rejectResult
-                } label: {
-                    Label("結果却下", systemImage: "hand.thumbsdown")
-                }
-                .buttonStyle(.bordered)
+                    Button(role: .destructive) {
+                        confirmingAction = .rejectResult
+                    } label: {
+                        Label("結果却下", systemImage: "hand.thumbsdown")
+                    }
+                    .buttonStyle(.bordered)
 
-                Button(role: .destructive) {
-                    confirmingAction = .cancel
-                } label: {
-                    Label("キャンセル", systemImage: "stop.circle")
+                    Button(role: .destructive) {
+                        confirmingAction = .cancel
+                    } label: {
+                        Label("キャンセル", systemImage: "stop.circle")
+                    }
+                    .buttonStyle(.bordered)
                 }
-                .buttonStyle(.bordered)
             }
+
+        case "approved", "executing":
+            actionBarContainer {
+                HStack(spacing: 8) {
+                    Button(role: .destructive) {
+                        confirmingAction = .cancel
+                    } label: {
+                        Label("キャンセル", systemImage: "stop.circle")
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            }
+
+        default:
+            EmptyView()
+        }
+    }
+
+    private func actionBarContainer<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        VStack(spacing: 8) {
+            content()
         }
         .font(.caption.weight(.semibold))
         .padding(.horizontal, 12)
