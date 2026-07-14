@@ -66,10 +66,13 @@ Required repository secrets:
 - `BUILD_CERTIFICATE_BASE64`
 - `P12_PASSWORD`
 - `KEYCHAIN_PASSWORD`
-- `BUILD_PROVISION_PROFILE_BASE64` for `com.kou888.myharness`
-- `BUILD_WIDGET_PROVISION_PROFILE_BASE64` for `com.kou888.myharness.widget`
 
-Both provisioning profiles must include the App Group entitlement:
+`TestFlight (Stage)` fetches the latest provisioning profiles from App Store Connect at runtime:
+
+- `my-harness-app-store` for `com.kou888.myharness`
+- `my-harness-widget-app-store` for `com.kou888.myharness.widget`
+
+Both provisioning profiles must include the App Group entitlement. The app profile must also include Push Notifications:
 
 ```text
 group.com.kou888.myharness

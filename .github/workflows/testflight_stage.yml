@@ -58,10 +58,10 @@ jobs:
 
       - name: Install signing assets
         env:
+          ASC_KEY_ID: ${{ vars.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ vars.ASC_ISSUER_ID }}
           BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
           P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
-          BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_PROVISION_PROFILE_BASE64 }}
-          BUILD_WIDGET_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_WIDGET_PROVISION_PROFILE_BASE64 }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
         run: |
           set -euo pipefail
@@ -78,8 +78,76 @@ jobs:
           USER_HOME="$(dscl . -read /Users/$(whoami) NFSHomeDirectory | awk '{print $2}')"
 
           echo "$BUILD_CERTIFICATE_BASE64" | openssl base64 -d -A > "$CERT_PATH"
-          echo "$BUILD_PROVISION_PROFILE_BASE64" | openssl base64 -d -A > "$APP_PROFILE_PATH"
-          echo "$BUILD_WIDGET_PROVISION_PROFILE_BASE64" | openssl base64 -d -A > "$WIDGET_PROFILE_PATH"
+
+          download_profile() {
+            local profile_name="$1"
+            local output_path="$2"
+            PROFILE_NAME="$profile_name" PROFILE_PATH="$output_path" ruby <<'RUBY'
+          require 'base64'
+          require 'json'
+          require 'net/http'
+          require 'openssl'
+          require 'time'
+          require 'uri'
+          require 'jwt'
+
+          key_id = ENV.fetch('ASC_KEY_ID')
+          issuer_id = ENV.fetch('ASC_ISSUER_ID')
+          key_path = ENV.fetch('ASC_KEY_P8_PATH')
+          profile_name = ENV.fetch('PROFILE_NAME')
+          profile_path = ENV.fetch('PROFILE_PATH')
+
+          key = OpenSSL::PKey::EC.new(File.read(key_path))
+          token = JWT.encode(
+            {
+              iss: issuer_id,
+              exp: Time.now.to_i + 20 * 60,
+              aud: 'appstoreconnect-v1'
+            },
+            key,
+            'ES256',
+            kid: key_id,
+            typ: 'JWT'
+          )
+
+          uri = URI('https://api.appstoreconnect.apple.com/v1/profiles')
+          uri.query = URI.encode_www_form(
+            'filter[name]' => profile_name,
+            'fields[profiles]' => 'name,profileContent,profileState,profileType,uuid,expirationDate',
+            'limit' => '10'
+          )
+
+          request = Net::HTTP::Get.new(uri)
+          request['Authorization'] = "Bearer #{token}"
+          response = Net::HTTP.start(uri.hostname, uri.port, use_ssl: true) do |http|
+            http.request(request)
+          end
+
+          unless response.is_a?(Net::HTTPSuccess)
+            warn "Profile fetch failed for #{profile_name}: HTTP #{response.code}"
+            exit 1
+          end
+
+          body = JSON.parse(response.body)
+          profile = body.fetch('data').find do |entry|
+            entry.fetch('attributes').fetch('name') == profile_name
+          end
+
+          unless profile
+            warn "Profile not found: #{profile_name}"
+            exit 1
+          end
+
+          attributes = profile.fetch('attributes')
+          profile_content = attributes.fetch('profileContent')
+          File.binwrite(profile_path, Base64.decode64(profile_content))
+
+          puts "Fetched profile: #{attributes.fetch('name')} (#{attributes.fetch('uuid')}, #{attributes.fetch('profileState')})"
+          RUBY
+          }
+
+          download_profile "my-harness-app-store" "$APP_PROFILE_PATH"
+          download_profile "my-harness-widget-app-store" "$WIDGET_PROFILE_PATH"
 
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
