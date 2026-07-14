@@ -36,12 +36,13 @@ final class RoutineItemModel {
         updatedAt = item.updatedAt
     }
 
-    var domain: RoutineItem {
+    func domain(isPinned: Bool) -> RoutineItem {
         RoutineItem(
             id: id,
             title: title,
             type: RoutineItemType(rawValue: typeRawValue) ?? .check,
             scheduleKind: resolvedScheduleKind,
+            isPinned: isPinned,
             sortOrder: sortOrder,
             repeatWeekdays: RoutineWeekday.set(fromStorageValue: repeatWeekdaysRawValue),
             isArchived: isArchived,
@@ -55,6 +56,17 @@ final class RoutineItemModel {
             preconditionFailure("Invalid RoutineItemModel schedule kind: \(scheduleKindRawValue)")
         }
         return scheduleKind
+    }
+}
+
+@Model
+final class OneShotPinModel {
+    @Attribute(.unique) var itemId: UUID
+    var createdAt: Date
+
+    init(itemId: UUID, createdAt: Date) {
+        self.itemId = itemId
+        self.createdAt = createdAt
     }
 }
 

@@ -47,6 +47,19 @@ final class SwiftDataDayEntryRepository: DayEntryRepository {
         return try context.fetch(descriptor).map(\.domain)
     }
 
+    func completedEntries(itemId: UUID) async throws -> [DayEntry] {
+        let descriptor = FetchDescriptor<DayEntryModel>(
+            predicate: #Predicate { model in
+                model.itemId == itemId && model.isCompleted == true
+            },
+            sortBy: [
+                SortDescriptor(\DayEntryModel.dateKey, order: .forward),
+                SortDescriptor(\DayEntryModel.updatedAt, order: .forward)
+            ]
+        )
+        return try context.fetch(descriptor).map(\.domain)
+    }
+
     func entry(dateKey: String, itemId: UUID) async throws -> DayEntry? {
         try fetchModel(dateKey: dateKey, itemId: itemId)?.domain
     }

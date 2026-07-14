@@ -21,6 +21,7 @@ struct AppDependencies {
     ) throws -> AppDependencies {
         let schema = Schema([
             RoutineItemModel.self,
+            OneShotPinModel.self,
             DayEntryModel.self,
             HarnessSettingsModel.self
         ])
@@ -50,6 +51,7 @@ struct AppDependencies {
             loadToday: LoadTodayUseCase(readStore: todayReadStore),
             createRoutineItem: CreateRoutineItemUseCase(repository: itemRepository),
             updateRoutineItem: UpdateRoutineItemUseCase(repository: itemRepository),
+            updateOneShotPin: UpdateOneShotPinUseCase(repository: itemRepository),
             deleteRoutineItem: DeleteRoutineItemUseCase(repository: itemRepository),
             reorderRoutineItems: ReorderRoutineItemsUseCase(repository: itemRepository),
             loadWeekdayTaskGroups: LoadWeekdayTaskGroupsUseCase(repository: itemRepository),
@@ -91,14 +93,15 @@ struct AppDependencies {
         calendar: CalendarProviding
     ) throws {
         let items = [
-            RoutineItem(title: "明日の服を出す", scheduleKind: .routine, sortOrder: 0),
+            RoutineItem(title: "明日の服を出す", scheduleKind: .routine, isPinned: false, sortOrder: 0),
             RoutineItem(
                 title: "ごみ出し準備",
                 scheduleKind: .routine,
+                isPinned: false,
                 sortOrder: 1,
                 repeatWeekdays: [.monday, .thursday]
             ),
-            RoutineItem(title: "机を戻す", scheduleKind: .routine, sortOrder: 2)
+            RoutineItem(title: "机を戻す", scheduleKind: .routine, isPinned: false, sortOrder: 2)
         ]
 
         for item in items {

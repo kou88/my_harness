@@ -3,6 +3,7 @@ struct AppUseCases {
     let loadToday: LoadTodayUseCase
     let createRoutineItem: CreateRoutineItemUseCase
     let updateRoutineItem: UpdateRoutineItemUseCase
+    let updateOneShotPin: UpdateOneShotPinUseCase
     let deleteRoutineItem: DeleteRoutineItemUseCase
     let reorderRoutineItems: ReorderRoutineItemsUseCase
     let loadWeekdayTaskGroups: LoadWeekdayTaskGroupsUseCase

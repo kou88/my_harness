@@ -17,6 +17,7 @@ struct CreateRoutineItemUseCase {
         let item = RoutineItem(
             title: trimmed,
             scheduleKind: scheduleKind,
+            isPinned: false,
             sortOrder: nextOrder,
             repeatWeekdays: repeatWeekdays
         )
@@ -41,6 +42,20 @@ struct UpdateRoutineItemUseCase {
         item.type = .check
         item.scheduleKind = scheduleKind
         item.repeatWeekdays = repeatWeekdays.isEmpty ? RoutineWeekday.everyDay : repeatWeekdays
+        item.updatedAt = Date()
+        try await repository.upsert(item)
+    }
+}
+
+@MainActor
+struct UpdateOneShotPinUseCase {
+    let repository: RoutineItemRepository
+
+    func execute(id: UUID, isPinned: Bool) async throws {
+        guard var item = try await repository.item(id: id), item.scheduleKind == .oneShot else {
+            return
+        }
+        item.isPinned = isPinned
         item.updatedAt = Date()
         try await repository.upsert(item)
     }

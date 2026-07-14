@@ -19,11 +19,16 @@ final class SwiftDataRoutineItemRepository: RoutineItemRepository {
                 SortDescriptor(\RoutineItemModel.createdAt, order: .forward)
             ]
         )
-        return RoutineItem.displayOrdered(try context.fetch(descriptor).map(\.domain))
+        let pinnedItemIds = try pinnedItemIds()
+        let items = try context.fetch(descriptor).map { model in
+            model.domain(isPinned: pinnedItemIds.contains(model.id))
+        }
+        return RoutineItem.displayOrdered(items)
     }
 
     func item(id: UUID) async throws -> RoutineItem? {
-        try fetchModel(id: id)?.domain
+        guard let model = try fetchModel(id: id) else { return nil }
+        return try model.domain(isPinned: fetchPin(itemId: id) != nil)
     }
 
     func upsert(_ item: RoutineItem) async throws {
@@ -32,6 +37,8 @@ final class SwiftDataRoutineItemRepository: RoutineItemRepository {
         } else {
             context.insert(RoutineItemModel(item: item))
         }
+
+        try syncPin(for: item)
         try context.save()
     }
 
@@ -39,6 +46,9 @@ final class SwiftDataRoutineItemRepository: RoutineItemRepository {
         guard let model = try fetchModel(id: id) else { return }
         model.isArchived = true
         model.updatedAt = Date()
+        if let pin = try fetchPin(itemId: id) {
+            context.delete(pin)
+        }
         try context.save()
     }
 
@@ -69,6 +79,34 @@ final class SwiftDataRoutineItemRepository: RoutineItemRepository {
         var descriptor = FetchDescriptor<RoutineItemModel>(
             predicate: #Predicate { model in
                 model.id == id
+            }
+        )
+        descriptor.fetchLimit = 1
+        return try context.fetch(descriptor).first
+    }
+
+    private func pinnedItemIds() throws -> Set<UUID> {
+        Set(try context.fetch(FetchDescriptor<OneShotPinModel>()).map(\.itemId))
+    }
+
+    private func syncPin(for item: RoutineItem) throws {
+        let existingPin = try fetchPin(itemId: item.id)
+        guard item.scheduleKind == .oneShot && item.isPinned else {
+            if let existingPin {
+                context.delete(existingPin)
+            }
+            return
+        }
+
+        if existingPin == nil {
+            context.insert(OneShotPinModel(itemId: item.id, createdAt: Date()))
+        }
+    }
+
+    private func fetchPin(itemId: UUID) throws -> OneShotPinModel? {
+        var descriptor = FetchDescriptor<OneShotPinModel>(
+            predicate: #Predicate { model in
+                model.itemId == itemId
             }
         )
         descriptor.fetchLimit = 1

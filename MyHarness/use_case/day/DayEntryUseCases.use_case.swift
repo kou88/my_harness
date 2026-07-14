@@ -32,4 +32,24 @@ struct UpdateDayEntryUseCase {
         )
         try await repository.upsert(entry)
     }
+
+    func execute(
+        item: RoutineItem,
+        date: Date = Date(),
+        isCompleted: Bool
+    ) async throws {
+        if item.scheduleKind == .oneShot && !isCompleted {
+            let completedEntries = try await repository.completedEntries(itemId: item.id)
+            for entry in completedEntries {
+                var nextEntry = entry
+                nextEntry.isCompleted = false
+                nextEntry.completedAt = nil
+                nextEntry.updatedAt = Date()
+                try await repository.upsert(nextEntry)
+            }
+            return
+        }
+
+        try await execute(itemId: item.id, date: date, isCompleted: isCompleted)
+    }
 }

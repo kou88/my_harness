@@ -23,33 +23,60 @@ final class SwiftDataTodayReadStore: TodayReadStore {
 
     func snapshots(for date: Date) async throws -> [TodayItemSnapshot] {
         let dateKey = calendar.dateKey(for: date)
-        let completedDateKeyByItemId = try await completedDateKeysByItemId()
+        let completedEntryByItemId = try await earliestCompletedEntriesByItemId()
+        let completedDateKeyByItemId = completedEntryByItemId.mapValues(\.dateKey)
         let items = try await itemRepository.listActive()
             .filter { item in
-                item.isVisible(
+                isVisibleInTodayFeature(
+                    item: item,
                     on: date,
                     dateKey: dateKey,
                     createdDateKey: calendar.dateKey(for: item.createdAt),
-                    completedDateKey: completedDateKeyByItemId[item.id],
-                    calendar: calendar.calendar
+                    completedDateKey: completedDateKeyByItemId[item.id]
                 )
             }
         let entries = try await dayEntryRepository.entries(dateKey: dateKey)
         let entryByItemId = Dictionary(uniqueKeysWithValues: entries.map { ($0.itemId, $0) })
 
         return items.map { item in
-            TodayItemSnapshot(item: item, entry: entryByItemId[item.id])
+            let entry: DayEntry?
+            if item.scheduleKind == .oneShot {
+                entry = entryByItemId[item.id] ?? completedEntryByItemId[item.id]
+            } else {
+                entry = entryByItemId[item.id]
+            }
+            return TodayItemSnapshot(item: item, entry: entry)
         }
     }
 
-    private func completedDateKeysByItemId() async throws -> [UUID: String] {
+    private func isVisibleInTodayFeature(
+        item: RoutineItem,
+        on date: Date,
+        dateKey: String,
+        createdDateKey: String,
+        completedDateKey: String?
+    ) -> Bool {
+        if item.scheduleKind == .oneShot && item.isPinned {
+            return dateKey >= createdDateKey
+        }
+
+        return item.isVisible(
+            on: date,
+            dateKey: dateKey,
+            createdDateKey: createdDateKey,
+            completedDateKey: completedDateKey,
+            calendar: calendar.calendar
+        )
+    }
+
+    private func earliestCompletedEntriesByItemId() async throws -> [UUID: DayEntry] {
         let completedEntries = try await dayEntryRepository.completedEntries()
-        var result: [UUID: String] = [:]
+        var result: [UUID: DayEntry] = [:]
         for entry in completedEntries {
-            if let existingDateKey = result[entry.itemId] {
-                result[entry.itemId] = min(existingDateKey, entry.dateKey)
+            if let existingEntry = result[entry.itemId] {
+                result[entry.itemId] = existingEntry.dateKey <= entry.dateKey ? existingEntry : entry
             } else {
-                result[entry.itemId] = entry.dateKey
+                result[entry.itemId] = entry
             }
         }
         return result

@@ -98,6 +98,7 @@ struct RoutineItem: Identifiable, Codable, Hashable {
     var title: String
     var type: RoutineItemType
     var scheduleKind: RoutineScheduleKind
+    var isPinned: Bool
     var sortOrder: Int
     var repeatWeekdays: Set<RoutineWeekday>
     var isArchived: Bool
@@ -109,6 +110,7 @@ struct RoutineItem: Identifiable, Codable, Hashable {
         title: String,
         type: RoutineItemType = .check,
         scheduleKind: RoutineScheduleKind,
+        isPinned: Bool,
         sortOrder: Int,
         repeatWeekdays: Set<RoutineWeekday> = RoutineWeekday.everyDay,
         isArchived: Bool = false,
@@ -119,6 +121,7 @@ struct RoutineItem: Identifiable, Codable, Hashable {
         self.title = title
         self.type = type
         self.scheduleKind = scheduleKind
+        self.isPinned = scheduleKind == .oneShot && isPinned
         self.sortOrder = sortOrder
         self.repeatWeekdays = repeatWeekdays.isEmpty ? RoutineWeekday.everyDay : repeatWeekdays
         self.isArchived = isArchived
@@ -171,6 +174,11 @@ struct RoutineItem: Identifiable, Codable, Hashable {
         items.sorted { first, second in
             if first.scheduleKind.displayPriority != second.scheduleKind.displayPriority {
                 return first.scheduleKind.displayPriority < second.scheduleKind.displayPriority
+            }
+            if first.scheduleKind == .oneShot,
+               second.scheduleKind == .oneShot,
+               first.isPinned != second.isPinned {
+                return first.isPinned
             }
             if first.sortOrder != second.sortOrder {
                 return first.sortOrder < second.sortOrder

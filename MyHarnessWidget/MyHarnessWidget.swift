@@ -234,6 +234,17 @@ final class DayEntryModel {
 }
 
 @Model
+final class OneShotPinModel {
+    @Attribute(.unique) var itemId: UUID
+    var createdAt: Date
+
+    init(itemId: UUID, createdAt: Date) {
+        self.itemId = itemId
+        self.createdAt = createdAt
+    }
+}
+
+@Model
 final class HarnessSettingsModel {
     @Attribute(.unique) var key: String
     var notificationHour: Int
@@ -260,6 +271,7 @@ private enum WidgetSwiftDataStore {
         do {
             let schema = Schema([
                 RoutineItemModel.self,
+                OneShotPinModel.self,
                 DayEntryModel.self,
                 HarnessSettingsModel.self
             ])
