@@ -89,7 +89,6 @@ jobs:
           require 'openssl'
           require 'time'
           require 'uri'
-          require 'jwt'
 
           key_id = ENV.fetch('ASC_KEY_ID')
           issuer_id = ENV.fetch('ASC_ISSUER_ID')
@@ -98,17 +97,28 @@ jobs:
           profile_path = ENV.fetch('PROFILE_PATH')
 
           key = OpenSSL::PKey::EC.new(File.read(key_path))
-          token = JWT.encode(
-            {
-              iss: issuer_id,
-              exp: Time.now.to_i + 20 * 60,
-              aud: 'appstoreconnect-v1'
-            },
-            key,
-            'ES256',
-            kid: key_id,
-            typ: 'JWT'
+
+          base64url = lambda do |value|
+            Base64.urlsafe_encode64(value).delete('=')
+          end
+
+          header = base64url.call(JSON.generate({ alg: 'ES256', kid: key_id, typ: 'JWT' }))
+          payload = base64url.call(
+            JSON.generate(
+              {
+                iss: issuer_id,
+                exp: Time.now.to_i + 20 * 60,
+                aud: 'appstoreconnect-v1'
+              }
+            )
           )
+          signing_input = "#{header}.#{payload}"
+          signature_der = key.dsa_sign_asn1(OpenSSL::Digest::SHA256.digest(signing_input))
+          signature_asn1 = OpenSSL::ASN1.decode(signature_der)
+          raw_signature = signature_asn1.value.map do |integer|
+            integer.value.to_i.to_s(16).rjust(64, '0')
+          end.join
+          token = "#{signing_input}.#{base64url.call([raw_signature].pack('H*'))}"
 
           uri = URI('https://api.appstoreconnect.apple.com/v1/profiles')
           uri.query = URI.encode_www_form(
