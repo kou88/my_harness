@@ -99,23 +99,30 @@ jobs:
             local uuid
             local name
             local team_id
+            local supports_push
             uuid=$(/usr/libexec/PlistBuddy -c "Print :UUID" "$plist_path")
             name=$(/usr/libexec/PlistBuddy -c "Print :Name" "$plist_path")
             team_id=$(/usr/libexec/PlistBuddy -c "Print :TeamIdentifier:0" "$plist_path")
+            if /usr/libexec/PlistBuddy -c "Print :Entitlements:aps-environment" "$plist_path" >/dev/null 2>&1; then
+              supports_push=1
+            else
+              supports_push=0
+            fi
             cp "$profile_path" "$USER_HOME/Library/MobileDevice/Provisioning Profiles/$uuid.mobileprovision"
-            printf '%s|%s|%s\n' "$uuid" "$name" "$team_id"
+            printf '%s|%s|%s|%s\n' "$uuid" "$name" "$team_id" "$supports_push"
           }
 
           APP_INFO="$(extract_profile "$APP_PROFILE_PATH" APP)"
           WIDGET_INFO="$(extract_profile "$WIDGET_PROFILE_PATH" WIDGET)"
 
-          IFS='|' read -r APP_PROFILE_UUID APP_PROFILE_NAME APP_TEAM_ID <<< "$APP_INFO"
-          IFS='|' read -r WIDGET_PROFILE_UUID WIDGET_PROFILE_NAME WIDGET_TEAM_ID <<< "$WIDGET_INFO"
+          IFS='|' read -r APP_PROFILE_UUID APP_PROFILE_NAME APP_TEAM_ID APP_PROFILE_SUPPORTS_PUSH <<< "$APP_INFO"
+          IFS='|' read -r WIDGET_PROFILE_UUID WIDGET_PROFILE_NAME WIDGET_TEAM_ID WIDGET_PROFILE_SUPPORTS_PUSH <<< "$WIDGET_INFO"
 
           {
             echo "APP_PROFILE_UUID=$APP_PROFILE_UUID"
             echo "APP_PROFILE_NAME=$APP_PROFILE_NAME"
             echo "APP_TEAM_ID=$APP_TEAM_ID"
+            echo "APP_PROFILE_SUPPORTS_PUSH=$APP_PROFILE_SUPPORTS_PUSH"
             echo "WIDGET_PROFILE_UUID=$WIDGET_PROFILE_UUID"
             echo "WIDGET_PROFILE_NAME=$WIDGET_PROFILE_NAME"
             echo "WIDGET_TEAM_ID=$WIDGET_TEAM_ID"
@@ -131,6 +138,20 @@ jobs:
           echo "Widget profile: $WIDGET_PROFILE_NAME ($WIDGET_PROFILE_UUID)"
           echo "Team ID: $APP_TEAM_ID"
           security find-identity -v -p codesigning
+
+      - name: Disable push entitlement when profile does not support it
+        run: |
+          set -euo pipefail
+          if [ "${APP_PROFILE_SUPPORTS_PUSH:-0}" = "1" ]; then
+            echo "App provisioning profile supports Push Notifications."
+            exit 0
+          fi
+
+          echo "::warning::App provisioning profile does not include Push Notifications. Stripping aps-environment for this TestFlight archive."
+          /usr/libexec/PlistBuddy -c "Delete :aps-environment" MyHarness/MyHarness.entitlements || true
+          perl -0pi -e 's/\n\t\t\t\tAPS_ENVIRONMENT = (development|production);//g' MyHarness.xcodeproj/project.pbxproj
+          perl -0pi -e 's/\n\t\t\t\t\t\t\t\tcom\.apple\.Push = \{\n\t\t\t\t\t\t\t\t\tenabled = 1;\n\t\t\t\t\t\t\t\t\};//g' MyHarness.xcodeproj/project.pbxproj
+          plutil -lint MyHarness/MyHarness.entitlements
 
       - name: Patch signing settings
         run: |
