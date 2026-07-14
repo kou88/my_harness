@@ -421,10 +421,19 @@ struct ActionSuggestion: Identifiable, Decodable, Hashable {
         requiresAppConfirmation = try container.decodeIfPresent(Bool.self, forKey: .requiresAppConfirmation)
             ?? container.decodeIfPresent(Bool.self, forKey: .requiresConfirmation)
         let apiEvidence = try container.decodeIfPresent([ActionSuggestionEvidenceItem].self, forKey: .evidence) ?? []
-        sourceItems = (try container.decodeIfPresent([ActionSuggestionEvidenceItem].self, forKey: .sourceItems) ?? []) + apiEvidence
-        needEvidence = (try container.decodeIfPresent([ActionSuggestionEvidenceItem].self, forKey: .needEvidence) ?? []) + apiEvidence
+        sourceItems = try container.decodeIfPresent([ActionSuggestionEvidenceItem].self, forKey: .sourceItems) ?? []
+        needEvidence = Self.deduplicatedEvidence(
+            (try container.decodeIfPresent([ActionSuggestionEvidenceItem].self, forKey: .needEvidence) ?? []) + apiEvidence
+        )
         let executionResults = executions.flatMap(\.results)
         researchResults = (try container.decodeIfPresent([ActionSuggestionResearchResult].self, forKey: .researchResults) ?? []) + executionResults
+    }
+
+    private static func deduplicatedEvidence(_ items: [ActionSuggestionEvidenceItem]) -> [ActionSuggestionEvidenceItem] {
+        var seen = Set<String>()
+        return items.filter { item in
+            seen.insert(item.id).inserted
+        }
     }
 }
 
