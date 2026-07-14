@@ -9,12 +9,14 @@ private enum WidgetAppGroup {
 
 private enum WidgetDeepLink {
     static let openApp = URL(string: "myharness://open")!
+    static let suggestions = URL(string: "myharness://suggestions")!
 }
 
 private enum WidgetStoreKey {
     static let snapshot = "my_harness.widget.snapshot"
     static let pendingUpdates = "my_harness.widget.pending_updates"
     static let displaySettings = "my_harness.widget.display_settings"
+    static let actionSuggestionsSnapshot = "my_harness.action_suggestions.widget_snapshot"
 }
 
 private struct WidgetItemSnapshot: Identifiable, Codable, Hashable {
@@ -124,6 +126,25 @@ private struct WidgetTodaySnapshot: Codable, Hashable {
             components.month ?? 0,
             components.day ?? 0
         )
+    }
+}
+
+private struct WidgetActionSuggestionItem: Identifiable, Codable, Hashable {
+    var id: String
+    var title: String
+    var summary: String
+    var riskLabel: String
+    var updatedAt: Date?
+}
+
+private struct WidgetActionSuggestionSnapshot: Codable, Hashable {
+    var updatedAt: Date
+    var pendingCount: Int
+    var highRiskCount: Int
+    var items: [WidgetActionSuggestionItem]
+
+    static var empty: WidgetActionSuggestionSnapshot {
+        WidgetActionSuggestionSnapshot(updatedAt: Date(), pendingCount: 0, highRiskCount: 0, items: [])
     }
 }
 
@@ -430,6 +451,22 @@ private enum WidgetSharedStore {
             }
             snapshot.items[index].isCompleted = update.isCompleted
             snapshot.updatedAt = max(snapshot.updatedAt, update.updatedAt)
+        }
+        return snapshot
+    }
+}
+
+private enum WidgetActionSuggestionStore {
+    static var defaults: UserDefaults {
+        UserDefaults(suiteName: WidgetAppGroup.identifier) ?? .standard
+    }
+
+    static func readSnapshot() -> WidgetActionSuggestionSnapshot {
+        guard
+            let data = defaults.data(forKey: WidgetStoreKey.actionSuggestionsSnapshot),
+            let snapshot = try? JSONDecoder().decode(WidgetActionSuggestionSnapshot.self, from: data)
+        else {
+            return .empty
         }
         return snapshot
     }
@@ -846,6 +883,125 @@ private struct MyHarnessOpenWidgetView: View {
     }
 }
 
+private struct ActionSuggestionsTimelineEntry: TimelineEntry {
+    let date: Date
+    let snapshot: WidgetActionSuggestionSnapshot
+}
+
+private struct ActionSuggestionsTimelineProvider: TimelineProvider {
+    func placeholder(in context: Context) -> ActionSuggestionsTimelineEntry {
+        ActionSuggestionsTimelineEntry(
+            date: Date(),
+            snapshot: WidgetActionSuggestionSnapshot(
+                updatedAt: Date(),
+                pendingCount: 2,
+                highRiskCount: 1,
+                items: [
+                    WidgetActionSuggestionItem(
+                        id: "preview-1",
+                        title: "調査結果を確認",
+                        summary: "Evidence付きの提案があります",
+                        riskLabel: "低",
+                        updatedAt: Date()
+                    )
+                ]
+            )
+        )
+    }
+
+    func getSnapshot(in context: Context, completion: @escaping (ActionSuggestionsTimelineEntry) -> Void) {
+        completion(ActionSuggestionsTimelineEntry(date: Date(), snapshot: WidgetActionSuggestionStore.readSnapshot()))
+    }
+
+    func getTimeline(in context: Context, completion: @escaping (Timeline<ActionSuggestionsTimelineEntry>) -> Void) {
+        let now = Date()
+        let entry = ActionSuggestionsTimelineEntry(date: now, snapshot: WidgetActionSuggestionStore.readSnapshot())
+        let nextReload = Calendar.autoupdatingCurrent.date(byAdding: .minute, value: 30, to: now)
+            ?? now.addingTimeInterval(1_800)
+        completion(Timeline(entries: [entry], policy: .after(nextReload)))
+    }
+}
+
+private struct ActionSuggestionsWidgetView: View {
+    @Environment(\.widgetFamily) private var family
+    let entry: ActionSuggestionsTimelineEntry
+
+    private var visibleItems: [WidgetActionSuggestionItem] {
+        switch family {
+        case .systemSmall:
+            Array(entry.snapshot.items.prefix(2))
+        case .systemLarge:
+            Array(entry.snapshot.items.prefix(5))
+        case .accessoryRectangular:
+            Array(entry.snapshot.items.prefix(1))
+        default:
+            Array(entry.snapshot.items.prefix(3))
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "sparkles")
+                    .font(.caption.weight(.semibold))
+                Text("おすすめ")
+                    .font(.caption.weight(.semibold))
+                Spacer(minLength: 0)
+                Text("\(entry.snapshot.pendingCount)")
+                    .font(.caption.monospacedDigit().weight(.semibold))
+            }
+
+            if entry.snapshot.highRiskCount > 0 {
+                Label("\(entry.snapshot.highRiskCount)件は詳細確認", systemImage: "exclamationmark.triangle")
+                    .font(.caption2)
+                    .foregroundStyle(.red)
+                    .lineLimit(1)
+            }
+
+            if visibleItems.isEmpty {
+                Text("未処理なし")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                VStack(alignment: .leading, spacing: 5) {
+                    ForEach(visibleItems) { item in
+                        ActionSuggestionWidgetRow(item: item)
+                    }
+                }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .widgetURL(WidgetDeepLink.suggestions)
+        .accessibilityLabel("Action Suggestionsを開く")
+        .containerBackground(.background, for: .widget)
+    }
+}
+
+private struct ActionSuggestionWidgetRow: View {
+    let item: WidgetActionSuggestionItem
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 4) {
+                Text(item.title)
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                Text(item.riskLabel)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Text(item.summary)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+    }
+}
+
 struct MyHarnessWidget: Widget {
     let kind = "MyHarnessWidget"
 
@@ -885,12 +1041,26 @@ struct MyHarnessOpenWidget: Widget {
     }
 }
 
+struct ActionSuggestionsWidget: Widget {
+    let kind = "ActionSuggestionsWidget"
+
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: kind, provider: ActionSuggestionsTimelineProvider()) { entry in
+            ActionSuggestionsWidgetView(entry: entry)
+        }
+        .configurationDisplayName("Action Suggestions")
+        .description("未処理のおすすめ件数と上位項目を表示して、タップでmy harnessを開きます。")
+        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge, .accessoryRectangular])
+    }
+}
+
 @main
 struct MyHarnessWidgetBundle: WidgetBundle {
     var body: some Widget {
         MyHarnessWidget()
         MyHarnessButtonWidget()
         MyHarnessOpenWidget()
+        ActionSuggestionsWidget()
     }
 }
 

@@ -1,9 +1,11 @@
 import SwiftData
 import SwiftUI
+import UIKit
 
 @main
 @MainActor
 struct MyHarnessApp: App {
+    @UIApplicationDelegateAdaptor(MyHarnessAppDelegate.self) private var appDelegate
     @State private var dependencies: AppDependencies
 
     init() {
@@ -18,4 +20,3 @@ struct MyHarnessApp: App {
         }
     }
 }
-

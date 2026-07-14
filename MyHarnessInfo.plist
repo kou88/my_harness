@@ -33,6 +33,16 @@
 	</array>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>ActionAPIBaseURL</key>
+	<string>$(ACTION_API_BASE_URL)</string>
+	<key>CognitoHostedUIBaseURL</key>
+	<string>$(COGNITO_HOSTED_UI_BASE_URL)</string>
+	<key>CognitoClientID</key>
+	<string>$(COGNITO_CLIENT_ID)</string>
+	<key>CognitoRedirectURI</key>
+	<string>$(COGNITO_REDIRECT_URI)</string>
+	<key>CognitoScopes</key>
+	<string>$(COGNITO_SCOPES)</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>LSApplicationCategoryType</key>

@@ -5,6 +5,7 @@ import SwiftData
 struct AppDependencies {
     let modelContainer: ModelContainer
     let useCases: AppUseCases
+    let actionInbox: ActionInboxFeatureDependencies
 
     static func live() throws -> AppDependencies {
         try make(isStoredInMemoryOnly: false, seedPreviewData: false)
@@ -70,7 +71,13 @@ struct AppDependencies {
             notificationPermission: NotificationPermissionUseCase(scheduler: notificationScheduler)
         )
 
-        let dependencies = AppDependencies(modelContainer: container, useCases: useCases)
+        let actionInboxDependencies = ActionInboxFeatureDependencies.make()
+        let dependencies = AppDependencies(
+            modelContainer: container,
+            useCases: useCases,
+            actionInbox: actionInboxDependencies
+        )
+        ActionPushNotificationCoordinator.shared.configure(apiClient: actionInboxDependencies.apiClient)
 
         if seedPreviewData {
             try seedPreviewDataIfNeeded(context: container.mainContext, calendar: calendar)
@@ -125,6 +132,36 @@ struct AppDependencies {
 
         if didChange {
             try context.save()
+        }
+    }
+}
+
+@MainActor
+struct ActionInboxFeatureDependencies {
+    let authSession: CognitoAuthSession?
+    let apiClient: ActionInboxAPIClient?
+    let widgetRepository: ActionSuggestionWidgetSnapshotRepository
+    let configurationErrorMessage: String?
+
+    static func make() -> ActionInboxFeatureDependencies {
+        let widgetRepository = ActionSuggestionWidgetSnapshotRepository()
+        do {
+            let config = try ActionInboxConfig.load()
+            let authSession = CognitoAuthSession(config: config)
+            let apiClient = ActionInboxAPIClient(config: config, authSession: authSession)
+            return ActionInboxFeatureDependencies(
+                authSession: authSession,
+                apiClient: apiClient,
+                widgetRepository: widgetRepository,
+                configurationErrorMessage: nil
+            )
+        } catch {
+            return ActionInboxFeatureDependencies(
+                authSession: nil,
+                apiClient: nil,
+                widgetRepository: widgetRepository,
+                configurationErrorMessage: error.localizedDescription
+            )
         }
     }
 }
