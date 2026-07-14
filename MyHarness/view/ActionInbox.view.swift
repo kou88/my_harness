@@ -59,31 +59,29 @@ struct ActionInboxView: View {
     @ViewBuilder
     private var content: some View {
         if let configurationErrorMessage = state.configurationErrorMessage {
-            ContentUnavailableView {
-                Label("API設定が未完了", systemImage: "gearshape.2")
-            } description: {
-                Text(configurationErrorMessage)
-            } actions: {
-                Text("ActionAPIBaseURL / CognitoHostedUIBaseURL / CognitoClientID を設定してください。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            ActionInboxPlaceholder(
+                title: "API設定が未完了",
+                systemImage: "gearshape.2",
+                message: configurationErrorMessage,
+                footnote: "ActionAPIBaseURL / CognitoHostedUIBaseURL / CognitoClientID を設定してください。"
+            )
             .listRowSeparator(.hidden)
+            .listRowInsets(EdgeInsets(top: 0, leading: 24, bottom: 0, trailing: 24))
         } else if !state.isSignedIn {
-            ContentUnavailableView {
-                Label("ログインが必要です", systemImage: "person.crop.circle")
-            } description: {
-                Text("Action Suggestionsを操作するにはCognito Hosted UIでログインします。")
-            } actions: {
-                Button {
-                    Task { await state.signIn() }
-                } label: {
-                    Label("ログイン", systemImage: "person.crop.circle.badge.checkmark")
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(state.isSigningIn)
+            ActionInboxPlaceholder(
+                title: "ログインが必要です",
+                systemImage: "person.crop.circle",
+                message: "Cognito Hosted UIでログインします。"
+            ) {
+                ActionInboxLoginButton(
+                    isSigningIn: state.isSigningIn,
+                    action: {
+                        Task { await state.signIn() }
+                    }
+                )
             }
             .listRowSeparator(.hidden)
+            .listRowInsets(EdgeInsets(top: 0, leading: 24, bottom: 0, trailing: 24))
         } else {
             switch state.inboxState {
             case .idle, .loading:
@@ -101,17 +99,21 @@ struct ActionInboxView: View {
                 }
                 .listRowSeparator(.hidden)
             case .loaded(let payload):
-                ActionInboxSummaryRow(
-                    pendingCount: state.pendingCount,
-                    highRiskCount: state.highRiskCount,
-                    updatedAt: payload.summary?.updatedAt
-                )
-                .listRowSeparator(.hidden)
-
                 if payload.items.isEmpty {
-                    ContentUnavailableView("おすすめはありません", systemImage: "sparkles")
+                    ActionInboxPlaceholder(
+                        title: "おすすめはありません",
+                        systemImage: "sparkles"
+                    )
                         .listRowSeparator(.hidden)
+                        .listRowInsets(EdgeInsets(top: 0, leading: 24, bottom: 0, trailing: 24))
                 } else {
+                    ActionInboxSummaryRow(
+                        pendingCount: state.pendingCount,
+                        highRiskCount: state.highRiskCount,
+                        updatedAt: payload.summary?.updatedAt
+                    )
+                    .listRowSeparator(.hidden)
+
                     ForEach(payload.items) { item in
                         Button {
                             router.push(.actionSuggestionDetail(id: item.id))
@@ -123,6 +125,113 @@ struct ActionInboxView: View {
                 }
             }
         }
+    }
+}
+
+private struct ActionInboxPlaceholder<Action: View>: View {
+    let title: String
+    let systemImage: String
+    let message: String?
+    let footnote: String?
+    @ViewBuilder let action: () -> Action
+
+    init(
+        title: String,
+        systemImage: String,
+        message: String? = nil,
+        footnote: String? = nil,
+        @ViewBuilder action: @escaping () -> Action
+    ) {
+        self.title = title
+        self.systemImage = systemImage
+        self.message = message
+        self.footnote = footnote
+        self.action = action
+    }
+
+    var body: some View {
+        VStack(spacing: 18) {
+            Image(systemName: systemImage)
+                .font(.system(size: 52, weight: .semibold))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(.secondary)
+
+            VStack(spacing: 8) {
+                Text(title)
+                    .font(.title2.weight(.bold))
+                    .multilineTextAlignment(.center)
+
+                if let message {
+                    Text(message)
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                if let footnote {
+                    Text(footnote)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, 8)
+                }
+            }
+
+            action()
+                .padding(.top, 8)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(minHeight: 420)
+        .padding(.vertical, 32)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+extension ActionInboxPlaceholder where Action == EmptyView {
+    init(
+        title: String,
+        systemImage: String,
+        message: String? = nil,
+        footnote: String? = nil
+    ) {
+        self.init(
+            title: title,
+            systemImage: systemImage,
+            message: message,
+            footnote: footnote
+        ) {
+            EmptyView()
+        }
+    }
+}
+
+private struct ActionInboxLoginButton: View {
+    let isSigningIn: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                if isSigningIn {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: "person.crop.circle.badge.checkmark")
+                }
+
+                Text(isSigningIn ? "ログイン中" : "ログイン")
+            }
+            .font(.headline)
+            .foregroundStyle(.white)
+            .frame(width: 176, height: 52)
+            .background(Color.accentColor, in: Capsule())
+            .opacity(isSigningIn ? 0.65 : 1)
+        }
+        .buttonStyle(.plain)
+        .disabled(isSigningIn)
+        .accessibilityLabel(isSigningIn ? "ログイン中" : "ログイン")
     }
 }
 
