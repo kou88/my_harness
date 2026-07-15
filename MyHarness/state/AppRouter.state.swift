@@ -30,7 +30,8 @@ final class AppRouter {
 
         switch head {
         case "open":
-            selectedTab = .nextActions
+            selectedTab = .today
+            todayPath = []
         case "suggestions":
             selectedTab = .nextActions
             nextActionsPath = tail.first.map { [.actionSuggestionDetail(id: $0)] } ?? []
