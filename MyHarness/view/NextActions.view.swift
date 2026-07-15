@@ -428,6 +428,17 @@ private struct RecommendedVentureProposalCard: View {
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                if let firstCriterion = item.suggestedSuccessCriteria.first {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("承認時の成功条件")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Text(firstCriterion)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
             }
 
             HStack(spacing: 8) {

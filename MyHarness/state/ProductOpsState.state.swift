@@ -183,13 +183,8 @@ final class ProductOpsState {
                 expectedVersion: item.version,
                 decision: decision,
                 reason: decisionReason(decision),
-                successCriteria: [
-                    "3人以上から現在の照合手順を得る",
-                    "月間頻度と所要時間が分かる"
-                ],
-                stopConditions: [
-                    "大家業務ではなく一般Excelの話しか得られない"
-                ]
+                successCriteria: item.suggestedSuccessCriteria,
+                stopConditions: item.suggestedStopConditions
             )
             message = decisionSuccessMessage(decision)
             await loadDecisionInbox()

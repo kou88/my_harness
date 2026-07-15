@@ -29,6 +29,8 @@ struct VentureDecisionInboxItem: Identifiable, Decodable, Hashable {
     var intentKind: String
     var opportunityId: String?
     var hypothesisId: String?
+    var suggestedSuccessCriteria: [String]
+    var suggestedStopConditions: [String]
     var availableDecisions: [String]
 
     var id: String { proposalId }
