@@ -128,6 +128,7 @@ final class TodayState {
                 id: id,
                 isPinned: rows[index].item.isPinned
             )
+            try await publishWidgetSnapshotForToday()
             errorMessage = nil
         } catch {
             errorMessage = "ピン留めの保存に失敗しました: \(error.localizedDescription)"
@@ -151,6 +152,7 @@ final class TodayState {
         do {
             try await useCases.reorderRoutineItems.execute(ids: reorderedRoutineRows.map(\.id))
             weekdayTaskGroups = try await useCases.loadWeekdayTaskGroups.execute()
+            try await publishWidgetSnapshotForToday()
             errorMessage = nil
         } catch {
             errorMessage = "並べ替えに失敗しました: \(error.localizedDescription)"
@@ -175,6 +177,7 @@ final class TodayState {
         do {
             try await useCases.reorderRoutineItems.execute(ids: nextRows.map(\.id))
             weekdayTaskGroups = try await useCases.loadWeekdayTaskGroups.execute()
+            try await publishWidgetSnapshotForToday()
             errorMessage = nil
         } catch {
             errorMessage = "並べ替えに失敗しました: \(error.localizedDescription)"
@@ -297,10 +300,17 @@ final class TodayState {
     private func publishWidgetSnapshotForToday() async throws {
         let today = Date()
         let todayRows = calendar.isDate(selectedDate, inSameDayAs: today) ? rows : try await rowStates(for: today)
-        let routineRows = todayRows.filter { $0.item.scheduleKind == .routine }
+        let widgetRows = todayRows.filter { row in
+            switch row.item.scheduleKind {
+            case .routine:
+                return true
+            case .oneShot:
+                return row.item.isPinned && !row.isCompleted
+            }
+        }
         let oneShotCount = todayRows.filter { $0.item.scheduleKind == .oneShot }.count
         try await useCases.publishWidgetSnapshot.execute(
-            rows: routineRows.map { row in
+            rows: widgetRows.map { row in
                 WidgetItemSnapshot(
                     id: row.item.id,
                     title: row.item.title,
@@ -343,6 +353,7 @@ final class TodayState {
 
         do {
             try await useCases.reorderRoutineItems.execute(ids: nextRows.map(\.id))
+            try await publishWidgetSnapshotForToday()
             errorMessage = nil
         } catch {
             errorMessage = "\(failureMessage): \(error.localizedDescription)"

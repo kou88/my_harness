@@ -321,6 +321,7 @@ private enum WidgetSwiftDataStore {
         ))
         let entryByItemId = Dictionary(uniqueKeysWithValues: entries.map { ($0.itemId, $0) })
         let completedDateKeyByItemId = earliestCompletedDateKeys(from: completedEntries)
+        let pinnedItemIds = Set(try context.fetch(FetchDescriptor<OneShotPinModel>()).map(\.itemId))
         let calendar = Calendar.autoupdatingCurrent
         let todayWeekday = calendar.component(.weekday, from: date)
 
@@ -342,6 +343,15 @@ private enum WidgetSwiftDataStore {
 
             guard scheduleKind == .routine else {
                 oneShotCount += 1
+                guard pinnedItemIds.contains(item.id), completedDateKeyByItemId[item.id] == nil else {
+                    continue
+                }
+                snapshots.append(WidgetItemSnapshot(
+                    id: item.id,
+                    title: item.title,
+                    sortOrder: item.sortOrder,
+                    isCompleted: false
+                ))
                 continue
             }
 
