@@ -54,7 +54,7 @@ struct TodayView: View {
             ForEach(state.pinnedOneShotRowsForRoutineScreen) { row in
                 TodayItemRow(
                     row: row,
-                    showsMoveHandle: false,
+                    showsMoveHandle: true,
                     onTogglePin: {
                         Task { await state.togglePin(for: row.id) }
                     },
@@ -62,6 +62,16 @@ struct TodayView: View {
                         Task { await state.toggleCompletion(for: row.id) }
                     }
                 )
+                .dropDestination(for: String.self) { itemIds, _ in
+                    guard
+                        let itemId = itemIds.first,
+                        let sourceId = UUID(uuidString: itemId)
+                    else {
+                        return false
+                    }
+                    Task { await state.movePinnedOneShotRowForRoutineScreen(id: sourceId, before: row.id) }
+                    return true
+                }
                 .swipeActions(edge: .trailing) {
                     Button(role: .destructive) {
                         Task { await state.deleteItem(id: row.id) }
@@ -76,6 +86,9 @@ struct TodayView: View {
                     }
                     .tint(.blue)
                 }
+            }
+            .onMove { offsets, destination in
+                Task { await state.movePinnedOneShotRowsForRoutineScreen(from: offsets, to: destination) }
             }
 
             ForEach(state.routineRows) { row in

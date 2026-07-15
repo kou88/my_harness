@@ -183,16 +183,14 @@ final class TodayState {
     }
 
     func moveOneShotRows(from offsets: IndexSet, to destination: Int) async {
-        let reorderedRows = reordered(visibleOneShotRows, from: offsets, to: destination)
-        applySortOrders(reorderedRows)
+        let originalRows = visibleOneShotRows
+        let reorderedRows = reordered(originalRows, from: offsets, to: destination)
+        let nextRows = mergedOneShotRows(reorderedRows, replacing: originalRows)
 
-        do {
-            try await useCases.reorderRoutineItems.execute(ids: reorderedRows.map(\.id))
-            errorMessage = nil
-        } catch {
-            errorMessage = "単発タスクの並べ替えに失敗しました: \(error.localizedDescription)"
-            await load()
-        }
+        await persistOneShotRowOrder(
+            nextRows,
+            failureMessage: "単発タスクの並べ替えに失敗しました"
+        )
     }
 
     func moveOneShotRow(id sourceId: UUID, before targetId: UUID) async {
@@ -207,15 +205,41 @@ final class TodayState {
         let moving = nextRows.remove(at: sourceIndex)
         let targetIndex = nextRows.firstIndex(where: { $0.id == targetId }) ?? nextRows.count
         nextRows.insert(moving, at: targetIndex)
-        applySortOrders(nextRows)
 
-        do {
-            try await useCases.reorderRoutineItems.execute(ids: nextRows.map(\.id))
-            errorMessage = nil
-        } catch {
-            errorMessage = "単発タスクの並べ替えに失敗しました: \(error.localizedDescription)"
-            await load()
+        await persistOneShotRowOrder(
+            mergedOneShotRows(nextRows, replacing: visibleOneShotRows),
+            failureMessage: "単発タスクの並べ替えに失敗しました"
+        )
+    }
+
+    func movePinnedOneShotRowsForRoutineScreen(from offsets: IndexSet, to destination: Int) async {
+        let originalRows = pinnedOneShotRowsForRoutineScreen
+        let reorderedRows = reordered(originalRows, from: offsets, to: destination)
+        let nextRows = mergedOneShotRows(reorderedRows, replacing: originalRows)
+
+        await persistOneShotRowOrder(
+            nextRows,
+            failureMessage: "ピン留め単発タスクの並べ替えに失敗しました"
+        )
+    }
+
+    func movePinnedOneShotRowForRoutineScreen(id sourceId: UUID, before targetId: UUID) async {
+        guard
+            sourceId != targetId,
+            let sourceIndex = pinnedOneShotRowsForRoutineScreen.firstIndex(where: { $0.id == sourceId })
+        else {
+            return
         }
+
+        var nextRows = pinnedOneShotRowsForRoutineScreen
+        let moving = nextRows.remove(at: sourceIndex)
+        let targetIndex = nextRows.firstIndex(where: { $0.id == targetId }) ?? nextRows.count
+        nextRows.insert(moving, at: targetIndex)
+
+        await persistOneShotRowOrder(
+            mergedOneShotRows(nextRows, replacing: pinnedOneShotRowsForRoutineScreen),
+            failureMessage: "ピン留め単発タスクの並べ替えに失敗しました"
+        )
     }
 
     func buildAndCopyWeeklyExport() async -> String? {
@@ -308,6 +332,36 @@ final class TodayState {
                 return first.item.sortOrder < second.item.sortOrder
             }
             return first.item.createdAt < second.item.createdAt
+        }
+    }
+
+    private func persistOneShotRowOrder(
+        _ nextRows: [TodayItemRowState],
+        failureMessage: String
+    ) async {
+        applySortOrders(nextRows)
+
+        do {
+            try await useCases.reorderRoutineItems.execute(ids: nextRows.map(\.id))
+            errorMessage = nil
+        } catch {
+            errorMessage = "\(failureMessage): \(error.localizedDescription)"
+            await load()
+        }
+    }
+
+    private func mergedOneShotRows(
+        _ reorderedRows: [TodayItemRowState],
+        replacing originalRows: [TodayItemRowState]
+    ) -> [TodayItemRowState] {
+        let replacedIds = Set(originalRows.map(\.id))
+        var remainingRows = reorderedRows
+
+        return oneShotRows.map { row in
+            guard replacedIds.contains(row.id), !remainingRows.isEmpty else {
+                return row
+            }
+            return remainingRows.removeFirst()
         }
     }
 
