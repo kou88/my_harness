@@ -70,6 +70,18 @@ struct NeedPursueResult: Decodable, Hashable {
 struct NextActionsPayload: Decodable, Hashable {
     var summary: NextActionsSummary
     var items: [NextActionItem]
+
+    func replacingItems(reorderedTodoItems: [NextActionItem]) -> NextActionsPayload {
+        var nextItems = items
+        var remainingTodoItems = reorderedTodoItems
+        let reorderedIds = Set(reorderedTodoItems.map(\.id))
+
+        for index in nextItems.indices where reorderedIds.contains(nextItems[index].id) && !remainingTodoItems.isEmpty {
+            nextItems[index] = remainingTodoItems.removeFirst()
+        }
+
+        return NextActionsPayload(summary: summary, items: nextItems)
+    }
 }
 
 struct NextActionsSummary: Decodable, Hashable {

@@ -234,11 +234,26 @@ private struct TodayItemRow: View {
         .padding(.vertical, 6)
         .contentShape(Rectangle())
         .onTapGesture(perform: onToggle)
+        .modifier(ItemRowDragModifier(id: row.id.uuidString, isEnabled: showsMoveHandle))
         .accessibilityElement(children: .combine)
         .accessibilityLabel(row.item.title)
         .accessibilityHint("タップして完了状態を切り替え")
         .accessibilityAction {
             onToggle()
+        }
+    }
+}
+
+struct ItemRowDragModifier: ViewModifier {
+    let id: String
+    let isEnabled: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if isEnabled {
+            content.draggable(id)
+        } else {
+            content
         }
     }
 }

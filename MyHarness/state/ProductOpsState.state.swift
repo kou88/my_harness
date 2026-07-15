@@ -24,6 +24,7 @@ final class ProductOpsState {
     private let authSession: CognitoAuthSession?
     private let apiClient: ActionInboxAPIClient?
     private let projectId: String
+    private let nextActionOrderStorageKey: String
     private var mutatingNeedIds: Set<String> = []
     private var updatingDevelopmentTaskIds: Set<String> = []
     private var startingCodexTaskIds: Set<String> = []
@@ -37,6 +38,7 @@ final class ProductOpsState {
         self.authSession = authSession
         self.apiClient = apiClient
         self.projectId = projectId
+        nextActionOrderStorageKey = "myHarness.nextActionTodoOrder.\(projectId)"
         self.configurationErrorMessage = configurationErrorMessage
     }
 
@@ -139,7 +141,8 @@ final class ProductOpsState {
         guard let apiClient else { return }
         nextActionsState = .loading
         do {
-            nextActionsState = .loaded(try await apiClient.fetchNextActions(projectId: projectId))
+            let payload = try await apiClient.fetchNextActions(projectId: projectId)
+            nextActionsState = .loaded(applyingStoredTodoOrder(to: payload))
             message = nil
         } catch {
             nextActionsState = .failed("次にやることの読み込みに失敗しました: \(error.localizedDescription)")
@@ -189,6 +192,31 @@ final class ProductOpsState {
 
     func isStartingCodex(taskId: String) -> Bool {
         startingCodexTaskIds.contains(taskId)
+    }
+
+    func moveNextActionTodoRows(from offsets: IndexSet, to destination: Int) {
+        guard case .loaded(let payload) = nextActionsState else { return }
+        let movableItems = movableTodoItems(in: payload.items)
+        let movedItems = Self.moved(items: movableItems, fromOffsets: offsets, toOffset: destination)
+        storeNextActionTodoOrder(movedItems)
+        nextActionsState = .loaded(payload.replacingItems(reorderedTodoItems: movedItems))
+    }
+
+    func moveNextActionTodoRow(id sourceId: String, before targetId: String) {
+        guard
+            sourceId != targetId,
+            case .loaded(let payload) = nextActionsState
+        else {
+            return
+        }
+
+        var movableItems = movableTodoItems(in: payload.items)
+        guard let sourceIndex = movableItems.firstIndex(where: { $0.id == sourceId }) else { return }
+        let moving = movableItems.remove(at: sourceIndex)
+        let targetIndex = movableItems.firstIndex(where: { $0.id == targetId }) ?? movableItems.count
+        movableItems.insert(moving, at: targetIndex)
+        storeNextActionTodoOrder(movableItems)
+        nextActionsState = .loaded(payload.replacingItems(reorderedTodoItems: movableItems))
     }
 
     func pursue(candidate: NeedCandidate) async -> NeedPursueResult? {
@@ -407,6 +435,41 @@ final class ProductOpsState {
         developmentTasksState = .loaded(items)
     }
 
+    private func movableTodoItems(in items: [NextActionItem]) -> [NextActionItem] {
+        let recommendedId = items.first(where: Self.isTodoLike)?.id
+        return items.filter { item in
+            Self.isTodoLike(item) && item.id != recommendedId
+        }
+    }
+
+    private func applyingStoredTodoOrder(to payload: NextActionsPayload) -> NextActionsPayload {
+        let currentItems = movableTodoItems(in: payload.items)
+        guard
+            let storedIds = UserDefaults.standard.stringArray(forKey: nextActionOrderStorageKey),
+            !storedIds.isEmpty,
+            !currentItems.isEmpty
+        else {
+            return payload
+        }
+
+        var remainingItems = currentItems
+        var orderedItems: [NextActionItem] = []
+        for id in storedIds {
+            guard let index = remainingItems.firstIndex(where: { $0.id == id }) else { continue }
+            orderedItems.append(remainingItems.remove(at: index))
+        }
+        orderedItems.append(contentsOf: remainingItems)
+        return payload.replacingItems(reorderedTodoItems: orderedItems)
+    }
+
+    private func storeNextActionTodoOrder(_ items: [NextActionItem]) {
+        UserDefaults.standard.set(items.map(\.id), forKey: nextActionOrderStorageKey)
+    }
+
+    private static func isTodoLike(_ item: NextActionItem) -> Bool {
+        item.status == "todo" || item.status == "blocked"
+    }
+
     private func cleanedNote(_ note: String?) -> String? {
         let trimmed = note?.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed?.isEmpty == false ? trimmed : nil
@@ -418,6 +481,22 @@ final class ProductOpsState {
         toOffset: Int
     ) -> [DevelopmentTask] {
         var result = tasks
+        let moving = fromOffsets.map { result[$0] }
+        for index in fromOffsets.sorted(by: >) {
+            result.remove(at: index)
+        }
+        let removedBeforeDestination = fromOffsets.filter { $0 < toOffset }.count
+        let insertionIndex = max(0, min(toOffset - removedBeforeDestination, result.count))
+        result.insert(contentsOf: moving, at: insertionIndex)
+        return result
+    }
+
+    private static func moved(
+        items: [NextActionItem],
+        fromOffsets: IndexSet,
+        toOffset: Int
+    ) -> [NextActionItem] {
+        var result = items
         let moving = fromOffsets.map { result[$0] }
         for index in fromOffsets.sorted(by: >) {
             result.remove(at: index)

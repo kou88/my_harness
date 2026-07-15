@@ -130,10 +130,19 @@ struct NextActionsView: View {
                     NextActionRow(
                         item: item,
                         isWorking: isWorking(item),
+                        showsMoveHandle: true,
                         onOpen: { open(item) },
                         onPrimary: { perform(item.primaryAction, item: item) },
                         onSecondary: { command in perform(command, item: item) }
                     )
+                    .dropDestination(for: String.self) { itemIds, _ in
+                        guard let sourceId = itemIds.first else { return false }
+                        productOpsState.moveNextActionTodoRow(id: sourceId, before: item.id)
+                        return true
+                    }
+                }
+                .onMove { offsets, destination in
+                    productOpsState.moveNextActionTodoRows(from: offsets, to: destination)
                 }
             }
         }
@@ -146,6 +155,7 @@ struct NextActionsView: View {
                     NextActionRow(
                         item: item,
                         isWorking: isWorking(item),
+                        showsMoveHandle: false,
                         onOpen: { open(item) },
                         onPrimary: { perform(item.primaryAction, item: item) },
                         onSecondary: { command in perform(command, item: item) }
@@ -162,6 +172,7 @@ struct NextActionsView: View {
                     NextActionRow(
                         item: item,
                         isWorking: isWorking(item),
+                        showsMoveHandle: false,
                         onOpen: { open(item) },
                         onPrimary: { perform(item.primaryAction, item: item) },
                         onSecondary: { command in perform(command, item: item) }
@@ -390,6 +401,7 @@ private struct RecommendedNextActionCard: View {
 private struct NextActionRow: View {
     let item: NextActionItem
     let isWorking: Bool
+    let showsMoveHandle: Bool
     let onOpen: () -> Void
     let onPrimary: () -> Void
     let onSecondary: (NextActionCommand) -> Void
@@ -447,8 +459,19 @@ private struct NextActionRow: View {
                 }
             }
             .disabled(isWorking)
+
+            if showsMoveHandle {
+                Image(systemName: "line.3.horizontal")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+                    .frame(width: 32, height: 38)
+                    .contentShape(Rectangle())
+                    .accessibilityLabel("移動")
+            }
         }
         .padding(.vertical, 6)
+        .contentShape(Rectangle())
+        .modifier(ItemRowDragModifier(id: item.id, isEnabled: showsMoveHandle))
     }
 }
 
