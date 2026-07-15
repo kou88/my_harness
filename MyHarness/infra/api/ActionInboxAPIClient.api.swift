@@ -33,6 +33,14 @@ final class ActionInboxAPIClient {
         var data: [NeedCandidate]
     }
 
+    private struct NextActionsEnvelope: Decodable {
+        var data: NextActionsPayload
+    }
+
+    private struct NeedsEnvelope: Decodable {
+        var data: [Need]
+    }
+
     private struct NeedEnvelope: Decodable {
         var data: Need
     }
@@ -134,6 +142,20 @@ final class ActionInboxAPIClient {
     func fetchInbox() async throws -> ActionInboxPayload {
         let data = try await request(path: "/api/action-inbox", method: "GET")
         return try decoder.decode(InboxEnvelope.self, from: data).data
+    }
+
+    func fetchNextActions(projectId: String) async throws -> NextActionsPayload {
+        let data = try await request(
+            path: "/api/product-ops/next-actions",
+            method: "GET",
+            queryItems: [URLQueryItem(name: "projectId", value: projectId)]
+        )
+        return try decoder.decode(NextActionsEnvelope.self, from: data).data
+    }
+
+    func fetchNeeds() async throws -> [Need] {
+        let data = try await request(path: "/api/needs", method: "GET")
+        return try decoder.decode(NeedsEnvelope.self, from: data).data
     }
 
     func fetchSuggestion(id: String) async throws -> ActionSuggestion {

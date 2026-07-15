@@ -431,7 +431,7 @@ extension ActionInboxPlaceholder where Action == EmptyView {
     }
 }
 
-private struct ActionInboxLoginButton: View {
+struct ActionInboxLoginButton: View {
     let isSigningIn: Bool
     let action: () -> Void
 

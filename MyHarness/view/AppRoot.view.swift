@@ -37,6 +37,23 @@ struct AppRootView: View {
         ) {
             NavigationStack(
                 path: Binding(
+                    get: { router.nextActionsPath },
+                    set: { router.nextActionsPath = $0 }
+                )
+            ) {
+                NextActionsView(
+                    actionInboxState: actionInboxState,
+                    productOpsState: productOpsState
+                )
+                    .navigationDestination(for: AppRoute.self, destination: routeContent)
+            }
+            .tabItem {
+                Label("次にやる", systemImage: "sparkles")
+            }
+            .tag(AppTab.nextActions)
+
+            NavigationStack(
+                path: Binding(
                     get: { router.todayPath },
                     set: { router.todayPath = $0 }
                 )
@@ -48,48 +65,6 @@ struct AppRootView: View {
                 Label("今日", systemImage: "checklist")
             }
             .tag(AppTab.today)
-
-            NavigationStack(
-                path: Binding(
-                    get: { router.suggestionsPath },
-                    set: { router.suggestionsPath = $0 }
-                )
-            ) {
-                ActionInboxView(state: actionInboxState, productOpsState: productOpsState)
-                    .navigationDestination(for: AppRoute.self, destination: routeContent)
-            }
-            .tabItem {
-                Label("おすすめ", systemImage: "sparkles")
-            }
-            .tag(AppTab.suggestions)
-
-            NavigationStack(
-                path: Binding(
-                    get: { router.developmentPath },
-                    set: { router.developmentPath = $0 }
-                )
-            ) {
-                DevelopmentView(state: productOpsState, actionInboxState: actionInboxState)
-                    .navigationDestination(for: AppRoute.self, destination: routeContent)
-            }
-            .tabItem {
-                Label("開発", systemImage: "hammer")
-            }
-            .tag(AppTab.development)
-
-            NavigationStack(
-                path: Binding(
-                    get: { router.policyPath },
-                    set: { router.policyPath = $0 }
-                )
-            ) {
-                ProjectPolicyView(state: productOpsState)
-                    .navigationDestination(for: AppRoute.self, destination: routeContent)
-            }
-            .tabItem {
-                Label("方針", systemImage: "scope")
-            }
-            .tag(AppTab.policy)
         }
         .environment(router)
         .onOpenURL { url in
@@ -127,6 +102,16 @@ struct AppRootView: View {
             ActionReferenceView(kind: .need, id: id)
         case .codexResult(let id):
             ActionReferenceView(kind: .codexResult, id: id)
+        case .needList:
+            ProductNeedListView(state: productOpsState)
+        case .developmentBacklog:
+            DevelopmentView(state: productOpsState, actionInboxState: actionInboxState)
+        case .projectPolicy:
+            ProjectPolicyView(state: productOpsState)
+        case .actionHistory:
+            ActionHistoryView(state: actionInboxState, mode: .history)
+        case .completedActions:
+            ActionHistoryView(state: actionInboxState, mode: .completed)
         }
     }
 

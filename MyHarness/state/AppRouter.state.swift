@@ -5,26 +5,18 @@ import Observation
 @Observable
 final class AppRouter {
     var presentedSheet: AppSheet?
-    var selectedTab: AppTab = .today
+    var selectedTab: AppTab = .nextActions
+    var nextActionsPath: [AppRoute] = []
     var todayPath: [AppRoute] = []
-    var suggestionsPath: [AppRoute] = []
-    var developmentPath: [AppRoute] = []
-    var policyPath: [AppRoute] = []
 
     func push(_ route: AppRoute) {
         switch route.preferredTab {
+        case .nextActions:
+            selectedTab = .nextActions
+            nextActionsPath.append(route)
         case .today:
             selectedTab = .today
             todayPath.append(route)
-        case .suggestions:
-            selectedTab = .suggestions
-            suggestionsPath.append(route)
-        case .development:
-            selectedTab = .development
-            developmentPath.append(route)
-        case .policy:
-            selectedTab = .policy
-            policyPath.append(route)
         }
     }
 
@@ -38,16 +30,16 @@ final class AppRouter {
 
         switch head {
         case "open":
-            selectedTab = .today
+            selectedTab = .nextActions
         case "suggestions":
-            selectedTab = .suggestions
-            suggestionsPath = tail.first.map { [.actionSuggestionDetail(id: $0)] } ?? []
+            selectedTab = .nextActions
+            nextActionsPath = tail.first.map { [.actionSuggestionDetail(id: $0)] } ?? []
         case "development":
-            selectedTab = .development
-            developmentPath = []
+            selectedTab = .nextActions
+            nextActionsPath = [.developmentBacklog]
         case "policy":
-            selectedTab = .policy
-            policyPath = []
+            selectedTab = .nextActions
+            nextActionsPath = [.projectPolicy]
         case "executions":
             routeSuggestionReference(.actionExecution(id: tail.first ?? ""))
         case "needs":
@@ -62,16 +54,14 @@ final class AppRouter {
     }
 
     private func routeSuggestionReference(_ route: AppRoute) {
-        selectedTab = .suggestions
-        suggestionsPath = route.referenceId.isEmpty ? [] : [route]
+        selectedTab = .nextActions
+        nextActionsPath = route.referenceId.isEmpty ? [] : [route]
     }
 }
 
 enum AppTab: Hashable {
+    case nextActions
     case today
-    case suggestions
-    case development
-    case policy
 }
 
 enum AppRoute: Hashable {
@@ -80,13 +70,26 @@ enum AppRoute: Hashable {
     case actionExecution(id: String)
     case need(id: String)
     case codexResult(id: String)
+    case needList
+    case developmentBacklog
+    case projectPolicy
+    case actionHistory
+    case completedActions
 
     var preferredTab: AppTab {
         switch self {
         case .oneShotTasks:
             return .today
-        case .actionSuggestionDetail, .actionExecution, .need, .codexResult:
-            return .suggestions
+        case .actionSuggestionDetail,
+             .actionExecution,
+             .need,
+             .codexResult,
+             .needList,
+             .developmentBacklog,
+             .projectPolicy,
+             .actionHistory,
+             .completedActions:
+            return .nextActions
         }
     }
 
@@ -99,6 +102,12 @@ enum AppRoute: Hashable {
              .need(let id),
              .codexResult(let id):
             return id
+        case .needList,
+             .developmentBacklog,
+             .projectPolicy,
+             .actionHistory,
+             .completedActions:
+            return ""
         }
     }
 }

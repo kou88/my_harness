@@ -67,6 +67,41 @@ struct NeedPursueResult: Decodable, Hashable {
     var suggestions: [ActionSuggestion]
 }
 
+struct NextActionsPayload: Decodable, Hashable {
+    var summary: NextActionsSummary
+    var items: [NextActionItem]
+}
+
+struct NextActionsSummary: Decodable, Hashable {
+    var todoCount: Int
+    var runningCount: Int
+    var laterCount: Int
+    var blockedCount: Int
+    var updatedAt: Date
+}
+
+struct NextActionItem: Identifiable, Decodable, Hashable {
+    var id: String
+    var kind: String
+    var title: String
+    var detail: String
+    var status: String
+    var priority: Double
+    var primaryAction: NextActionCommand
+    var secondaryActions: [NextActionCommand]
+    var sourceId: String
+    var sourceType: String
+    var sourceVersion: Int
+    var hostId: String?
+    var route: String
+    var updatedAt: Date
+}
+
+struct NextActionCommand: Decodable, Hashable {
+    var label: String
+    var action: String
+}
+
 struct ProjectPolicy: Identifiable, Decodable, Hashable {
     var id: String
     var projectId: String

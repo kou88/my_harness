@@ -11,6 +11,8 @@ final class ProductOpsState {
         case failed(String)
     }
 
+    var nextActionsState: LoadState<NextActionsPayload> = .idle
+    var needsState: LoadState<[Need]> = .idle
     var candidatesState: LoadState<[NeedCandidate]> = .idle
     var developmentTasksState: LoadState<[DevelopmentTask]> = .idle
     var policyState: LoadState<ProjectPolicy> = .idle
@@ -53,6 +55,24 @@ final class ProductOpsState {
         return items
     }
 
+    var nextActions: [NextActionItem] {
+        guard case .loaded(let payload) = nextActionsState else {
+            return []
+        }
+        return payload.items
+    }
+
+    var recommendedNextAction: NextActionItem? {
+        nextActions.first { $0.status == "todo" || $0.status == "blocked" }
+    }
+
+    var needs: [Need] {
+        guard case .loaded(let items) = needsState else {
+            return []
+        }
+        return items
+    }
+
     var developmentTasks: [DevelopmentTask] {
         guard case .loaded(let items) = developmentTasksState else {
             return []
@@ -68,6 +88,8 @@ final class ProductOpsState {
     }
 
     func reset() {
+        nextActionsState = .idle
+        needsState = .idle
         candidatesState = .idle
         developmentTasksState = .idle
         policyState = .idle
@@ -79,7 +101,17 @@ final class ProductOpsState {
 
     func loadRecommendationsIfPossible() async {
         guard isConfigured, isSignedIn else { return }
-        await loadCandidates()
+        await loadNextActions()
+    }
+
+    func loadNextActionsIfPossible() async {
+        guard isConfigured, isSignedIn else { return }
+        await loadNextActions()
+    }
+
+    func loadNeedsIfPossible() async {
+        guard isConfigured, isSignedIn else { return }
+        await loadNeeds()
     }
 
     func loadDevelopmentTasksIfPossible() async {
@@ -100,6 +132,28 @@ final class ProductOpsState {
             message = nil
         } catch {
             candidatesState = .failed("候補の読み込みに失敗しました: \(error.localizedDescription)")
+        }
+    }
+
+    func loadNextActions() async {
+        guard let apiClient else { return }
+        nextActionsState = .loading
+        do {
+            nextActionsState = .loaded(try await apiClient.fetchNextActions(projectId: projectId))
+            message = nil
+        } catch {
+            nextActionsState = .failed("次にやることの読み込みに失敗しました: \(error.localizedDescription)")
+        }
+    }
+
+    func loadNeeds() async {
+        guard let apiClient else { return }
+        needsState = .loading
+        do {
+            needsState = .loaded(try await apiClient.fetchNeeds())
+            message = nil
+        } catch {
+            needsState = .failed("ニーズ一覧の読み込みに失敗しました: \(error.localizedDescription)")
         }
     }
 
@@ -146,6 +200,17 @@ final class ProductOpsState {
         }
     }
 
+    func pursueNeed(id: String) async -> NeedPursueResult? {
+        let result = await runNeedOperation(
+            id: id,
+            successMessage: "追うにしました"
+        ) {
+            try await apiClient?.pursueNeedCandidate(id: id, projectId: projectId)
+        }
+        await loadNextActions()
+        return result
+    }
+
     func hold(candidate: NeedCandidate, decisionNote: String?) async {
         _ = await runNeedOperation(
             id: candidate.need.id,
@@ -158,6 +223,19 @@ final class ProductOpsState {
         }
     }
 
+    func holdNeed(id: String, decisionNote: String?) async {
+        _ = await runNeedOperation(
+            id: id,
+            successMessage: "保留しました"
+        ) {
+            try await apiClient?.holdNeedCandidate(
+                id: id,
+                decisionNote: cleanedNote(decisionNote)
+            )
+        }
+        await loadNextActions()
+    }
+
     func reject(candidate: NeedCandidate, decisionNote: String?) async {
         _ = await runNeedOperation(
             id: candidate.need.id,
@@ -168,6 +246,19 @@ final class ProductOpsState {
                 decisionNote: cleanedNote(decisionNote)
             )
         }
+    }
+
+    func rejectNeed(id: String, decisionNote: String?) async {
+        _ = await runNeedOperation(
+            id: id,
+            successMessage: "却下しました"
+        ) {
+            try await apiClient?.rejectNeedCandidate(
+                id: id,
+                decisionNote: cleanedNote(decisionNote)
+            )
+        }
+        await loadNextActions()
     }
 
     func createNeedFromMemo(_ memo: String) async -> Need? {
@@ -185,6 +276,7 @@ final class ProductOpsState {
             let need = try await apiClient.createNeedFromMemo(projectId: projectId, memo: cleanedMemo)
             message = "メモからニーズを作成しました"
             await loadCandidates()
+            await loadNextActions()
             return need
         } catch {
             message = "メモの登録に失敗しました: \(error.localizedDescription)"
@@ -243,6 +335,23 @@ final class ProductOpsState {
             let suggestion = try await apiClient.startCodexDevelopmentTask(id: task.id)
             message = "Codex実装のおすすめを作成しました"
             await loadDevelopmentTasks()
+            return suggestion
+        } catch {
+            message = "Codex実装を開始できませんでした: \(error.localizedDescription)"
+            return nil
+        }
+    }
+
+    func startCodex(taskId: String) async -> ActionSuggestion? {
+        guard let apiClient else { return nil }
+        startingCodexTaskIds.insert(taskId)
+        defer { startingCodexTaskIds.remove(taskId) }
+
+        do {
+            let suggestion = try await apiClient.startCodexDevelopmentTask(id: taskId)
+            message = "Codex実装を開始しました"
+            await loadDevelopmentTasks()
+            await loadNextActions()
             return suggestion
         } catch {
             message = "Codex実装を開始できませんでした: \(error.localizedDescription)"

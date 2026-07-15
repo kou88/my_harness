@@ -147,6 +147,25 @@ final class ActionInboxState {
         await reloadAfterOperation(id: suggestion.id)
     }
 
+    func decideItem(
+        id: String,
+        version: Int,
+        hostId: String?,
+        decision: ActionSuggestionDecision,
+        decisionNote: String?
+    ) async {
+        await runVersionedOperation(successMessage: "\(decision.label)しました") {
+            try await apiClient?.decideSuggestion(
+                id: id,
+                decision: decision,
+                expectedVersion: version,
+                decisionNote: cleanedNote(decisionNote),
+                hostId: hostId
+            )
+        }
+        await loadIfPossible()
+    }
+
     func adoptResult(suggestion: ActionSuggestion, decisionNote: String?) async {
         await runVersionedOperation(successMessage: "結果を採用しました") {
             try await apiClient?.adoptResult(
