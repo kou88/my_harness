@@ -2,6 +2,70 @@ import Foundation
 
 enum ProductOpsProject {
     static let landlordSaaS = "landlord_saas"
+    static let landlordSaaSVenture = "landlord-saas"
+}
+
+enum VentureDecision: String, Encodable, Hashable {
+    case approved
+    case deferred
+    case rejected
+}
+
+struct VentureDecisionInboxPayload: Decodable, Hashable {
+    var generatedAt: Date
+    var refreshRequired: Bool
+    var items: [VentureDecisionInboxItem]
+}
+
+struct VentureDecisionInboxItem: Identifiable, Decodable, Hashable {
+    var proposalId: String
+    var title: String
+    var whyNow: String
+    var expectedOutcome: String
+    var status: String
+    var version: Int
+    var rank: Int
+    var totalScore: Double
+    var intentKind: String
+    var opportunityId: String?
+    var hypothesisId: String?
+    var availableDecisions: [String]
+
+    var id: String { proposalId }
+}
+
+struct VentureProposalDecisionResult: Decodable, Hashable {
+    struct ProposalSnapshot: Decodable, Hashable {
+        var id: String
+        var status: String
+        var version: Int
+        var updatedAt: Date
+    }
+
+    struct DecisionSnapshot: Decodable, Hashable {
+        var id: String
+        var proposalId: String
+        var actorId: String
+        var status: String
+        var reason: String
+        var decidedAt: Date
+    }
+
+    struct BetSnapshot: Decodable, Hashable {
+        var id: String
+        var ventureId: String
+        var proposalId: String
+        var decisionId: String
+        var kind: String
+        var status: String
+        var successCriteria: [String]
+        var stopConditions: [String]
+        var committedAt: Date
+    }
+
+    var proposal: ProposalSnapshot
+    var decision: DecisionSnapshot
+    var bet: BetSnapshot?
 }
 
 struct Need: Identifiable, Decodable, Hashable {

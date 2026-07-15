@@ -37,6 +37,18 @@ final class ActionInboxAPIClient {
         var data: NextActionsPayload
     }
 
+    private struct VentureDecisionInboxEnvelope: Decodable {
+        var data: VentureDecisionInboxPayload
+    }
+
+    private struct VentureProposalGenerateEnvelope: Decodable {
+        var data: VentureProposalGenerateResult
+    }
+
+    private struct VentureProposalDecisionEnvelope: Decodable {
+        var data: VentureProposalDecisionResult
+    }
+
     private struct NeedsEnvelope: Decodable {
         var data: [Need]
     }
@@ -107,6 +119,24 @@ final class ActionInboxAPIClient {
         var orderedIds: [String]
     }
 
+    private struct VentureProposalGenerateResult: Decodable {
+        var recommendationSetId: String
+        var generatedAt: Date
+        var count: Int
+    }
+
+    private struct VentureProposalDecisionRequest: Encodable {
+        struct BetCommitment: Encodable {
+            var successCriteria: [String]
+            var stopConditions: [String]
+        }
+
+        var expectedVersion: Int
+        var decision: VentureDecision
+        var reason: String
+        var betCommitment: BetCommitment?
+    }
+
     private struct EmptyRequest: Encodable {}
 
     private struct PushDeviceRequest: Encodable {
@@ -151,6 +181,42 @@ final class ActionInboxAPIClient {
             queryItems: [URLQueryItem(name: "projectId", value: projectId)]
         )
         return try decoder.decode(NextActionsEnvelope.self, from: data).data
+    }
+
+    func fetchVentureDecisionInbox(ventureId: String) async throws -> VentureDecisionInboxPayload {
+        let data = try await request(path: "/api/v2/ventures/\(ventureId)/decision-inbox", method: "GET")
+        return try decoder.decode(VentureDecisionInboxEnvelope.self, from: data).data
+    }
+
+    @discardableResult
+    func generateVentureProposals(ventureId: String) async throws -> Int {
+        let data = try await request(path: "/api/v2/ventures/\(ventureId)/proposals/generate", method: "POST", body: EmptyRequest())
+        return try decoder.decode(VentureProposalGenerateEnvelope.self, from: data).data.count
+    }
+
+    @discardableResult
+    func decideVentureProposal(
+        proposalId: String,
+        expectedVersion: Int,
+        decision: VentureDecision,
+        reason: String,
+        successCriteria: [String],
+        stopConditions: [String]
+    ) async throws -> VentureProposalDecisionResult {
+        let commitment = decision == .approved
+            ? VentureProposalDecisionRequest.BetCommitment(successCriteria: successCriteria, stopConditions: stopConditions)
+            : nil
+        let data = try await request(
+            path: "/api/v2/proposals/\(proposalId)/decisions",
+            method: "POST",
+            body: VentureProposalDecisionRequest(
+                expectedVersion: expectedVersion,
+                decision: decision,
+                reason: reason,
+                betCommitment: commitment
+            )
+        )
+        return try decoder.decode(VentureProposalDecisionEnvelope.self, from: data).data
     }
 
     func fetchNeeds() async throws -> [Need] {

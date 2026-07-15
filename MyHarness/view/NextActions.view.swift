@@ -80,7 +80,7 @@ struct NextActionsView: View {
             )
             .listRowSeparator(.hidden)
         } else {
-            switch productOpsState.nextActionsState {
+            switch productOpsState.decisionInboxState {
             case .idle, .loading:
                 HStack {
                     Spacer()
@@ -96,7 +96,49 @@ struct NextActionsView: View {
                 }
                 .listRowSeparator(.hidden)
             case .loaded(let payload):
-                nextActionsContent(payload)
+                ventureDecisionContent(payload)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func ventureDecisionContent(_ payload: VentureDecisionInboxPayload) -> some View {
+        let recommended = payload.items.first
+        let remaining = Array(payload.items.dropFirst())
+
+        if let recommended {
+            Section("おすすめ") {
+                RecommendedVentureProposalCard(
+                    item: recommended,
+                    isWorking: productOpsState.isPostingVentureDecision,
+                    onApprove: { decide(recommended, .approved) },
+                    onLater: { decide(recommended, .deferred) },
+                    onReject: { decide(recommended, .rejected) }
+                )
+                .listRowSeparator(.hidden)
+            }
+        }
+
+        Section("やること") {
+            if remaining.isEmpty {
+                emptyRow(recommended == nil ? "判断待ちはありません" : "他の判断待ちはありません")
+            } else {
+                ForEach(remaining) { item in
+                    VentureProposalRow(
+                        item: item,
+                        isWorking: productOpsState.isPostingVentureDecision,
+                        onApprove: { decide(item, .approved) },
+                        onLater: { decide(item, .deferred) },
+                        onReject: { decide(item, .rejected) }
+                    )
+                }
+            }
+        }
+
+        if payload.refreshRequired {
+            Section {
+                ProductOpsMessageBar(text: "方針または判断軸が更新されています。再読み込みしてください。", systemImage: "arrow.triangle.2.circlepath")
+                    .listRowSeparator(.hidden)
             }
         }
     }
@@ -345,6 +387,114 @@ struct NextActionsView: View {
         default:
             open(item)
         }
+    }
+
+    private func decide(_ item: VentureDecisionInboxItem, _ decision: VentureDecision) {
+        Task {
+            await productOpsState.decideVentureProposal(item, decision: decision)
+        }
+    }
+}
+
+private struct RecommendedVentureProposalCard: View {
+    let item: VentureDecisionInboxItem
+    let isWorking: Bool
+    let onApprove: () -> Void
+    let onLater: () -> Void
+    let onReject: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 6) {
+                ProductOpsTokenView("Proposal", systemImage: "sparkles")
+                ProductOpsTokenView("score \(String(format: "%.2f", item.totalScore))", systemImage: "gauge")
+                ProductOpsTokenView("v\(item.version)", systemImage: "number")
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                Text(item.title)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(item.whyNow)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("期待する結果")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(item.expectedOutcome)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            HStack(spacing: 8) {
+                Button(action: onApprove) {
+                    Label("承認", systemImage: "checkmark.circle")
+                }
+                .buttonStyle(.borderedProminent)
+
+                Button("あとで", action: onLater)
+                    .buttonStyle(.bordered)
+
+                Button("却下", role: .destructive, action: onReject)
+                    .buttonStyle(.bordered)
+            }
+            .font(.caption.weight(.semibold))
+            .controlSize(.small)
+            .disabled(isWorking)
+        }
+        .padding(.vertical, 8)
+    }
+}
+
+private struct VentureProposalRow: View {
+    let item: VentureDecisionInboxItem
+    let isWorking: Bool
+    let onApprove: () -> Void
+    let onLater: () -> Void
+    let onReject: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "circle")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 22)
+                .padding(.top, 4)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(item.title)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(item.whyNow)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 6) {
+                    ProductOpsTokenView("rank \(item.rank)")
+                    ProductOpsTokenView("score \(String(format: "%.2f", item.totalScore))")
+                }
+            }
+
+            Spacer(minLength: 0)
+
+            Menu {
+                Button("承認") { onApprove() }
+                Button("あとで") { onLater() }
+                Button("却下", role: .destructive) { onReject() }
+            } label: {
+                Image(systemName: "ellipsis")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .disabled(isWorking)
+        }
+        .padding(.vertical, 6)
     }
 }
 

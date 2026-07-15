@@ -12,18 +12,21 @@ final class ProductOpsState {
     }
 
     var nextActionsState: LoadState<NextActionsPayload> = .idle
+    var decisionInboxState: LoadState<VentureDecisionInboxPayload> = .idle
     var needsState: LoadState<[Need]> = .idle
     var candidatesState: LoadState<[NeedCandidate]> = .idle
     var developmentTasksState: LoadState<[DevelopmentTask]> = .idle
     var policyState: LoadState<ProjectPolicy> = .idle
     var isPostingMemo = false
     var isSavingPolicy = false
+    var isPostingVentureDecision = false
     var message: String?
     var configurationErrorMessage: String?
 
     private let authSession: CognitoAuthSession?
     private let apiClient: ActionInboxAPIClient?
     private let projectId: String
+    private let ventureId: String
     private let nextActionOrderStorageKey: String
     private var mutatingNeedIds: Set<String> = []
     private var updatingDevelopmentTaskIds: Set<String> = []
@@ -38,6 +41,7 @@ final class ProductOpsState {
         self.authSession = authSession
         self.apiClient = apiClient
         self.projectId = projectId
+        ventureId = ProductOpsProject.landlordSaaSVenture
         nextActionOrderStorageKey = "myHarness.nextActionTodoOrder.\(projectId)"
         self.configurationErrorMessage = configurationErrorMessage
     }
@@ -68,6 +72,17 @@ final class ProductOpsState {
         nextActions.first { $0.status == "todo" || $0.status == "blocked" }
     }
 
+    var decisionItems: [VentureDecisionInboxItem] {
+        guard case .loaded(let payload) = decisionInboxState else {
+            return []
+        }
+        return payload.items
+    }
+
+    var recommendedDecisionItem: VentureDecisionInboxItem? {
+        decisionItems.first
+    }
+
     var needs: [Need] {
         guard case .loaded(let items) = needsState else {
             return []
@@ -91,6 +106,7 @@ final class ProductOpsState {
 
     func reset() {
         nextActionsState = .idle
+        decisionInboxState = .idle
         needsState = .idle
         candidatesState = .idle
         developmentTasksState = .idle
@@ -103,12 +119,12 @@ final class ProductOpsState {
 
     func loadRecommendationsIfPossible() async {
         guard isConfigured, isSignedIn else { return }
-        await loadNextActions()
+        await loadDecisionInbox()
     }
 
     func loadNextActionsIfPossible() async {
         guard isConfigured, isSignedIn else { return }
-        await loadNextActions()
+        await loadDecisionInbox()
     }
 
     func loadNeedsIfPossible() async {
@@ -139,13 +155,46 @@ final class ProductOpsState {
 
     func loadNextActions() async {
         guard let apiClient else { return }
-        nextActionsState = .loading
+        decisionInboxState = .loading
         do {
-            let payload = try await apiClient.fetchNextActions(projectId: projectId)
-            nextActionsState = .loaded(applyingStoredTodoOrder(to: payload))
+            var payload = try await apiClient.fetchVentureDecisionInbox(ventureId: ventureId)
+            if payload.refreshRequired {
+                _ = try await apiClient.generateVentureProposals(ventureId: ventureId)
+                payload = try await apiClient.fetchVentureDecisionInbox(ventureId: ventureId)
+            }
+            decisionInboxState = .loaded(payload)
             message = nil
         } catch {
-            nextActionsState = .failed("次にやることの読み込みに失敗しました: \(error.localizedDescription)")
+            decisionInboxState = .failed("次にやることの読み込みに失敗しました: \(error.localizedDescription)")
+        }
+    }
+
+    func loadDecisionInbox() async {
+        await loadNextActions()
+    }
+
+    func decideVentureProposal(_ item: VentureDecisionInboxItem, decision: VentureDecision) async {
+        guard let apiClient else { return }
+        isPostingVentureDecision = true
+        defer { isPostingVentureDecision = false }
+        do {
+            _ = try await apiClient.decideVentureProposal(
+                proposalId: item.proposalId,
+                expectedVersion: item.version,
+                decision: decision,
+                reason: decisionReason(decision),
+                successCriteria: [
+                    "3人以上から現在の照合手順を得る",
+                    "月間頻度と所要時間が分かる"
+                ],
+                stopConditions: [
+                    "大家業務ではなく一般Excelの話しか得られない"
+                ]
+            )
+            message = decisionSuccessMessage(decision)
+            await loadDecisionInbox()
+        } catch {
+            message = "判断を保存できませんでした: \(error.localizedDescription)"
         }
     }
 
@@ -473,6 +522,28 @@ final class ProductOpsState {
     private func cleanedNote(_ note: String?) -> String? {
         let trimmed = note?.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed?.isEmpty == false ? trimmed : nil
+    }
+
+    private func decisionReason(_ decision: VentureDecision) -> String {
+        switch decision {
+        case .approved:
+            return "次の学習Betとして進める"
+        case .deferred:
+            return "今は優先しない"
+        case .rejected:
+            return "現時点では追わない"
+        }
+    }
+
+    private func decisionSuccessMessage(_ decision: VentureDecision) -> String {
+        switch decision {
+        case .approved:
+            return "承認しました"
+        case .deferred:
+            return "あとでにしました"
+        case .rejected:
+            return "却下しました"
+        }
     }
 
     private static func moved(
