@@ -5,7 +5,7 @@ import Observation
 @Observable
 final class AppRouter {
     var presentedSheet: AppSheet?
-    var selectedTab: AppTab = .nextActions
+    var selectedTab: AppTab = .today
     var nextActionsPath: [AppRoute] = []
     var todayPath: [AppRoute] = []
 

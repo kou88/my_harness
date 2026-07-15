@@ -37,6 +37,20 @@ struct AppRootView: View {
         ) {
             NavigationStack(
                 path: Binding(
+                    get: { router.todayPath },
+                    set: { router.todayPath = $0 }
+                )
+            ) {
+                TodayView(state: todayState)
+                    .navigationDestination(for: AppRoute.self, destination: routeContent)
+            }
+            .tabItem {
+                Label("今日", systemImage: "checklist")
+            }
+            .tag(AppTab.today)
+
+            NavigationStack(
+                path: Binding(
                     get: { router.nextActionsPath },
                     set: { router.nextActionsPath = $0 }
                 )
@@ -51,20 +65,6 @@ struct AppRootView: View {
                 Label("次にやる", systemImage: "sparkles")
             }
             .tag(AppTab.nextActions)
-
-            NavigationStack(
-                path: Binding(
-                    get: { router.todayPath },
-                    set: { router.todayPath = $0 }
-                )
-            ) {
-                TodayView(state: todayState)
-                    .navigationDestination(for: AppRoute.self, destination: routeContent)
-            }
-            .tabItem {
-                Label("今日", systemImage: "checklist")
-            }
-            .tag(AppTab.today)
         }
         .environment(router)
         .onOpenURL { url in
