@@ -36,6 +36,60 @@ struct VentureDecisionInboxItem: Identifiable, Decodable, Hashable {
     var id: String { proposalId }
 }
 
+struct VentureDevelopmentMissionListPayload: Decodable, Hashable {
+    var items: [VentureDevelopmentMissionItem]
+}
+
+struct VentureDevelopmentMissionItem: Identifiable, Decodable, Hashable {
+    var mission: VentureDevelopmentMission
+    var result: VentureDevelopmentMissionResult?
+
+    var id: String { mission.id }
+}
+
+struct VentureDevelopmentMission: Identifiable, Decodable, Hashable {
+    var id: String
+    var ownerUserId: String
+    var agentOwnerUserId: String
+    var ventureId: String
+    var betId: String
+    var sourceProposalId: String
+    var repositories: [String]
+    var objective: String
+    var specification: [String]
+    var acceptanceCriteria: [String]
+    var status: String
+    var agentTaskId: String?
+    var resultId: String?
+    var error: String?
+    var createdAt: Date
+    var updatedAt: Date
+}
+
+struct VentureDevelopmentMissionResult: Decodable, Hashable {
+    struct PullRequest: Decodable, Hashable {
+        var repository: String
+        var url: String
+    }
+
+    struct Check: Decodable, Hashable {
+        var name: String
+        var status: String
+        var detail: String
+    }
+
+    var id: String
+    var missionId: String
+    var agentTaskId: String
+    var summary: String
+    var changedRepositories: [String]
+    var pullRequests: [PullRequest]
+    var checks: [Check]
+    var unresolvedIssues: [String]
+    var rawResult: ProductOpsMetadataValue?
+    var submittedAt: Date
+}
+
 struct VentureProposalDecisionResult: Decodable, Hashable {
     struct ProposalSnapshot: Decodable, Hashable {
         var id: String
@@ -68,6 +122,7 @@ struct VentureProposalDecisionResult: Decodable, Hashable {
     var proposal: ProposalSnapshot
     var decision: DecisionSnapshot
     var bet: BetSnapshot?
+    var developmentMission: VentureDevelopmentMission?
 }
 
 struct Need: Identifiable, Decodable, Hashable {

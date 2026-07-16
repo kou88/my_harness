@@ -13,6 +13,7 @@ final class ProductOpsState {
 
     var nextActionsState: LoadState<NextActionsPayload> = .idle
     var decisionInboxState: LoadState<VentureDecisionInboxPayload> = .idle
+    var developmentMissionsState: LoadState<[VentureDevelopmentMissionItem]> = .idle
     var needsState: LoadState<[Need]> = .idle
     var candidatesState: LoadState<[NeedCandidate]> = .idle
     var developmentTasksState: LoadState<[DevelopmentTask]> = .idle
@@ -83,6 +84,13 @@ final class ProductOpsState {
         decisionItems.first
     }
 
+    var developmentMissionItems: [VentureDevelopmentMissionItem] {
+        guard case .loaded(let items) = developmentMissionsState else {
+            return []
+        }
+        return items
+    }
+
     var needs: [Need] {
         guard case .loaded(let items) = needsState else {
             return []
@@ -107,6 +115,7 @@ final class ProductOpsState {
     func reset() {
         nextActionsState = .idle
         decisionInboxState = .idle
+        developmentMissionsState = .idle
         needsState = .idle
         candidatesState = .idle
         developmentTasksState = .idle
@@ -156,6 +165,7 @@ final class ProductOpsState {
     func loadNextActions() async {
         guard let apiClient else { return }
         decisionInboxState = .loading
+        developmentMissionsState = .loading
         do {
             var payload = try await apiClient.fetchVentureDecisionInbox(ventureId: ventureId)
             if payload.refreshRequired {
@@ -163,9 +173,15 @@ final class ProductOpsState {
                 payload = try await apiClient.fetchVentureDecisionInbox(ventureId: ventureId)
             }
             decisionInboxState = .loaded(payload)
+            do {
+                developmentMissionsState = .loaded(try await apiClient.fetchVentureDevelopmentMissions(ventureId: ventureId).items)
+            } catch {
+                developmentMissionsState = .failed("開発Missionの読み込みに失敗しました: \(error.localizedDescription)")
+            }
             message = nil
         } catch {
             decisionInboxState = .failed("次にやることの読み込みに失敗しました: \(error.localizedDescription)")
+            developmentMissionsState = .idle
         }
     }
 
@@ -178,7 +194,7 @@ final class ProductOpsState {
         isPostingVentureDecision = true
         defer { isPostingVentureDecision = false }
         do {
-            _ = try await apiClient.decideVentureProposal(
+            let result = try await apiClient.decideVentureProposal(
                 proposalId: item.proposalId,
                 expectedVersion: item.version,
                 decision: decision,
@@ -186,7 +202,7 @@ final class ProductOpsState {
                 successCriteria: item.suggestedSuccessCriteria,
                 stopConditions: item.suggestedStopConditions
             )
-            message = decisionSuccessMessage(decision)
+            message = decisionSuccessMessage(decision, developmentMission: result.developmentMission)
             await loadDecisionInbox()
         } catch {
             message = "判断を保存できませんでした: \(error.localizedDescription)"
@@ -530,9 +546,12 @@ final class ProductOpsState {
         }
     }
 
-    private func decisionSuccessMessage(_ decision: VentureDecision) -> String {
+    private func decisionSuccessMessage(_ decision: VentureDecision, developmentMission: VentureDevelopmentMission?) -> String {
         switch decision {
         case .approved:
+            if developmentMission != nil {
+                return "Codexへ依頼しました"
+            }
             return "承認しました"
         case .deferred:
             return "あとでにしました"

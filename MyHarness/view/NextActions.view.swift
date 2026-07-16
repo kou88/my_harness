@@ -105,6 +105,9 @@ struct NextActionsView: View {
     private func ventureDecisionContent(_ payload: VentureDecisionInboxPayload) -> some View {
         let recommended = payload.items.first
         let remaining = Array(payload.items.dropFirst())
+        let missionItems = productOpsState.developmentMissionItems
+        let reviewMissions = missionItems.filter { $0.mission.status == "awaiting_review" || $0.mission.status == "failed" }
+        let runningMissions = missionItems.filter { ["queued", "dispatching", "running"].contains($0.mission.status) }
 
         if let recommended {
             Section("おすすめ") {
@@ -116,6 +119,14 @@ struct NextActionsView: View {
                     onReject: { decide(recommended, .rejected) }
                 )
                 .listRowSeparator(.hidden)
+            }
+        }
+
+        if !reviewMissions.isEmpty {
+            Section("結果確認") {
+                ForEach(reviewMissions) { item in
+                    VentureDevelopmentMissionRow(item: item)
+                }
             }
         }
 
@@ -132,6 +143,21 @@ struct NextActionsView: View {
                         onReject: { decide(item, .rejected) }
                     )
                 }
+            }
+        }
+
+        if !runningMissions.isEmpty {
+            Section("進行中") {
+                ForEach(runningMissions) { item in
+                    VentureDevelopmentMissionRow(item: item)
+                }
+            }
+        }
+
+        if case .failed(let message) = productOpsState.developmentMissionsState {
+            Section {
+                ProductOpsMessageBar(text: message, systemImage: "exclamationmark.triangle")
+                    .listRowSeparator(.hidden)
             }
         }
 
@@ -506,6 +532,106 @@ private struct VentureProposalRow: View {
             .disabled(isWorking)
         }
         .padding(.vertical, 6)
+    }
+}
+
+private struct VentureDevelopmentMissionRow: View {
+    let item: VentureDevelopmentMissionItem
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: iconName)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 22)
+                .padding(.top, 4)
+
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 6) {
+                    ProductOpsTokenView(statusLabel)
+                    if !item.mission.repositories.isEmpty {
+                        ProductOpsTokenView(item.mission.repositories.joined(separator: " / "))
+                    }
+                }
+                Text(item.mission.objective)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let result = item.result {
+                    Text(result.summary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let pullRequest = result.pullRequests.first, let url = URL(string: pullRequest.url) {
+                        Link(destination: url) {
+                            Label("Draft PR", systemImage: "arrow.up.right.square")
+                                .font(.caption.weight(.semibold))
+                        }
+                    }
+                } else if let error = item.mission.error, !error.isEmpty {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    Text("MacのCodex app serverで実行中です")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 6)
+    }
+
+    private var statusLabel: String {
+        switch item.mission.status {
+        case "queued":
+            return "待機中"
+        case "dispatching":
+            return "Codexへ依頼済み"
+        case "running":
+            return "実行中"
+        case "awaiting_review":
+            return "結果確認"
+        case "failed":
+            return "失敗"
+        case "completed":
+            return "完了"
+        case "canceled":
+            return "キャンセル"
+        default:
+            return item.mission.status
+        }
+    }
+
+    private var iconName: String {
+        switch item.mission.status {
+        case "awaiting_review":
+            return "doc.text.magnifyingglass"
+        case "failed":
+            return "exclamationmark.triangle"
+        case "completed":
+            return "checkmark.circle"
+        case "canceled":
+            return "xmark.circle"
+        default:
+            return "terminal"
+        }
+    }
+
+    private var tint: Color {
+        switch item.mission.status {
+        case "failed":
+            return .red
+        case "awaiting_review":
+            return .orange
+        case "completed":
+            return .green
+        default:
+            return .accentColor
+        }
     }
 }
 
