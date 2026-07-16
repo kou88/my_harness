@@ -53,6 +53,14 @@ final class ActionInboxAPIClient {
         var data: VentureDevelopmentMissionListPayload
     }
 
+    private struct VentureResearchMissionListEnvelope: Decodable {
+        var data: VentureResearchMissionListPayload
+    }
+
+    private struct VentureLearningAdoptionEnvelope: Decodable {
+        var data: VentureLearningAdoptionResult
+    }
+
     private struct NeedsEnvelope: Decodable {
         var data: [Need]
     }
@@ -141,6 +149,10 @@ final class ActionInboxAPIClient {
         var betCommitment: BetCommitment?
     }
 
+    private struct VentureLearningAdoptionRequest: Encodable {
+        var decisionNote: String
+    }
+
     private struct EmptyRequest: Encodable {}
 
     private struct PushDeviceRequest: Encodable {
@@ -195,6 +207,20 @@ final class ActionInboxAPIClient {
     func fetchVentureDevelopmentMissions(ventureId: String) async throws -> VentureDevelopmentMissionListPayload {
         let data = try await request(path: "/api/v2/ventures/\(ventureId)/development-missions", method: "GET")
         return try decoder.decode(VentureDevelopmentMissionListEnvelope.self, from: data).data
+    }
+
+    func fetchVentureResearchMissions(ventureId: String) async throws -> VentureResearchMissionListPayload {
+        let data = try await request(path: "/api/v2/ventures/\(ventureId)/research-missions", method: "GET")
+        return try decoder.decode(VentureResearchMissionListEnvelope.self, from: data).data
+    }
+
+    func adoptResearchLearning(deliverableId: String, decisionNote: String) async throws -> VentureLearningAdoptionResult {
+        let data = try await request(
+            path: "/api/v2/deliverables/\(deliverableId)/adopt-learning",
+            method: "POST",
+            body: VentureLearningAdoptionRequest(decisionNote: decisionNote)
+        )
+        return try decoder.decode(VentureLearningAdoptionEnvelope.self, from: data).data
     }
 
     @discardableResult

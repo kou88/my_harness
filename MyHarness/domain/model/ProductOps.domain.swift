@@ -95,6 +95,10 @@ struct VentureDevelopmentMissionListPayload: Decodable, Hashable {
     var items: [VentureDevelopmentMissionItem]
 }
 
+struct VentureResearchMissionListPayload: Decodable, Hashable {
+    var items: [VentureResearchMissionItem]
+}
+
 struct VentureDevelopmentMissionItem: Identifiable, Decodable, Hashable {
     var mission: VentureDevelopmentMission
     var result: VentureDevelopmentMissionResult?
@@ -109,6 +113,22 @@ struct VentureDevelopmentMissionItem: Identifiable, Decodable, Hashable {
     }
 }
 
+struct VentureResearchMissionItem: Identifiable, Decodable, Hashable {
+    var mission: VentureResearchMission
+    var result: VentureResearchMissionResult?
+    var deliverables: [VentureDeliverable]
+
+    var id: String { mission.id }
+
+    var researchReportDeliverable: VentureDeliverable? {
+        deliverables.first { $0.kind == "research_report" }
+    }
+
+    var researchReport: VentureResearchReportDeliverable? {
+        researchReportDeliverable?.researchReportPayload
+    }
+}
+
 struct VentureDevelopmentMission: Identifiable, Decodable, Hashable {
     var id: String
     var ownerUserId: String
@@ -120,6 +140,29 @@ struct VentureDevelopmentMission: Identifiable, Decodable, Hashable {
     var objective: String
     var specification: [String]
     var acceptanceCriteria: [String]
+    var status: String
+    var agentTaskId: String?
+    var resultId: String?
+    var error: String?
+    var createdAt: Date
+    var updatedAt: Date
+}
+
+struct VentureResearchMission: Identifiable, Decodable, Hashable {
+    var id: String
+    var ownerUserId: String
+    var agentOwnerUserId: String
+    var ventureId: String
+    var betId: String
+    var sourceProposalId: String
+    var channel: String
+    var objective: String
+    var researchQuestion: String
+    var targetSegment: String
+    var inclusionCriteria: [String]
+    var exclusionCriteria: [String]
+    var sampleTarget: Int
+    var completionCriteria: [String]
     var status: String
     var agentTaskId: String?
     var resultId: String?
@@ -152,6 +195,16 @@ struct VentureDevelopmentMissionResult: Decodable, Hashable {
     var submittedAt: Date
 }
 
+struct VentureResearchMissionResult: Decodable, Hashable {
+    var id: String
+    var missionId: String
+    var agentTaskId: String
+    var summary: String
+    var report: VentureResearchReportDeliverable
+    var rawResult: ProductOpsMetadataValue?
+    var submittedAt: Date
+}
+
 struct VentureDeliverable: Identifiable, Decodable, Hashable {
     var id: String
     var missionId: String
@@ -167,6 +220,13 @@ struct VentureDeliverable: Identifiable, Decodable, Hashable {
             return nil
         }
         return VentureProductChangeDeliverable(payload: payload)
+    }
+
+    var researchReportPayload: VentureResearchReportDeliverable? {
+        guard kind == "research_report" else {
+            return nil
+        }
+        return VentureResearchReportDeliverable(payload: payload)
     }
 }
 
@@ -206,6 +266,51 @@ struct VentureProductChangeDeliverable: Hashable {
     }
 }
 
+struct VentureResearchReportDeliverable: Decodable, Hashable {
+    var researchQuestion: String
+    var conclusion: String
+    var findings: [String]
+    var supportingEvidence: [String]
+    var contradictingEvidence: [String]
+    var sources: [String]
+    var unknowns: [String]
+    var nextQuestions: [String]
+
+    init(
+        researchQuestion: String,
+        conclusion: String,
+        findings: [String],
+        supportingEvidence: [String],
+        contradictingEvidence: [String],
+        sources: [String],
+        unknowns: [String],
+        nextQuestions: [String]
+    ) {
+        self.researchQuestion = researchQuestion
+        self.conclusion = conclusion
+        self.findings = findings
+        self.supportingEvidence = supportingEvidence
+        self.contradictingEvidence = contradictingEvidence
+        self.sources = sources
+        self.unknowns = unknowns
+        self.nextQuestions = nextQuestions
+    }
+
+    init?(payload: ProductOpsMetadataValue) {
+        guard let object = payload.objectValue else {
+            return nil
+        }
+        researchQuestion = object["researchQuestion"]?.stringValue ?? object["research_question"]?.stringValue ?? ""
+        conclusion = object["conclusion"]?.stringValue ?? ""
+        findings = object["findings"]?.stringArrayValue ?? []
+        supportingEvidence = object["supportingEvidence"]?.stringArrayValue ?? object["supporting_evidence"]?.stringArrayValue ?? []
+        contradictingEvidence = object["contradictingEvidence"]?.stringArrayValue ?? object["contradicting_evidence"]?.stringArrayValue ?? []
+        sources = object["sources"]?.stringArrayValue ?? []
+        unknowns = object["unknowns"]?.stringArrayValue ?? []
+        nextQuestions = object["nextQuestions"]?.stringArrayValue ?? object["next_questions"]?.stringArrayValue ?? []
+    }
+}
+
 struct VentureProposalDecisionResult: Decodable, Hashable {
     struct ProposalSnapshot: Decodable, Hashable {
         var id: String
@@ -239,6 +344,31 @@ struct VentureProposalDecisionResult: Decodable, Hashable {
     var decision: DecisionSnapshot
     var bet: BetSnapshot?
     var developmentMission: VentureDevelopmentMission?
+    var researchMission: VentureResearchMission?
+}
+
+struct VentureLearningAdoptionResult: Decodable, Hashable {
+    struct Learning: Decodable, Hashable {
+        var id: String
+        var ownerUserId: String
+        var ventureId: String
+        var missionId: String
+        var deliverableId: String
+        var opportunityId: String
+        var hypothesisId: String
+        var summary: String
+        var payload: ProductOpsMetadataValue
+        var adoptedAt: Date
+    }
+
+    struct RefreshedRecommendationSet: Decodable, Hashable {
+        var recommendationSetId: String
+        var generatedAt: Date
+        var count: Int
+    }
+
+    var learning: Learning
+    var refreshedRecommendationSet: RefreshedRecommendationSet
 }
 
 struct Need: Identifiable, Decodable, Hashable {

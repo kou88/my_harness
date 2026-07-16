@@ -14,6 +14,7 @@ final class ProductOpsState {
     var nextActionsState: LoadState<NextActionsPayload> = .idle
     var decisionInboxState: LoadState<VentureDecisionInboxPayload> = .idle
     var developmentMissionsState: LoadState<[VentureDevelopmentMissionItem]> = .idle
+    var researchMissionsState: LoadState<[VentureResearchMissionItem]> = .idle
     var needsState: LoadState<[Need]> = .idle
     var candidatesState: LoadState<[NeedCandidate]> = .idle
     var developmentTasksState: LoadState<[DevelopmentTask]> = .idle
@@ -91,6 +92,13 @@ final class ProductOpsState {
         return items
     }
 
+    var researchMissionItems: [VentureResearchMissionItem] {
+        guard case .loaded(let items) = researchMissionsState else {
+            return []
+        }
+        return items
+    }
+
     var needs: [Need] {
         guard case .loaded(let items) = needsState else {
             return []
@@ -116,6 +124,7 @@ final class ProductOpsState {
         nextActionsState = .idle
         decisionInboxState = .idle
         developmentMissionsState = .idle
+        researchMissionsState = .idle
         needsState = .idle
         candidatesState = .idle
         developmentTasksState = .idle
@@ -166,6 +175,7 @@ final class ProductOpsState {
         guard let apiClient else { return }
         decisionInboxState = .loading
         developmentMissionsState = .loading
+        researchMissionsState = .loading
         do {
             var payload = try await apiClient.fetchVentureDecisionInbox(ventureId: ventureId)
             if payload.refreshRequired {
@@ -178,10 +188,16 @@ final class ProductOpsState {
             } catch {
                 developmentMissionsState = .failed("開発Missionの読み込みに失敗しました: \(error.localizedDescription)")
             }
+            do {
+                researchMissionsState = .loaded(try await apiClient.fetchVentureResearchMissions(ventureId: ventureId).items)
+            } catch {
+                researchMissionsState = .failed("調査Missionの読み込みに失敗しました: \(error.localizedDescription)")
+            }
             message = nil
         } catch {
             decisionInboxState = .failed("次にやることの読み込みに失敗しました: \(error.localizedDescription)")
             developmentMissionsState = .idle
+            researchMissionsState = .idle
         }
     }
 
@@ -202,7 +218,12 @@ final class ProductOpsState {
                 successCriteria: item.suggestedSuccessCriteria,
                 stopConditions: item.suggestedStopConditions
             )
-            message = decisionSuccessMessage(decision, item: item, developmentMission: result.developmentMission)
+            message = decisionSuccessMessage(
+                decision,
+                item: item,
+                developmentMission: result.developmentMission,
+                researchMission: result.researchMission
+            )
             await loadDecisionInbox()
         } catch {
             await reconcileDecisionAfterFailure(item: item, decision: decision, error: error)
@@ -222,6 +243,7 @@ final class ProductOpsState {
             }
             decisionInboxState = .loaded(payload)
             developmentMissionsState = .loaded(try await apiClient.fetchVentureDevelopmentMissions(ventureId: ventureId).items)
+            researchMissionsState = .loaded(try await apiClient.fetchVentureResearchMissions(ventureId: ventureId).items)
             if payload.items.contains(where: { $0.proposalId == item.proposalId }) {
                 message = "判断を保存できませんでした: \(error.localizedDescription)"
             } else {
@@ -470,6 +492,20 @@ final class ProductOpsState {
         }
     }
 
+    func adoptResearchLearning(deliverable: VentureDeliverable) async {
+        guard let apiClient else { return }
+        do {
+            _ = try await apiClient.adoptResearchLearning(
+                deliverableId: deliverable.id,
+                decisionNote: "調査結果をLearningとして採用"
+            )
+            message = "調査結果をLearningとして採用しました"
+            await loadNextActions()
+        } catch {
+            message = "Learningとして採用できませんでした: \(error.localizedDescription)"
+        }
+    }
+
     func updatePolicy(fields: ProjectPolicyEditableFields) async -> ProjectPolicy? {
         guard let apiClient else { return nil }
         isSavingPolicy = true
@@ -569,11 +605,19 @@ final class ProductOpsState {
         }
     }
 
-    private func decisionSuccessMessage(_ decision: VentureDecision, item: VentureDecisionInboxItem, developmentMission: VentureDevelopmentMission?) -> String {
+    private func decisionSuccessMessage(
+        _ decision: VentureDecision,
+        item: VentureDecisionInboxItem,
+        developmentMission: VentureDevelopmentMission?,
+        researchMission: VentureResearchMission?
+    ) -> String {
         switch decision {
         case .approved:
             if developmentMission != nil {
                 return "Codexへ依頼しました"
+            }
+            if researchMission != nil {
+                return "調査を開始しました"
             }
             if item.actionKind == "outreach" {
                 return "メッセージ下書きを作成します。送信はしていません"

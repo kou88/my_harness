@@ -105,9 +105,12 @@ struct NextActionsView: View {
     private func ventureDecisionContent(_ payload: VentureDecisionInboxPayload) -> some View {
         let recommended = payload.items.first
         let remaining = Array(payload.items.dropFirst())
-        let missionItems = productOpsState.developmentMissionItems
-        let reviewMissions = missionItems.filter { $0.mission.status == "awaiting_review" || $0.mission.status == "failed" }
-        let runningMissions = missionItems.filter { ["queued", "dispatching", "running"].contains($0.mission.status) }
+        let developmentMissionItems = productOpsState.developmentMissionItems
+        let researchMissionItems = productOpsState.researchMissionItems
+        let reviewMissions = developmentMissionItems.filter { $0.mission.status == "awaiting_review" || $0.mission.status == "failed" }
+        let reviewResearchMissions = researchMissionItems.filter { $0.mission.status == "awaiting_review" || $0.mission.status == "failed" }
+        let runningMissions = developmentMissionItems.filter { ["queued", "dispatching", "running"].contains($0.mission.status) }
+        let runningResearchMissions = researchMissionItems.filter { ["queued", "dispatching", "running"].contains($0.mission.status) }
 
         if let recommended {
             Section("おすすめ") {
@@ -122,10 +125,18 @@ struct NextActionsView: View {
             }
         }
 
-        if !reviewMissions.isEmpty {
+        if !reviewMissions.isEmpty || !reviewResearchMissions.isEmpty {
             Section("結果確認") {
                 ForEach(reviewMissions) { item in
                     VentureDevelopmentMissionRow(item: item)
+                }
+                ForEach(reviewResearchMissions) { item in
+                    VentureResearchMissionRow(
+                        item: item,
+                        onAdopt: { deliverable in
+                            Task { await productOpsState.adoptResearchLearning(deliverable: deliverable) }
+                        }
+                    )
                 }
             }
         }
@@ -146,15 +157,25 @@ struct NextActionsView: View {
             }
         }
 
-        if !runningMissions.isEmpty {
+        if !runningMissions.isEmpty || !runningResearchMissions.isEmpty {
             Section("進行中") {
                 ForEach(runningMissions) { item in
                     VentureDevelopmentMissionRow(item: item)
+                }
+                ForEach(runningResearchMissions) { item in
+                    VentureResearchMissionRow(item: item, onAdopt: { _ in })
                 }
             }
         }
 
         if case .failed(let message) = productOpsState.developmentMissionsState {
+            Section {
+                ProductOpsMessageBar(text: message, systemImage: "exclamationmark.triangle")
+                    .listRowSeparator(.hidden)
+            }
+        }
+
+        if case .failed(let message) = productOpsState.researchMissionsState {
             Section {
                 ProductOpsMessageBar(text: message, systemImage: "exclamationmark.triangle")
                     .listRowSeparator(.hidden)
@@ -652,6 +673,160 @@ private struct VentureDevelopmentMissionRow: View {
             return .green
         default:
             return .accentColor
+        }
+    }
+}
+
+private struct VentureResearchMissionRow: View {
+    let item: VentureResearchMissionItem
+    let onAdopt: (VentureDeliverable) -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: iconName)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 22)
+                .padding(.top, 4)
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    ProductOpsTokenView(statusLabel)
+                    ProductOpsTokenView(channelLabel)
+                }
+                Text(item.mission.objective)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if let report = item.researchReport {
+                    VentureResearchReportSummaryView(
+                        summary: item.researchReportDeliverable?.summary ?? item.result?.summary ?? "",
+                        report: report
+                    )
+                    if item.mission.status == "awaiting_review", let deliverable = item.researchReportDeliverable {
+                        Button {
+                            onAdopt(deliverable)
+                        } label: {
+                            Label("Learningとして採用", systemImage: "checkmark.seal")
+                                .font(.caption.weight(.semibold))
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                    }
+                } else if let result = item.result {
+                    VentureResearchReportSummaryView(summary: result.summary, report: result.report)
+                } else if let error = item.mission.error, !error.isEmpty {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    Text("X/TikTokの追加調査を実行中です")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 6)
+    }
+
+    private var statusLabel: String {
+        switch item.mission.status {
+        case "queued":
+            return "待機中"
+        case "dispatching":
+            return "調査依頼済み"
+        case "running":
+            return "調査中"
+        case "awaiting_review":
+            return "結果確認"
+        case "failed":
+            return "失敗"
+        case "completed":
+            return "完了"
+        case "canceled":
+            return "キャンセル"
+        default:
+            return item.mission.status
+        }
+    }
+
+    private var channelLabel: String {
+        switch item.mission.channel {
+        case "tiktok":
+            return "TikTok"
+        case "x":
+            return "X"
+        default:
+            return item.mission.channel
+        }
+    }
+
+    private var iconName: String {
+        switch item.mission.status {
+        case "awaiting_review":
+            return "doc.text.magnifyingglass"
+        case "failed":
+            return "exclamationmark.triangle"
+        case "completed":
+            return "checkmark.circle"
+        case "canceled":
+            return "xmark.circle"
+        default:
+            return "magnifyingglass"
+        }
+    }
+
+    private var tint: Color {
+        switch item.mission.status {
+        case "failed":
+            return .red
+        case "awaiting_review":
+            return .orange
+        case "completed":
+            return .green
+        default:
+            return .accentColor
+        }
+    }
+}
+
+private struct VentureResearchReportSummaryView: View {
+    let summary: String
+    let report: VentureResearchReportDeliverable
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if !summary.isEmpty {
+                Text(summary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            ProductChangeSection(title: "結論", items: [report.conclusion].filter { !$0.isEmpty })
+            ProductChangeSection(title: "重要な発見", items: report.findings.prefixArray(3))
+            ProductChangeSection(title: "支持", items: report.supportingEvidence.prefixArray(2), tint: .green)
+            ProductChangeSection(title: "反例", items: report.contradictingEvidence.prefixArray(2), tint: .orange)
+            ProductChangeSection(title: "未確認", items: (report.unknowns + report.nextQuestions).prefixArray(3))
+
+            if !report.sources.isEmpty {
+                HStack(spacing: 8) {
+                    ForEach(Array(report.sources.prefix(2)), id: \.self) { source in
+                        if let url = URL(string: source), url.scheme != nil {
+                            Link(destination: url) {
+                                Label("Source", systemImage: "arrow.up.right.square")
+                                    .font(.caption.weight(.semibold))
+                            }
+                        } else {
+                            ProductOpsTokenView(source)
+                        }
+                    }
+                }
+            }
         }
     }
 }
