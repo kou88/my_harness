@@ -77,6 +77,14 @@ final class ActionInboxAPIClient {
         var data: VentureMonitoringScanResult
     }
 
+    private struct VentureMissionCatalogEnvelope: Decodable {
+        var data: VentureMissionCatalogPayload
+    }
+
+    private struct VentureMissionProgressEnvelope: Decodable {
+        var data: VentureMissionProgressPayload
+    }
+
     private struct VentureLearningAdoptionEnvelope: Decodable {
         var data: VentureLearningAdoptionResult
     }
@@ -166,7 +174,14 @@ final class ActionInboxAPIClient {
         var expectedVersion: Int
         var decision: VentureDecision
         var reason: String
+        var feedback: DecisionFeedback?
         var betCommitment: BetCommitment?
+
+        struct DecisionFeedback: Encodable {
+            var reasonCodes: [String]
+            var note: String?
+            var preferredProposalId: String?
+        }
     }
 
     private struct VentureLearningAdoptionRequest: Encodable {
@@ -259,6 +274,16 @@ final class ActionInboxAPIClient {
         return try decoder.decode(VentureMonitoringScanEnvelope.self, from: data).data
     }
 
+    func fetchVentureMissionCatalog() async throws -> VentureMissionCatalogPayload {
+        let data = try await request(path: "/api/v2/mission-catalog", method: "GET")
+        return try decoder.decode(VentureMissionCatalogEnvelope.self, from: data).data
+    }
+
+    func fetchVentureMissionProgress(ventureId: String) async throws -> VentureMissionProgressPayload {
+        let data = try await request(path: "/api/v2/ventures/\(ventureId)/mission-progress", method: "GET")
+        return try decoder.decode(VentureMissionProgressEnvelope.self, from: data).data
+    }
+
     func adoptResearchLearning(deliverableId: String, decisionNote: String) async throws -> VentureLearningAdoptionResult {
         let data = try await request(
             path: "/api/v2/deliverables/\(deliverableId)/adopt-learning",
@@ -280,6 +305,9 @@ final class ActionInboxAPIClient {
         expectedVersion: Int,
         decision: VentureDecision,
         reason: String,
+        reasonCodes: [String],
+        feedbackNote: String?,
+        preferredProposalId: String?,
         successCriteria: [String],
         stopConditions: [String]
     ) async throws -> VentureProposalDecisionResult {
@@ -293,6 +321,11 @@ final class ActionInboxAPIClient {
                 expectedVersion: expectedVersion,
                 decision: decision,
                 reason: reason,
+                feedback: VentureProposalDecisionRequest.DecisionFeedback(
+                    reasonCodes: reasonCodes,
+                    note: feedbackNote,
+                    preferredProposalId: preferredProposalId
+                ),
                 betCommitment: commitment
             )
         )

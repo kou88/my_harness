@@ -1,5 +1,14 @@
 import SwiftUI
 
+private struct PendingVentureProposalFeedback: Identifiable, Hashable {
+    var item: VentureDecisionInboxItem
+    var decision: VentureDecision
+
+    var id: String {
+        "\(item.proposalId)-\(decision.rawValue)"
+    }
+}
+
 @MainActor
 struct NextActionsView: View {
     @Environment(AppRouter.self) private var router
@@ -9,11 +18,14 @@ struct NextActionsView: View {
 
     private enum NextActionsSheet: Identifiable {
         case needMemo
+        case proposalFeedback(PendingVentureProposalFeedback)
 
         var id: String {
             switch self {
             case .needMemo:
                 return "needMemo"
+            case .proposalFeedback(let feedback):
+                return feedback.id
             }
         }
     }
@@ -50,6 +62,11 @@ struct NextActionsView: View {
                 NavigationStack {
                     NextActionNeedMemoSheet(state: productOpsState)
                 }
+            case .proposalFeedback(let feedback):
+                VentureProposalFeedbackSheet(
+                    state: productOpsState,
+                    pending: feedback
+                )
             }
         }
     }
@@ -132,6 +149,12 @@ struct NextActionsView: View {
                     onReject: { decide(recommended, .rejected) }
                 )
                 .listRowSeparator(.hidden)
+            }
+        }
+
+        if let progress = productOpsState.missionProgress, progress.totals.total > 0 {
+            Section("運用状況") {
+                MissionProgressSummaryRow(progress: progress)
             }
         }
 
@@ -235,6 +258,13 @@ struct NextActionsView: View {
         }
 
         if case .failed(let message) = productOpsState.monitoringAlertsState {
+            Section {
+                ProductOpsMessageBar(text: message, systemImage: "exclamationmark.triangle")
+                    .listRowSeparator(.hidden)
+            }
+        }
+
+        if case .failed(let message) = productOpsState.missionProgressState {
             Section {
                 ProductOpsMessageBar(text: message, systemImage: "exclamationmark.triangle")
                     .listRowSeparator(.hidden)
@@ -503,8 +533,101 @@ struct NextActionsView: View {
     }
 
     private func decide(_ item: VentureDecisionInboxItem, _ decision: VentureDecision) {
-        Task {
-            await productOpsState.decideVentureProposal(item, decision: decision)
+        if decision == .approved {
+            Task {
+                await productOpsState.decideVentureProposal(
+                    item,
+                    decision: decision,
+                    reasonCodes: approvedReasonCodes(for: item)
+                )
+            }
+        } else {
+            presentedSheet = .proposalFeedback(PendingVentureProposalFeedback(item: item, decision: decision))
+        }
+    }
+
+    private func approvedReasonCodes(for item: VentureDecisionInboxItem) -> [String] {
+        switch item.actionKind {
+        case "research", "analyze":
+            return ["high_learning_value"]
+        case "build_experiment":
+            return ["high_business_impact"]
+        default:
+            return ["good_next_step"]
+        }
+    }
+}
+
+private struct VentureProposalFeedbackSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let state: ProductOpsState
+    let pending: PendingVentureProposalFeedback
+
+    private var title: String {
+        pending.decision == .deferred ? "あとでにする理由" : "却下する理由"
+    }
+
+    private var options: [(label: String, code: String)] {
+        [
+            ("根拠不足", "insufficient_evidence"),
+            ("今じゃない", "wrong_timing"),
+            ("効果が弱い", "low_impact"),
+            ("重複", "duplicate"),
+            ("方針と違う", "out_of_scope"),
+            ("具体性不足", "too_vague"),
+            ("別の行動がよい", "wrong_action"),
+            ("ブロック中", "blocked"),
+        ]
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(pending.item.title)
+                            .font(.headline)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text("理由を選ぶとすぐ保存します。")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 4)
+                }
+
+                Section(title) {
+                    ForEach(options, id: \.code) { option in
+                        Button {
+                            Task {
+                                await state.decideVentureProposal(
+                                    pending.item,
+                                    decision: pending.decision,
+                                    reasonCodes: [option.code]
+                                )
+                                dismiss()
+                            }
+                        } label: {
+                            HStack {
+                                Text(option.label)
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+                        .disabled(state.isPostingVentureDecision)
+                    }
+                }
+            }
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("閉じる") {
+                        dismiss()
+                    }
+                }
+            }
         }
     }
 }
@@ -632,6 +755,36 @@ private struct VentureProposalRow: View {
             .buttonStyle(.bordered)
             .controlSize(.small)
             .disabled(isWorking)
+        }
+        .padding(.vertical, 6)
+    }
+}
+
+private struct MissionProgressSummaryRow: View {
+    let progress: VentureMissionProgressPayload
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                ProductOpsTokenView("判断待ち \(progress.totals.waitingForHuman)", systemImage: "person.crop.circle.badge.questionmark")
+                ProductOpsTokenView("進行中 \(progress.totals.running)", systemImage: "clock")
+                if progress.totals.failed > 0 {
+                    ProductOpsTokenView("失敗 \(progress.totals.failed)", systemImage: "exclamationmark.triangle")
+                }
+            }
+            let activeCapabilities = progress.capabilities.filter { $0.total > 0 }
+            if !activeCapabilities.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(activeCapabilities) { item in
+                            ProductOpsTokenView("\(item.label) \(item.total)")
+                        }
+                    }
+                }
+            }
+            Text("外部送信・PRマージ・本番変更は別確認です。")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
         }
         .padding(.vertical, 6)
     }

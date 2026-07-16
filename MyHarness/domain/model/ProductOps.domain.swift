@@ -121,6 +121,64 @@ struct VentureMonitoringScanResult: Decodable, Hashable {
     var createdCount: Int
 }
 
+struct VentureSideEffectPolicy: Decodable, Hashable {
+    var externalSend: Bool
+    var repositoryWrite: Bool
+    var dataMutation: Bool
+    var productionChange: Bool
+}
+
+struct VentureMissionCatalogPayload: Decodable, Hashable {
+    var generatedAt: Date
+    var capabilities: [VentureMissionCapabilityCatalogEntry]
+    var humanReviewBoundaries: [String]
+}
+
+struct VentureMissionCapabilityCatalogEntry: Decodable, Hashable, Identifiable {
+    var capability: String
+    var label: String
+    var description: String
+    var primaryDeliverableKind: String
+    var executorPreference: String
+    var sideEffectPolicy: VentureSideEffectPolicy
+    var reviewPolicy: String
+    var automationBoundary: String
+    var humanDecision: String
+
+    var id: String { capability }
+}
+
+struct VentureMissionProgressPayload: Decodable, Hashable {
+    struct Totals: Decodable, Hashable {
+        var total: Int
+        var waitingForHuman: Int
+        var running: Int
+        var failed: Int
+    }
+
+    var generatedAt: Date
+    var totals: Totals
+    var capabilities: [VentureMissionCapabilityProgress]
+    var humanReviewBoundaries: [String]
+}
+
+struct VentureMissionCapabilityProgress: Decodable, Hashable, Identifiable {
+    var capability: String
+    var label: String
+    var primaryDeliverableKind: String
+    var reviewPolicy: String
+    var sideEffectPolicy: VentureSideEffectPolicy
+    var total: Int
+    var queued: Int
+    var running: Int
+    var awaitingReview: Int
+    var failed: Int
+    var completed: Int
+    var canceled: Int
+
+    var id: String { capability }
+}
+
 struct VentureDevelopmentMissionItem: Identifiable, Decodable, Hashable {
     var mission: VentureDevelopmentMission
     var result: VentureDevelopmentMissionResult?
