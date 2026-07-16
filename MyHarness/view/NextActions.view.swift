@@ -432,7 +432,7 @@ private struct RecommendedVentureProposalCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 6) {
-                ProductOpsTokenView("Proposal", systemImage: "sparkles")
+                ProductOpsTokenView(item.actionLabel, systemImage: "sparkles")
                 ProductOpsTokenView("score \(String(format: "%.2f", item.totalScore))", systemImage: "gauge")
                 ProductOpsTokenView("v\(item.version)", systemImage: "number")
             }
@@ -445,6 +445,15 @@ private struct RecommendedVentureProposalCard: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("承認後")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(item.approvalEffect)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 VStack(alignment: .leading, spacing: 4) {
                     Text("期待する結果")
                         .font(.caption.weight(.semibold))
@@ -469,7 +478,7 @@ private struct RecommendedVentureProposalCard: View {
 
             HStack(spacing: 8) {
                 Button(action: onApprove) {
-                    Label("承認", systemImage: "checkmark.circle")
+                    Label(item.approvalLabel, systemImage: "checkmark.circle")
                 }
                 .buttonStyle(.borderedProminent)
 
@@ -513,15 +522,21 @@ private struct VentureProposalRow: View {
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 6) {
+                    ProductOpsTokenView(item.actionLabel)
                     ProductOpsTokenView("rank \(item.rank)")
                     ProductOpsTokenView("score \(String(format: "%.2f", item.totalScore))")
                 }
+                Text(item.approvalEffect)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Spacer(minLength: 0)
 
             Menu {
-                Button("承認") { onApprove() }
+                Button(item.approvalLabel) { onApprove() }
                 Button("あとで") { onLater() }
                 Button("却下", role: .destructive) { onReject() }
             } label: {

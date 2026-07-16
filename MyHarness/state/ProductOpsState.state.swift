@@ -198,12 +198,35 @@ final class ProductOpsState {
                 proposalId: item.proposalId,
                 expectedVersion: item.version,
                 decision: decision,
-                reason: decisionReason(decision),
+                reason: decisionReason(decision, item: item),
                 successCriteria: item.suggestedSuccessCriteria,
                 stopConditions: item.suggestedStopConditions
             )
-            message = decisionSuccessMessage(decision, developmentMission: result.developmentMission)
+            message = decisionSuccessMessage(decision, item: item, developmentMission: result.developmentMission)
             await loadDecisionInbox()
+        } catch {
+            await reconcileDecisionAfterFailure(item: item, decision: decision, error: error)
+        }
+    }
+
+    private func reconcileDecisionAfterFailure(item: VentureDecisionInboxItem, decision: VentureDecision, error: Error) async {
+        guard let apiClient else {
+            message = "判断を保存できませんでした: \(error.localizedDescription)"
+            return
+        }
+        do {
+            var payload = try await apiClient.fetchVentureDecisionInbox(ventureId: ventureId)
+            if payload.refreshRequired {
+                _ = try await apiClient.generateVentureProposals(ventureId: ventureId)
+                payload = try await apiClient.fetchVentureDecisionInbox(ventureId: ventureId)
+            }
+            decisionInboxState = .loaded(payload)
+            developmentMissionsState = .loaded(try await apiClient.fetchVentureDevelopmentMissions(ventureId: ventureId).items)
+            if payload.items.contains(where: { $0.proposalId == item.proposalId }) {
+                message = "判断を保存できませんでした: \(error.localizedDescription)"
+            } else {
+                message = decisionSavedAfterLostConnectionMessage(decision, item: item)
+            }
         } catch {
             message = "判断を保存できませんでした: \(error.localizedDescription)"
         }
@@ -535,10 +558,10 @@ final class ProductOpsState {
         return trimmed?.isEmpty == false ? trimmed : nil
     }
 
-    private func decisionReason(_ decision: VentureDecision) -> String {
+    private func decisionReason(_ decision: VentureDecision, item: VentureDecisionInboxItem) -> String {
         switch decision {
         case .approved:
-            return "次の学習Betとして進める"
+            return item.approvalReason
         case .deferred:
             return "今は優先しない"
         case .rejected:
@@ -546,17 +569,37 @@ final class ProductOpsState {
         }
     }
 
-    private func decisionSuccessMessage(_ decision: VentureDecision, developmentMission: VentureDevelopmentMission?) -> String {
+    private func decisionSuccessMessage(_ decision: VentureDecision, item: VentureDecisionInboxItem, developmentMission: VentureDevelopmentMission?) -> String {
         switch decision {
         case .approved:
             if developmentMission != nil {
                 return "Codexへ依頼しました"
+            }
+            if item.actionKind == "outreach" {
+                return "メッセージ下書きを作成します。送信はしていません"
+            }
+            if item.actionKind == "research" {
+                return "調査を進める判断を保存しました"
             }
             return "承認しました"
         case .deferred:
             return "あとでにしました"
         case .rejected:
             return "却下しました"
+        }
+    }
+
+    private func decisionSavedAfterLostConnectionMessage(_ decision: VentureDecision, item: VentureDecisionInboxItem) -> String {
+        switch decision {
+        case .approved:
+            if item.actionKind == "outreach" {
+                return "保存済みです。メッセージ送信はしていません"
+            }
+            return "保存済みです"
+        case .deferred:
+            return "あとでに保存済みです"
+        case .rejected:
+            return "却下済みです"
         }
     }
 

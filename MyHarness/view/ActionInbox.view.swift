@@ -627,7 +627,7 @@ struct ActionSuggestionDetailView: View {
                 confirmingAction = nil
             }
         } message: {
-            Text("version \(state.currentSuggestion?.version ?? 0) を使って送信します。古い通知や古い画面からの誤操作はAPI側で拒否されます。")
+            Text("version \(state.currentSuggestion?.version ?? 0) を使って判断を保存します。古い通知や古い画面からの誤操作はAPI側で拒否されます。")
         }
     }
 

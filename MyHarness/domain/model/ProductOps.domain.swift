@@ -26,14 +26,69 @@ struct VentureDecisionInboxItem: Identifiable, Decodable, Hashable {
     var version: Int
     var rank: Int
     var totalScore: Double
+    var actionKind: String
+    var actionChannel: String
     var intentKind: String
+    var betKind: String?
     var opportunityId: String?
     var hypothesisId: String?
+    var approvalEffect: String
     var suggestedSuccessCriteria: [String]
     var suggestedStopConditions: [String]
     var availableDecisions: [String]
 
     var id: String { proposalId }
+
+    var approvalLabel: String {
+        switch actionKind {
+        case "outreach":
+            return "下書きを作る"
+        case "research":
+            return "調査を開始"
+        case "build_experiment":
+            return "Codexで試作"
+        case "specify_experiment":
+            return "仕様案を作る"
+        case "analyze":
+            return "分析する"
+        default:
+            return "承認"
+        }
+    }
+
+    var actionLabel: String {
+        switch actionKind {
+        case "outreach":
+            return "下書き"
+        case "research":
+            return "調査"
+        case "build_experiment":
+            return "Codex"
+        case "specify_experiment":
+            return "仕様"
+        case "analyze":
+            return "分析"
+        default:
+            return "Proposal"
+        }
+    }
+
+    var approvalReason: String {
+        switch actionKind {
+        case "outreach":
+            return "外部送信せず、質問文の下書きまで作る"
+        case "research":
+            return "追加調査を進める"
+        case "build_experiment":
+            return "Codexで小さな試作を進める"
+        case "specify_experiment":
+            return "実装前の仕様案を作る"
+        case "analyze":
+            return "情報整理と分析を進める"
+        default:
+            return "次の学習Betとして進める"
+        }
+    }
 }
 
 struct VentureDevelopmentMissionListPayload: Decodable, Hashable {
