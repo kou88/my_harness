@@ -47,7 +47,7 @@ final class TodayState {
             return oneShotRows
         }
 
-        return oneShotRows.filter { $0.item.isPinned || !$0.isCompleted }
+        return oneShotRows.filter { !$0.isCompleted }
     }
 
     var oneShotCount: Int {
@@ -55,7 +55,7 @@ final class TodayState {
     }
 
     var hiddenCompletedOneShotCount: Int {
-        oneShotRows.filter { !$0.item.isPinned && $0.isCompleted }.count
+        oneShotRows.filter(\.isCompleted).count
     }
 
     func load() async {
