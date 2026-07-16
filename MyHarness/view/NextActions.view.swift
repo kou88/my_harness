@@ -108,12 +108,15 @@ struct NextActionsView: View {
         let developmentMissionItems = productOpsState.developmentMissionItems
         let researchMissionItems = productOpsState.researchMissionItems
         let messageMissionItems = productOpsState.messageMissionItems
+        let verificationMissionItems = productOpsState.verificationMissionItems
         let reviewMissions = developmentMissionItems.filter { $0.mission.status == "awaiting_review" || $0.mission.status == "failed" }
         let reviewResearchMissions = researchMissionItems.filter { $0.mission.status == "awaiting_review" || $0.mission.status == "failed" }
         let reviewMessageMissions = messageMissionItems.filter { $0.mission.status == "awaiting_review" || $0.mission.status == "failed" }
+        let reviewVerificationMissions = verificationMissionItems.filter { $0.mission.status == "awaiting_review" || $0.mission.status == "failed" }
         let runningMissions = developmentMissionItems.filter { ["queued", "dispatching", "running"].contains($0.mission.status) }
         let runningResearchMissions = researchMissionItems.filter { ["queued", "dispatching", "running"].contains($0.mission.status) }
         let runningMessageMissions = messageMissionItems.filter { ["queued", "dispatching", "running"].contains($0.mission.status) }
+        let runningVerificationMissions = verificationMissionItems.filter { ["queued", "dispatching", "running"].contains($0.mission.status) }
 
         if let recommended {
             Section("おすすめ") {
@@ -128,7 +131,7 @@ struct NextActionsView: View {
             }
         }
 
-        if !reviewMissions.isEmpty || !reviewResearchMissions.isEmpty || !reviewMessageMissions.isEmpty {
+        if !reviewMissions.isEmpty || !reviewResearchMissions.isEmpty || !reviewMessageMissions.isEmpty || !reviewVerificationMissions.isEmpty {
             Section("結果確認") {
                 ForEach(reviewMissions) { item in
                     VentureDevelopmentMissionRow(item: item)
@@ -143,6 +146,9 @@ struct NextActionsView: View {
                 }
                 ForEach(reviewMessageMissions) { item in
                     VentureMessageMissionRow(item: item)
+                }
+                ForEach(reviewVerificationMissions) { item in
+                    VentureVerificationMissionRow(item: item)
                 }
             }
         }
@@ -163,7 +169,7 @@ struct NextActionsView: View {
             }
         }
 
-        if !runningMissions.isEmpty || !runningResearchMissions.isEmpty || !runningMessageMissions.isEmpty {
+        if !runningMissions.isEmpty || !runningResearchMissions.isEmpty || !runningMessageMissions.isEmpty || !runningVerificationMissions.isEmpty {
             Section("進行中") {
                 ForEach(runningMissions) { item in
                     VentureDevelopmentMissionRow(item: item)
@@ -173,6 +179,9 @@ struct NextActionsView: View {
                 }
                 ForEach(runningMessageMissions) { item in
                     VentureMessageMissionRow(item: item)
+                }
+                ForEach(runningVerificationMissions) { item in
+                    VentureVerificationMissionRow(item: item)
                 }
             }
         }
@@ -192,6 +201,13 @@ struct NextActionsView: View {
         }
 
         if case .failed(let message) = productOpsState.messageMissionsState {
+            Section {
+                ProductOpsMessageBar(text: message, systemImage: "exclamationmark.triangle")
+                    .listRowSeparator(.hidden)
+            }
+        }
+
+        if case .failed(let message) = productOpsState.verificationMissionsState {
             Section {
                 ProductOpsMessageBar(text: message, systemImage: "exclamationmark.triangle")
                     .listRowSeparator(.hidden)
@@ -993,6 +1009,209 @@ private struct VentureMessageDraftView: View {
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+private struct VentureVerificationMissionRow: View {
+    let item: VentureVerificationMissionItem
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: iconName)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 22)
+                .padding(.top, 4)
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    ProductOpsTokenView(statusLabel)
+                    ProductOpsTokenView(sourceKindLabel)
+                }
+                Text(item.mission.objective)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if let report = item.verificationReport {
+                    VentureVerificationReportSummaryView(
+                        summary: item.verificationReportDeliverable?.summary ?? item.result?.summary ?? "",
+                        report: report
+                    )
+                } else if let result = item.result {
+                    VentureVerificationReportSummaryView(summary: result.summary, report: result.report)
+                } else if let error = item.mission.error, !error.isEmpty {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    Text("Codex app serverで成果物を検証中です。外部送信や本番操作は行いません。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 6)
+    }
+
+    private var statusLabel: String {
+        switch item.mission.status {
+        case "queued":
+            return "待機中"
+        case "dispatching":
+            return "検証依頼済み"
+        case "running":
+            return "検証中"
+        case "awaiting_review":
+            return "検証結果"
+        case "failed":
+            return "失敗"
+        case "completed":
+            return "完了"
+        case "canceled":
+            return "キャンセル"
+        default:
+            return item.mission.status
+        }
+    }
+
+    private var sourceKindLabel: String {
+        switch item.mission.sourceDeliverableKind {
+        case "product_change":
+            return "プロダクト変更"
+        case "research_report":
+            return "調査結果"
+        case "message":
+            return "文案"
+        default:
+            return item.mission.sourceDeliverableKind
+        }
+    }
+
+    private var iconName: String {
+        switch item.mission.status {
+        case "awaiting_review":
+            return "checkmark.seal"
+        case "failed":
+            return "exclamationmark.triangle"
+        case "completed":
+            return "checkmark.circle"
+        case "canceled":
+            return "xmark.circle"
+        default:
+            return "checkmark.shield"
+        }
+    }
+
+    private var tint: Color {
+        switch item.mission.status {
+        case "failed":
+            return .red
+        case "awaiting_review":
+            return .orange
+        case "completed":
+            return .green
+        default:
+            return .accentColor
+        }
+    }
+}
+
+private struct VentureVerificationReportSummaryView: View {
+    let summary: String
+    let report: VentureVerificationReportDeliverable
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if !summary.isEmpty {
+                Text(summary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack(spacing: 6) {
+                ProductOpsTokenView(verdictLabel, systemImage: verdictIcon)
+            }
+
+            if !report.checkedCriteria.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("検証項目")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    ForEach(report.checkedCriteria.prefix(4), id: \.criterion) { criterion in
+                        HStack(alignment: .top, spacing: 5) {
+                            Image(systemName: checkIcon(criterion.status))
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(checkTint(criterion.status))
+                                .frame(width: 12)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(criterion.criterion)
+                                    .font(.caption2.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                                if !criterion.detail.isEmpty {
+                                    Text(criterion.detail)
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            ProductChangeSection(title: "リスク", items: report.risks.prefixArray(3), tint: .orange)
+            ProductChangeSection(title: "次対応", items: report.requiredFollowUps.prefixArray(3))
+        }
+    }
+
+    private var verdictLabel: String {
+        switch report.verdict {
+        case "passed":
+            return "合格"
+        case "failed":
+            return "不合格"
+        default:
+            return "要確認"
+        }
+    }
+
+    private var verdictIcon: String {
+        switch report.verdict {
+        case "passed":
+            return "checkmark.seal"
+        case "failed":
+            return "xmark.seal"
+        default:
+            return "questionmark.circle"
+        }
+    }
+
+    private func checkIcon(_ status: String) -> String {
+        switch status {
+        case "passed":
+            return "checkmark.circle.fill"
+        case "failed":
+            return "xmark.circle.fill"
+        default:
+            return "minus.circle"
+        }
+    }
+
+    private func checkTint(_ status: String) -> Color {
+        switch status {
+        case "passed":
+            return .green
+        case "failed":
+            return .red
+        default:
+            return .secondary
         }
     }
 }

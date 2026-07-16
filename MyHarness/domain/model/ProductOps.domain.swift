@@ -103,6 +103,10 @@ struct VentureMessageMissionListPayload: Decodable, Hashable {
     var items: [VentureMessageMissionItem]
 }
 
+struct VentureVerificationMissionListPayload: Decodable, Hashable {
+    var items: [VentureVerificationMissionItem]
+}
+
 struct VentureDevelopmentMissionItem: Identifiable, Decodable, Hashable {
     var mission: VentureDevelopmentMission
     var result: VentureDevelopmentMissionResult?
@@ -146,6 +150,22 @@ struct VentureMessageMissionItem: Identifiable, Decodable, Hashable {
 
     var message: VentureMessageDeliverable? {
         messageDeliverable?.messagePayload ?? result?.message
+    }
+}
+
+struct VentureVerificationMissionItem: Identifiable, Decodable, Hashable {
+    var mission: VentureVerificationMission
+    var result: VentureVerificationMissionResult?
+    var deliverables: [VentureDeliverable]
+
+    var id: String { mission.id }
+
+    var verificationReportDeliverable: VentureDeliverable? {
+        deliverables.first { $0.kind == "verification_report" }
+    }
+
+    var verificationReport: VentureVerificationReportDeliverable? {
+        verificationReportDeliverable?.verificationReportPayload ?? result?.report
     }
 }
 
@@ -213,6 +233,24 @@ struct VentureMessageMission: Identifiable, Decodable, Hashable {
     var updatedAt: Date
 }
 
+struct VentureVerificationMission: Identifiable, Decodable, Hashable {
+    var id: String
+    var ownerUserId: String
+    var agentOwnerUserId: String
+    var ventureId: String
+    var sourceMissionId: String
+    var sourceDeliverableId: String
+    var sourceDeliverableKind: String
+    var objective: String
+    var criteria: [String]
+    var status: String
+    var agentTaskId: String?
+    var resultId: String?
+    var error: String?
+    var createdAt: Date
+    var updatedAt: Date
+}
+
 struct VentureDevelopmentMissionResult: Decodable, Hashable {
     struct PullRequest: Decodable, Hashable {
         var repository: String
@@ -257,6 +295,16 @@ struct VentureMessageMissionResult: Decodable, Hashable {
     var submittedAt: Date
 }
 
+struct VentureVerificationMissionResult: Decodable, Hashable {
+    var id: String
+    var missionId: String
+    var agentTaskId: String
+    var summary: String
+    var report: VentureVerificationReportDeliverable
+    var rawResult: ProductOpsMetadataValue?
+    var submittedAt: Date
+}
+
 struct VentureDeliverable: Identifiable, Decodable, Hashable {
     var id: String
     var missionId: String
@@ -286,6 +334,13 @@ struct VentureDeliverable: Identifiable, Decodable, Hashable {
             return nil
         }
         return VentureMessageDeliverable(payload: payload)
+    }
+
+    var verificationReportPayload: VentureVerificationReportDeliverable? {
+        guard kind == "verification_report" else {
+            return nil
+        }
+        return VentureVerificationReportDeliverable(payload: payload)
     }
 }
 
@@ -400,6 +455,50 @@ struct VentureMessageDeliverable: Decodable, Hashable {
         subject = object["subject"]?.stringValue
         body = object["body"]?.stringValue ?? ""
         candidateRecipients = object["candidateRecipients"]?.stringArrayValue ?? object["candidate_recipients"]?.stringArrayValue ?? []
+    }
+}
+
+struct VentureVerificationReportDeliverable: Decodable, Hashable {
+    struct CheckedCriterion: Decodable, Hashable {
+        var criterion: String
+        var status: String
+        var detail: String
+    }
+
+    var verdict: String
+    var checkedCriteria: [CheckedCriterion]
+    var risks: [String]
+    var requiredFollowUps: [String]
+
+    init(
+        verdict: String,
+        checkedCriteria: [CheckedCriterion],
+        risks: [String],
+        requiredFollowUps: [String]
+    ) {
+        self.verdict = verdict
+        self.checkedCriteria = checkedCriteria
+        self.risks = risks
+        self.requiredFollowUps = requiredFollowUps
+    }
+
+    init?(payload: ProductOpsMetadataValue) {
+        guard let object = payload.objectValue else {
+            return nil
+        }
+        verdict = object["verdict"]?.stringValue ?? "review_required"
+        checkedCriteria = (object["checkedCriteria"]?.arrayValue ?? object["checked_criteria"]?.arrayValue ?? []).compactMap { value in
+            guard let item = value.objectValue else {
+                return nil
+            }
+            return CheckedCriterion(
+                criterion: item["criterion"]?.stringValue ?? "",
+                status: item["status"]?.stringValue ?? "not_run",
+                detail: item["detail"]?.stringValue ?? ""
+            )
+        }.filter { !$0.criterion.isEmpty }
+        risks = object["risks"]?.stringArrayValue ?? []
+        requiredFollowUps = object["requiredFollowUps"]?.stringArrayValue ?? object["required_follow_ups"]?.stringArrayValue ?? []
     }
 }
 

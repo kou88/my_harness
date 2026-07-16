@@ -16,6 +16,7 @@ final class ProductOpsState {
     var developmentMissionsState: LoadState<[VentureDevelopmentMissionItem]> = .idle
     var researchMissionsState: LoadState<[VentureResearchMissionItem]> = .idle
     var messageMissionsState: LoadState<[VentureMessageMissionItem]> = .idle
+    var verificationMissionsState: LoadState<[VentureVerificationMissionItem]> = .idle
     var needsState: LoadState<[Need]> = .idle
     var candidatesState: LoadState<[NeedCandidate]> = .idle
     var developmentTasksState: LoadState<[DevelopmentTask]> = .idle
@@ -107,6 +108,13 @@ final class ProductOpsState {
         return items
     }
 
+    var verificationMissionItems: [VentureVerificationMissionItem] {
+        guard case .loaded(let items) = verificationMissionsState else {
+            return []
+        }
+        return items
+    }
+
     var needs: [Need] {
         guard case .loaded(let items) = needsState else {
             return []
@@ -134,6 +142,7 @@ final class ProductOpsState {
         developmentMissionsState = .idle
         researchMissionsState = .idle
         messageMissionsState = .idle
+        verificationMissionsState = .idle
         needsState = .idle
         candidatesState = .idle
         developmentTasksState = .idle
@@ -186,6 +195,7 @@ final class ProductOpsState {
         developmentMissionsState = .loading
         researchMissionsState = .loading
         messageMissionsState = .loading
+        verificationMissionsState = .loading
         do {
             var payload = try await apiClient.fetchVentureDecisionInbox(ventureId: ventureId)
             if payload.refreshRequired {
@@ -208,12 +218,18 @@ final class ProductOpsState {
             } catch {
                 messageMissionsState = .failed("文案Missionの読み込みに失敗しました: \(error.localizedDescription)")
             }
+            do {
+                verificationMissionsState = .loaded(try await apiClient.fetchVentureVerificationMissions(ventureId: ventureId).items)
+            } catch {
+                verificationMissionsState = .failed("検証Missionの読み込みに失敗しました: \(error.localizedDescription)")
+            }
             message = nil
         } catch {
             decisionInboxState = .failed("次にやることの読み込みに失敗しました: \(error.localizedDescription)")
             developmentMissionsState = .idle
             researchMissionsState = .idle
             messageMissionsState = .idle
+            verificationMissionsState = .idle
         }
     }
 
@@ -262,6 +278,7 @@ final class ProductOpsState {
             developmentMissionsState = .loaded(try await apiClient.fetchVentureDevelopmentMissions(ventureId: ventureId).items)
             researchMissionsState = .loaded(try await apiClient.fetchVentureResearchMissions(ventureId: ventureId).items)
             messageMissionsState = .loaded(try await apiClient.fetchVentureMessageMissions(ventureId: ventureId).items)
+            verificationMissionsState = .loaded(try await apiClient.fetchVentureVerificationMissions(ventureId: ventureId).items)
             if payload.items.contains(where: { $0.proposalId == item.proposalId }) {
                 message = "判断を保存できませんでした: \(error.localizedDescription)"
             } else {
