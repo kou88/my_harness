@@ -109,14 +109,17 @@ struct NextActionsView: View {
         let researchMissionItems = productOpsState.researchMissionItems
         let messageMissionItems = productOpsState.messageMissionItems
         let verificationMissionItems = productOpsState.verificationMissionItems
+        let knowledgeChangeMissionItems = productOpsState.knowledgeChangeMissionItems
         let reviewMissions = developmentMissionItems.filter { $0.mission.status == "awaiting_review" || $0.mission.status == "failed" }
         let reviewResearchMissions = researchMissionItems.filter { $0.mission.status == "awaiting_review" || $0.mission.status == "failed" }
         let reviewMessageMissions = messageMissionItems.filter { $0.mission.status == "awaiting_review" || $0.mission.status == "failed" }
         let reviewVerificationMissions = verificationMissionItems.filter { $0.mission.status == "awaiting_review" || $0.mission.status == "failed" }
+        let reviewKnowledgeChangeMissions = knowledgeChangeMissionItems.filter { $0.mission.status == "awaiting_review" || $0.mission.status == "failed" }
         let runningMissions = developmentMissionItems.filter { ["queued", "dispatching", "running"].contains($0.mission.status) }
         let runningResearchMissions = researchMissionItems.filter { ["queued", "dispatching", "running"].contains($0.mission.status) }
         let runningMessageMissions = messageMissionItems.filter { ["queued", "dispatching", "running"].contains($0.mission.status) }
         let runningVerificationMissions = verificationMissionItems.filter { ["queued", "dispatching", "running"].contains($0.mission.status) }
+        let runningKnowledgeChangeMissions = knowledgeChangeMissionItems.filter { ["queued", "dispatching", "running"].contains($0.mission.status) }
 
         if let recommended {
             Section("おすすめ") {
@@ -131,7 +134,7 @@ struct NextActionsView: View {
             }
         }
 
-        if !reviewMissions.isEmpty || !reviewResearchMissions.isEmpty || !reviewMessageMissions.isEmpty || !reviewVerificationMissions.isEmpty {
+        if !reviewMissions.isEmpty || !reviewResearchMissions.isEmpty || !reviewMessageMissions.isEmpty || !reviewVerificationMissions.isEmpty || !reviewKnowledgeChangeMissions.isEmpty {
             Section("結果確認") {
                 ForEach(reviewMissions) { item in
                     VentureDevelopmentMissionRow(item: item)
@@ -149,6 +152,9 @@ struct NextActionsView: View {
                 }
                 ForEach(reviewVerificationMissions) { item in
                     VentureVerificationMissionRow(item: item)
+                }
+                ForEach(reviewKnowledgeChangeMissions) { item in
+                    VentureKnowledgeChangeMissionRow(item: item)
                 }
             }
         }
@@ -169,7 +175,7 @@ struct NextActionsView: View {
             }
         }
 
-        if !runningMissions.isEmpty || !runningResearchMissions.isEmpty || !runningMessageMissions.isEmpty || !runningVerificationMissions.isEmpty {
+        if !runningMissions.isEmpty || !runningResearchMissions.isEmpty || !runningMessageMissions.isEmpty || !runningVerificationMissions.isEmpty || !runningKnowledgeChangeMissions.isEmpty {
             Section("進行中") {
                 ForEach(runningMissions) { item in
                     VentureDevelopmentMissionRow(item: item)
@@ -182,6 +188,9 @@ struct NextActionsView: View {
                 }
                 ForEach(runningVerificationMissions) { item in
                     VentureVerificationMissionRow(item: item)
+                }
+                ForEach(runningKnowledgeChangeMissions) { item in
+                    VentureKnowledgeChangeMissionRow(item: item)
                 }
             }
         }
@@ -208,6 +217,13 @@ struct NextActionsView: View {
         }
 
         if case .failed(let message) = productOpsState.verificationMissionsState {
+            Section {
+                ProductOpsMessageBar(text: message, systemImage: "exclamationmark.triangle")
+                    .listRowSeparator(.hidden)
+            }
+        }
+
+        if case .failed(let message) = productOpsState.knowledgeChangeMissionsState {
             Section {
                 ProductOpsMessageBar(text: message, systemImage: "exclamationmark.triangle")
                     .listRowSeparator(.hidden)
@@ -1212,6 +1228,135 @@ private struct VentureVerificationReportSummaryView: View {
             return .red
         default:
             return .secondary
+        }
+    }
+}
+
+private struct VentureKnowledgeChangeMissionRow: View {
+    let item: VentureKnowledgeChangeMissionItem
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: iconName)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 22)
+                .padding(.top, 4)
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    ProductOpsTokenView(statusLabel)
+                    ProductOpsTokenView("方針v\(item.mission.projectPolicyVersion)")
+                }
+                Text(item.mission.objective)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if let knowledgeChange = item.knowledgeChange {
+                    VentureKnowledgeChangeSummaryView(
+                        summary: item.knowledgeChangeDeliverable?.summary ?? item.result?.summary ?? "",
+                        knowledgeChange: knowledgeChange
+                    )
+                } else if let result = item.result {
+                    VentureKnowledgeChangeSummaryView(summary: result.summary, knowledgeChange: result.knowledgeChange)
+                } else if let error = item.mission.error, !error.isEmpty {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    Text("LearningからKnowledge更新候補を作成中です。方針はまだ更新しません。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 6)
+    }
+
+    private var statusLabel: String {
+        switch item.mission.status {
+        case "queued":
+            return "待機中"
+        case "dispatching":
+            return "整理依頼済み"
+        case "running":
+            return "整理中"
+        case "awaiting_review":
+            return "更新候補"
+        case "failed":
+            return "失敗"
+        case "completed":
+            return "完了"
+        case "canceled":
+            return "キャンセル"
+        default:
+            return item.mission.status
+        }
+    }
+
+    private var iconName: String {
+        switch item.mission.status {
+        case "awaiting_review":
+            return "lightbulb"
+        case "failed":
+            return "exclamationmark.triangle"
+        case "completed":
+            return "checkmark.circle"
+        case "canceled":
+            return "xmark.circle"
+        default:
+            return "books.vertical"
+        }
+    }
+
+    private var tint: Color {
+        switch item.mission.status {
+        case "failed":
+            return .red
+        case "awaiting_review":
+            return .orange
+        case "completed":
+            return .green
+        default:
+            return .accentColor
+        }
+    }
+}
+
+private struct VentureKnowledgeChangeSummaryView: View {
+    let summary: String
+    let knowledgeChange: VentureKnowledgeChangeDeliverable
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if !summary.isEmpty {
+                Text(summary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            ProductChangeSection(title: "現在", items: [knowledgeChange.currentState].filter { !$0.isEmpty })
+            ProductChangeSection(title: "変更候補", items: [knowledgeChange.proposedState].filter { !$0.isEmpty }, tint: .primary)
+            ProductChangeSection(title: "理由", items: [knowledgeChange.reason].filter { !$0.isEmpty })
+
+            if !knowledgeChange.sourceIds.isEmpty {
+                HStack(spacing: 6) {
+                    ForEach(knowledgeChange.sourceIds.prefix(3), id: \.self) { sourceId in
+                        ProductOpsTokenView(sourceId)
+                    }
+                }
+            }
+
+            Text("採用しても、この画面では正本の方針を自動更新しません。")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 }

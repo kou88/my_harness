@@ -107,6 +107,10 @@ struct VentureVerificationMissionListPayload: Decodable, Hashable {
     var items: [VentureVerificationMissionItem]
 }
 
+struct VentureKnowledgeChangeMissionListPayload: Decodable, Hashable {
+    var items: [VentureKnowledgeChangeMissionItem]
+}
+
 struct VentureDevelopmentMissionItem: Identifiable, Decodable, Hashable {
     var mission: VentureDevelopmentMission
     var result: VentureDevelopmentMissionResult?
@@ -166,6 +170,22 @@ struct VentureVerificationMissionItem: Identifiable, Decodable, Hashable {
 
     var verificationReport: VentureVerificationReportDeliverable? {
         verificationReportDeliverable?.verificationReportPayload ?? result?.report
+    }
+}
+
+struct VentureKnowledgeChangeMissionItem: Identifiable, Decodable, Hashable {
+    var mission: VentureKnowledgeChangeMission
+    var result: VentureKnowledgeChangeMissionResult?
+    var deliverables: [VentureDeliverable]
+
+    var id: String { mission.id }
+
+    var knowledgeChangeDeliverable: VentureDeliverable? {
+        deliverables.first { $0.kind == "knowledge_change" }
+    }
+
+    var knowledgeChange: VentureKnowledgeChangeDeliverable? {
+        knowledgeChangeDeliverable?.knowledgeChangePayload ?? result?.knowledgeChange
     }
 }
 
@@ -251,6 +271,24 @@ struct VentureVerificationMission: Identifiable, Decodable, Hashable {
     var updatedAt: Date
 }
 
+struct VentureKnowledgeChangeMission: Identifiable, Decodable, Hashable {
+    var id: String
+    var ownerUserId: String
+    var agentOwnerUserId: String
+    var ventureId: String
+    var sourceLearningId: String
+    var sourceDeliverableId: String
+    var projectId: String
+    var projectPolicyVersion: Int
+    var objective: String
+    var status: String
+    var agentTaskId: String?
+    var resultId: String?
+    var error: String?
+    var createdAt: Date
+    var updatedAt: Date
+}
+
 struct VentureDevelopmentMissionResult: Decodable, Hashable {
     struct PullRequest: Decodable, Hashable {
         var repository: String
@@ -305,6 +343,16 @@ struct VentureVerificationMissionResult: Decodable, Hashable {
     var submittedAt: Date
 }
 
+struct VentureKnowledgeChangeMissionResult: Decodable, Hashable {
+    var id: String
+    var missionId: String
+    var agentTaskId: String
+    var summary: String
+    var knowledgeChange: VentureKnowledgeChangeDeliverable
+    var rawResult: ProductOpsMetadataValue?
+    var submittedAt: Date
+}
+
 struct VentureDeliverable: Identifiable, Decodable, Hashable {
     var id: String
     var missionId: String
@@ -341,6 +389,13 @@ struct VentureDeliverable: Identifiable, Decodable, Hashable {
             return nil
         }
         return VentureVerificationReportDeliverable(payload: payload)
+    }
+
+    var knowledgeChangePayload: VentureKnowledgeChangeDeliverable? {
+        guard kind == "knowledge_change" else {
+            return nil
+        }
+        return VentureKnowledgeChangeDeliverable(payload: payload)
     }
 }
 
@@ -499,6 +554,35 @@ struct VentureVerificationReportDeliverable: Decodable, Hashable {
         }.filter { !$0.criterion.isEmpty }
         risks = object["risks"]?.stringArrayValue ?? []
         requiredFollowUps = object["requiredFollowUps"]?.stringArrayValue ?? object["required_follow_ups"]?.stringArrayValue ?? []
+    }
+}
+
+struct VentureKnowledgeChangeDeliverable: Decodable, Hashable {
+    var currentState: String
+    var proposedState: String
+    var reason: String
+    var sourceIds: [String]
+
+    init(
+        currentState: String,
+        proposedState: String,
+        reason: String,
+        sourceIds: [String]
+    ) {
+        self.currentState = currentState
+        self.proposedState = proposedState
+        self.reason = reason
+        self.sourceIds = sourceIds
+    }
+
+    init?(payload: ProductOpsMetadataValue) {
+        guard let object = payload.objectValue else {
+            return nil
+        }
+        currentState = object["currentState"]?.stringValue ?? object["current_state"]?.stringValue ?? ""
+        proposedState = object["proposedState"]?.stringValue ?? object["proposed_state"]?.stringValue ?? ""
+        reason = object["reason"]?.stringValue ?? ""
+        sourceIds = object["sourceIds"]?.stringArrayValue ?? object["source_ids"]?.stringArrayValue ?? []
     }
 }
 
