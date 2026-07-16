@@ -572,7 +572,13 @@ private struct VentureDevelopmentMissionRow: View {
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.primary)
                     .fixedSize(horizontal: false, vertical: true)
-                if let result = item.result {
+                if let productChange = item.productChangeDeliverable {
+                    VentureProductChangeSummaryView(
+                        summary: item.deliverables.first { $0.kind == "product_change" }?.summary ?? item.result?.summary ?? "",
+                        productChange: productChange,
+                        fallbackPullRequests: item.result?.pullRequests ?? []
+                    )
+                } else if let result = item.result {
                     Text(result.summary)
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -647,6 +653,145 @@ private struct VentureDevelopmentMissionRow: View {
         default:
             return .accentColor
         }
+    }
+}
+
+private struct VentureProductChangeSummaryView: View {
+    let summary: String
+    let productChange: VentureProductChangeDeliverable
+    let fallbackPullRequests: [VentureDevelopmentMissionResult.PullRequest]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if !summary.isEmpty {
+                Text(summary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if !productChange.userVisibleImpact.isEmpty {
+                ProductChangeSection(title: "ユーザーへの影響", items: [productChange.userVisibleImpact])
+            }
+
+            ProductChangeSection(title: "変わったこと", items: productChange.changedBehavior.prefixArray(3))
+
+            if !productChange.changedRepositories.isEmpty {
+                HStack(spacing: 6) {
+                    ForEach(productChange.changedRepositories.prefix(3), id: \.self) { repository in
+                        ProductOpsTokenView(repository)
+                    }
+                }
+            }
+
+            if !pullRequestURLs.isEmpty {
+                HStack(spacing: 8) {
+                    ForEach(Array(pullRequestURLs.prefix(2)), id: \.self) { urlString in
+                        if let url = URL(string: urlString) {
+                            Link(destination: url) {
+                                Label("Draft PR", systemImage: "arrow.up.right.square")
+                                    .font(.caption.weight(.semibold))
+                            }
+                        }
+                    }
+                }
+            }
+
+            if !productChange.checks.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("検証")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    ForEach(productChange.checks.prefix(3), id: \.name) { check in
+                        HStack(alignment: .top, spacing: 5) {
+                            Image(systemName: checkIcon(check.status))
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(checkTint(check.status))
+                                .frame(width: 12)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(check.name)
+                                    .font(.caption2.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                                if !check.detail.isEmpty {
+                                    Text(check.detail)
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(2)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            ProductChangeSection(title: "未解決", items: productChange.unresolvedIssues.prefixArray(3), tint: .orange)
+        }
+    }
+
+    private var pullRequestURLs: [String] {
+        var seen: Set<String> = []
+        return (productChange.pullRequests + fallbackPullRequests.map(\.url)).filter { url in
+            guard !url.isEmpty, !seen.contains(url) else {
+                return false
+            }
+            seen.insert(url)
+            return true
+        }
+    }
+
+    private func checkIcon(_ status: String) -> String {
+        switch status {
+        case "passed":
+            return "checkmark.circle.fill"
+        case "failed":
+            return "xmark.circle.fill"
+        default:
+            return "minus.circle"
+        }
+    }
+
+    private func checkTint(_ status: String) -> Color {
+        switch status {
+        case "passed":
+            return .green
+        case "failed":
+            return .red
+        default:
+            return .secondary
+        }
+    }
+}
+
+private struct ProductChangeSection: View {
+    let title: String
+    let items: [String]
+    var tint: Color = .secondary
+
+    var body: some View {
+        if !items.isEmpty {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                ForEach(items, id: \.self) { item in
+                    HStack(alignment: .top, spacing: 5) {
+                        Text("・")
+                            .font(.caption2)
+                            .foregroundStyle(tint)
+                        Text(item)
+                            .font(.caption2)
+                            .foregroundStyle(tint)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private extension Array where Element == String {
+    func prefixArray(_ count: Int) -> [String] {
+        Array(prefix(count))
     }
 }
 

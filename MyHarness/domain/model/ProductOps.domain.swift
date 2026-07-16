@@ -98,8 +98,15 @@ struct VentureDevelopmentMissionListPayload: Decodable, Hashable {
 struct VentureDevelopmentMissionItem: Identifiable, Decodable, Hashable {
     var mission: VentureDevelopmentMission
     var result: VentureDevelopmentMissionResult?
+    var deliverables: [VentureDeliverable]
 
     var id: String { mission.id }
+
+    var productChangeDeliverable: VentureProductChangeDeliverable? {
+        deliverables
+            .first { $0.kind == "product_change" }?
+            .productChangePayload
+    }
 }
 
 struct VentureDevelopmentMission: Identifiable, Decodable, Hashable {
@@ -143,6 +150,60 @@ struct VentureDevelopmentMissionResult: Decodable, Hashable {
     var unresolvedIssues: [String]
     var rawResult: ProductOpsMetadataValue?
     var submittedAt: Date
+}
+
+struct VentureDeliverable: Identifiable, Decodable, Hashable {
+    var id: String
+    var missionId: String
+    var resultId: String?
+    var kind: String
+    var title: String
+    var summary: String
+    var payload: ProductOpsMetadataValue
+    var createdAt: Date
+
+    var productChangePayload: VentureProductChangeDeliverable? {
+        guard kind == "product_change" else {
+            return nil
+        }
+        return VentureProductChangeDeliverable(payload: payload)
+    }
+}
+
+struct VentureProductChangeDeliverable: Hashable {
+    struct Check: Hashable {
+        var name: String
+        var status: String
+        var detail: String
+    }
+
+    var changedBehavior: [String]
+    var userVisibleImpact: String
+    var changedRepositories: [String]
+    var pullRequests: [String]
+    var checks: [Check]
+    var unresolvedIssues: [String]
+
+    init?(payload: ProductOpsMetadataValue) {
+        guard let object = payload.objectValue else {
+            return nil
+        }
+        changedBehavior = object["changedBehavior"]?.stringArrayValue ?? object["changed_behavior"]?.stringArrayValue ?? []
+        userVisibleImpact = object["userVisibleImpact"]?.stringValue ?? object["user_visible_impact"]?.stringValue ?? ""
+        changedRepositories = object["changedRepositories"]?.stringArrayValue ?? object["changed_repositories"]?.stringArrayValue ?? []
+        pullRequests = object["pullRequests"]?.stringArrayValue ?? object["pull_requests"]?.stringArrayValue ?? []
+        unresolvedIssues = object["unresolvedIssues"]?.stringArrayValue ?? object["unresolved_issues"]?.stringArrayValue ?? []
+        checks = (object["checks"]?.arrayValue ?? []).compactMap { value in
+            guard let check = value.objectValue else {
+                return nil
+            }
+            return Check(
+                name: check["name"]?.stringValue ?? "",
+                status: check["status"]?.stringValue ?? "not_run",
+                detail: check["detail"]?.stringValue ?? ""
+            )
+        }.filter { !$0.name.isEmpty }
+    }
 }
 
 struct VentureProposalDecisionResult: Decodable, Hashable {
@@ -373,6 +434,36 @@ enum ProductOpsMetadataValue: Decodable, Hashable {
         } else {
             self = .string(try single.decode(String.self))
         }
+    }
+}
+
+extension ProductOpsMetadataValue {
+    var stringValue: String? {
+        if case .string(let value) = self {
+            return value
+        }
+        return nil
+    }
+
+    var objectValue: [String: ProductOpsMetadataValue]? {
+        if case .object(let value) = self {
+            return value
+        }
+        return nil
+    }
+
+    var arrayValue: [ProductOpsMetadataValue]? {
+        if case .array(let value) = self {
+            return value
+        }
+        return nil
+    }
+
+    var stringArrayValue: [String]? {
+        guard let arrayValue else {
+            return nil
+        }
+        return arrayValue.compactMap(\.stringValue)
     }
 }
 
