@@ -18,6 +18,7 @@ final class ProductOpsState {
     var messageMissionsState: LoadState<[VentureMessageMissionItem]> = .idle
     var verificationMissionsState: LoadState<[VentureVerificationMissionItem]> = .idle
     var knowledgeChangeMissionsState: LoadState<[VentureKnowledgeChangeMissionItem]> = .idle
+    var monitoringAlertsState: LoadState<[VentureMonitoringAlertItem]> = .idle
     var needsState: LoadState<[Need]> = .idle
     var candidatesState: LoadState<[NeedCandidate]> = .idle
     var developmentTasksState: LoadState<[DevelopmentTask]> = .idle
@@ -25,6 +26,7 @@ final class ProductOpsState {
     var isPostingMemo = false
     var isSavingPolicy = false
     var isPostingVentureDecision = false
+    var isScanningMonitoringAlerts = false
     var message: String?
     var configurationErrorMessage: String?
 
@@ -123,6 +125,13 @@ final class ProductOpsState {
         return items
     }
 
+    var monitoringAlertItems: [VentureMonitoringAlertItem] {
+        guard case .loaded(let items) = monitoringAlertsState else {
+            return []
+        }
+        return items
+    }
+
     var needs: [Need] {
         guard case .loaded(let items) = needsState else {
             return []
@@ -152,6 +161,7 @@ final class ProductOpsState {
         messageMissionsState = .idle
         verificationMissionsState = .idle
         knowledgeChangeMissionsState = .idle
+        monitoringAlertsState = .idle
         needsState = .idle
         candidatesState = .idle
         developmentTasksState = .idle
@@ -206,6 +216,7 @@ final class ProductOpsState {
         messageMissionsState = .loading
         verificationMissionsState = .loading
         knowledgeChangeMissionsState = .loading
+        monitoringAlertsState = .loading
         do {
             var payload = try await apiClient.fetchVentureDecisionInbox(ventureId: ventureId)
             if payload.refreshRequired {
@@ -238,6 +249,11 @@ final class ProductOpsState {
             } catch {
                 knowledgeChangeMissionsState = .failed("Knowledge更新候補の読み込みに失敗しました: \(error.localizedDescription)")
             }
+            do {
+                monitoringAlertsState = .loaded(try await apiClient.fetchVentureMonitoringAlerts(ventureId: ventureId).items)
+            } catch {
+                monitoringAlertsState = .failed("監視アラートの読み込みに失敗しました: \(error.localizedDescription)")
+            }
             message = nil
         } catch {
             decisionInboxState = .failed("次にやることの読み込みに失敗しました: \(error.localizedDescription)")
@@ -246,6 +262,7 @@ final class ProductOpsState {
             messageMissionsState = .idle
             verificationMissionsState = .idle
             knowledgeChangeMissionsState = .idle
+            monitoringAlertsState = .idle
         }
     }
 
@@ -296,6 +313,7 @@ final class ProductOpsState {
             messageMissionsState = .loaded(try await apiClient.fetchVentureMessageMissions(ventureId: ventureId).items)
             verificationMissionsState = .loaded(try await apiClient.fetchVentureVerificationMissions(ventureId: ventureId).items)
             knowledgeChangeMissionsState = .loaded(try await apiClient.fetchVentureKnowledgeChangeMissions(ventureId: ventureId).items)
+            monitoringAlertsState = .loaded(try await apiClient.fetchVentureMonitoringAlerts(ventureId: ventureId).items)
             if payload.items.contains(where: { $0.proposalId == item.proposalId }) {
                 message = "判断を保存できませんでした: \(error.localizedDescription)"
             } else {
@@ -555,6 +573,21 @@ final class ProductOpsState {
             await loadNextActions()
         } catch {
             message = "Learningとして採用できませんでした: \(error.localizedDescription)"
+        }
+    }
+
+    func scanMonitoringAlerts() async {
+        guard let apiClient else { return }
+        isScanningMonitoringAlerts = true
+        defer { isScanningMonitoringAlerts = false }
+        do {
+            let result = try await apiClient.scanVentureMonitoringAlerts(ventureId: ventureId)
+            monitoringAlertsState = .loaded(try await apiClient.fetchVentureMonitoringAlerts(ventureId: ventureId).items)
+            message = result.createdCount > 0
+                ? "監視アラートを\(result.createdCount)件作成しました"
+                : "新しい監視アラートはありません"
+        } catch {
+            message = "監視スキャンに失敗しました: \(error.localizedDescription)"
         }
     }
 

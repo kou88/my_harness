@@ -111,6 +111,16 @@ struct VentureKnowledgeChangeMissionListPayload: Decodable, Hashable {
     var items: [VentureKnowledgeChangeMissionItem]
 }
 
+struct VentureMonitoringAlertListPayload: Decodable, Hashable {
+    var items: [VentureMonitoringAlertItem]
+}
+
+struct VentureMonitoringScanResult: Decodable, Hashable {
+    var scannedAt: Date
+    var detectedCount: Int
+    var createdCount: Int
+}
+
 struct VentureDevelopmentMissionItem: Identifiable, Decodable, Hashable {
     var mission: VentureDevelopmentMission
     var result: VentureDevelopmentMissionResult?
@@ -186,6 +196,26 @@ struct VentureKnowledgeChangeMissionItem: Identifiable, Decodable, Hashable {
 
     var knowledgeChange: VentureKnowledgeChangeDeliverable? {
         knowledgeChangeDeliverable?.knowledgeChangePayload ?? result?.knowledgeChange
+    }
+}
+
+struct VentureMonitoringAlertItem: Identifiable, Decodable, Hashable {
+    var alert: VentureMonitoringAlert
+    var deliverables: [VentureDeliverable]
+
+    var id: String { alert.id }
+
+    var alertDeliverable: VentureDeliverable? {
+        deliverables.first { $0.kind == "alert" }
+    }
+
+    var alertPayload: VentureAlertDeliverable? {
+        alertDeliverable?.alertPayload ?? VentureAlertDeliverable(
+            severity: alert.severity,
+            detectedIssue: alert.detectedIssue,
+            recommendedAction: alert.recommendedAction,
+            entityRefs: alert.entityRefs
+        )
     }
 }
 
@@ -285,6 +315,22 @@ struct VentureKnowledgeChangeMission: Identifiable, Decodable, Hashable {
     var agentTaskId: String?
     var resultId: String?
     var error: String?
+    var createdAt: Date
+    var updatedAt: Date
+}
+
+struct VentureMonitoringAlert: Identifiable, Decodable, Hashable {
+    var id: String
+    var ownerUserId: String
+    var ventureId: String
+    var missionId: String
+    var deliverableId: String
+    var dedupeKey: String
+    var severity: String
+    var detectedIssue: String
+    var recommendedAction: String
+    var entityRefs: [String]
+    var status: String
     var createdAt: Date
     var updatedAt: Date
 }
@@ -396,6 +442,13 @@ struct VentureDeliverable: Identifiable, Decodable, Hashable {
             return nil
         }
         return VentureKnowledgeChangeDeliverable(payload: payload)
+    }
+
+    var alertPayload: VentureAlertDeliverable? {
+        guard kind == "alert" else {
+            return nil
+        }
+        return VentureAlertDeliverable(payload: payload)
     }
 }
 
@@ -583,6 +636,35 @@ struct VentureKnowledgeChangeDeliverable: Decodable, Hashable {
         proposedState = object["proposedState"]?.stringValue ?? object["proposed_state"]?.stringValue ?? ""
         reason = object["reason"]?.stringValue ?? ""
         sourceIds = object["sourceIds"]?.stringArrayValue ?? object["source_ids"]?.stringArrayValue ?? []
+    }
+}
+
+struct VentureAlertDeliverable: Decodable, Hashable {
+    var severity: String
+    var detectedIssue: String
+    var recommendedAction: String
+    var entityRefs: [String]
+
+    init(
+        severity: String,
+        detectedIssue: String,
+        recommendedAction: String,
+        entityRefs: [String]
+    ) {
+        self.severity = severity
+        self.detectedIssue = detectedIssue
+        self.recommendedAction = recommendedAction
+        self.entityRefs = entityRefs
+    }
+
+    init?(payload: ProductOpsMetadataValue) {
+        guard let object = payload.objectValue else {
+            return nil
+        }
+        severity = object["severity"]?.stringValue ?? "warning"
+        detectedIssue = object["detectedIssue"]?.stringValue ?? object["detected_issue"]?.stringValue ?? ""
+        recommendedAction = object["recommendedAction"]?.stringValue ?? object["recommended_action"]?.stringValue ?? ""
+        entityRefs = object["entityRefs"]?.stringArrayValue ?? object["entity_refs"]?.stringArrayValue ?? []
     }
 }
 

@@ -110,6 +110,7 @@ struct NextActionsView: View {
         let messageMissionItems = productOpsState.messageMissionItems
         let verificationMissionItems = productOpsState.verificationMissionItems
         let knowledgeChangeMissionItems = productOpsState.knowledgeChangeMissionItems
+        let monitoringAlertItems = productOpsState.monitoringAlertItems
         let reviewMissions = developmentMissionItems.filter { $0.mission.status == "awaiting_review" || $0.mission.status == "failed" }
         let reviewResearchMissions = researchMissionItems.filter { $0.mission.status == "awaiting_review" || $0.mission.status == "failed" }
         let reviewMessageMissions = messageMissionItems.filter { $0.mission.status == "awaiting_review" || $0.mission.status == "failed" }
@@ -134,8 +135,11 @@ struct NextActionsView: View {
             }
         }
 
-        if !reviewMissions.isEmpty || !reviewResearchMissions.isEmpty || !reviewMessageMissions.isEmpty || !reviewVerificationMissions.isEmpty || !reviewKnowledgeChangeMissions.isEmpty {
+        if !monitoringAlertItems.isEmpty || !reviewMissions.isEmpty || !reviewResearchMissions.isEmpty || !reviewMessageMissions.isEmpty || !reviewVerificationMissions.isEmpty || !reviewKnowledgeChangeMissions.isEmpty {
             Section("結果確認") {
+                ForEach(monitoringAlertItems) { item in
+                    VentureMonitoringAlertRow(item: item)
+                }
                 ForEach(reviewMissions) { item in
                     VentureDevelopmentMissionRow(item: item)
                 }
@@ -224,6 +228,13 @@ struct NextActionsView: View {
         }
 
         if case .failed(let message) = productOpsState.knowledgeChangeMissionsState {
+            Section {
+                ProductOpsMessageBar(text: message, systemImage: "exclamationmark.triangle")
+                    .listRowSeparator(.hidden)
+            }
+        }
+
+        if case .failed(let message) = productOpsState.monitoringAlertsState {
             Section {
                 ProductOpsMessageBar(text: message, systemImage: "exclamationmark.triangle")
                     .listRowSeparator(.hidden)
@@ -350,6 +361,13 @@ struct NextActionsView: View {
             } label: {
                 Label("実行履歴", systemImage: "clock.arrow.circlepath")
             }
+
+            Button {
+                Task { await productOpsState.scanMonitoringAlerts() }
+            } label: {
+                Label("監視スキャン", systemImage: "waveform.path.ecg")
+            }
+            .disabled(productOpsState.isScanningMonitoringAlerts)
 
             Button {
                 router.push(.completedActions)
@@ -721,6 +739,91 @@ private struct VentureDevelopmentMissionRow: View {
             return .green
         default:
             return .accentColor
+        }
+    }
+}
+
+private struct VentureMonitoringAlertRow: View {
+    let item: VentureMonitoringAlertItem
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: iconName)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 22)
+                .padding(.top, 4)
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    ProductOpsTokenView(severityLabel)
+                    ProductOpsTokenView(item.alert.status)
+                }
+                Text(alertPayload.detectedIssue)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                ProductChangeSection(title: "推奨対応", items: [alertPayload.recommendedAction].filter { !$0.isEmpty })
+                if let summary = item.alertDeliverable?.summary, !summary.isEmpty {
+                    Text(summary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if !alertPayload.entityRefs.isEmpty {
+                    HStack(spacing: 6) {
+                        ForEach(alertPayload.entityRefs.prefix(3), id: \.self) { ref in
+                            ProductOpsTokenView(ref)
+                        }
+                    }
+                }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 6)
+    }
+
+    private var alertPayload: VentureAlertDeliverable {
+        item.alertPayload ?? VentureAlertDeliverable(
+            severity: item.alert.severity,
+            detectedIssue: item.alert.detectedIssue,
+            recommendedAction: item.alert.recommendedAction,
+            entityRefs: item.alert.entityRefs
+        )
+    }
+
+    private var severityLabel: String {
+        switch alertPayload.severity {
+        case "critical":
+            return "重大"
+        case "info":
+            return "情報"
+        default:
+            return "警告"
+        }
+    }
+
+    private var iconName: String {
+        switch alertPayload.severity {
+        case "critical":
+            return "exclamationmark.octagon"
+        case "info":
+            return "info.circle"
+        default:
+            return "exclamationmark.triangle"
+        }
+    }
+
+    private var tint: Color {
+        switch alertPayload.severity {
+        case "critical":
+            return .red
+        case "info":
+            return .accentColor
+        default:
+            return .orange
         }
     }
 }
