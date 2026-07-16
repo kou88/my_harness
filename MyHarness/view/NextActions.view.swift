@@ -107,10 +107,13 @@ struct NextActionsView: View {
         let remaining = Array(payload.items.dropFirst())
         let developmentMissionItems = productOpsState.developmentMissionItems
         let researchMissionItems = productOpsState.researchMissionItems
+        let messageMissionItems = productOpsState.messageMissionItems
         let reviewMissions = developmentMissionItems.filter { $0.mission.status == "awaiting_review" || $0.mission.status == "failed" }
         let reviewResearchMissions = researchMissionItems.filter { $0.mission.status == "awaiting_review" || $0.mission.status == "failed" }
+        let reviewMessageMissions = messageMissionItems.filter { $0.mission.status == "awaiting_review" || $0.mission.status == "failed" }
         let runningMissions = developmentMissionItems.filter { ["queued", "dispatching", "running"].contains($0.mission.status) }
         let runningResearchMissions = researchMissionItems.filter { ["queued", "dispatching", "running"].contains($0.mission.status) }
+        let runningMessageMissions = messageMissionItems.filter { ["queued", "dispatching", "running"].contains($0.mission.status) }
 
         if let recommended {
             Section("おすすめ") {
@@ -125,7 +128,7 @@ struct NextActionsView: View {
             }
         }
 
-        if !reviewMissions.isEmpty || !reviewResearchMissions.isEmpty {
+        if !reviewMissions.isEmpty || !reviewResearchMissions.isEmpty || !reviewMessageMissions.isEmpty {
             Section("結果確認") {
                 ForEach(reviewMissions) { item in
                     VentureDevelopmentMissionRow(item: item)
@@ -137,6 +140,9 @@ struct NextActionsView: View {
                             Task { await productOpsState.adoptResearchLearning(deliverable: deliverable) }
                         }
                     )
+                }
+                ForEach(reviewMessageMissions) { item in
+                    VentureMessageMissionRow(item: item)
                 }
             }
         }
@@ -157,13 +163,16 @@ struct NextActionsView: View {
             }
         }
 
-        if !runningMissions.isEmpty || !runningResearchMissions.isEmpty {
+        if !runningMissions.isEmpty || !runningResearchMissions.isEmpty || !runningMessageMissions.isEmpty {
             Section("進行中") {
                 ForEach(runningMissions) { item in
                     VentureDevelopmentMissionRow(item: item)
                 }
                 ForEach(runningResearchMissions) { item in
                     VentureResearchMissionRow(item: item, onAdopt: { _ in })
+                }
+                ForEach(runningMessageMissions) { item in
+                    VentureMessageMissionRow(item: item)
                 }
             }
         }
@@ -176,6 +185,13 @@ struct NextActionsView: View {
         }
 
         if case .failed(let message) = productOpsState.researchMissionsState {
+            Section {
+                ProductOpsMessageBar(text: message, systemImage: "exclamationmark.triangle")
+                    .listRowSeparator(.hidden)
+            }
+        }
+
+        if case .failed(let message) = productOpsState.messageMissionsState {
             Section {
                 ProductOpsMessageBar(text: message, systemImage: "exclamationmark.triangle")
                     .listRowSeparator(.hidden)
@@ -597,7 +613,7 @@ private struct VentureDevelopmentMissionRow: View {
                     VentureProductChangeSummaryView(
                         summary: item.deliverables.first { $0.kind == "product_change" }?.summary ?? item.result?.summary ?? "",
                         productChange: productChange,
-                        fallbackPullRequests: item.result?.pullRequests ?? []
+                        supportingPullRequests: item.result?.pullRequests ?? []
                     )
                 } else if let result = item.result {
                     Text(result.summary)
@@ -831,10 +847,160 @@ private struct VentureResearchReportSummaryView: View {
     }
 }
 
+private struct VentureMessageMissionRow: View {
+    let item: VentureMessageMissionItem
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: iconName)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 22)
+                .padding(.top, 4)
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    ProductOpsTokenView(statusLabel)
+                    ProductOpsTokenView(channelLabel)
+                    ProductOpsTokenView("送信なし")
+                }
+                Text(item.mission.objective)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if let message = item.message {
+                    VentureMessageDraftView(
+                        summary: item.messageDeliverable?.summary ?? item.result?.summary ?? "",
+                        message: message
+                    )
+                } else if let result = item.result {
+                    VentureMessageDraftView(summary: result.summary, message: result.message)
+                } else if let error = item.mission.error, !error.isEmpty {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    Text("Codex app serverでメッセージ下書きを作成中です。外部送信は行いません。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 6)
+    }
+
+    private var statusLabel: String {
+        switch item.mission.status {
+        case "queued":
+            return "待機中"
+        case "dispatching":
+            return "文案依頼済み"
+        case "running":
+            return "作成中"
+        case "awaiting_review":
+            return "文案確認"
+        case "failed":
+            return "失敗"
+        case "completed":
+            return "完了"
+        case "canceled":
+            return "キャンセル"
+        default:
+            return item.mission.status
+        }
+    }
+
+    private var channelLabel: String {
+        switch item.mission.channel {
+        case "x_post":
+            return "X投稿"
+        case "x_reply":
+            return "X返信"
+        case "direct_message":
+            return "DM"
+        case "email":
+            return "メール"
+        default:
+            return item.mission.channel
+        }
+    }
+
+    private var iconName: String {
+        switch item.mission.status {
+        case "awaiting_review":
+            return "text.bubble"
+        case "failed":
+            return "exclamationmark.triangle"
+        case "completed":
+            return "checkmark.circle"
+        case "canceled":
+            return "xmark.circle"
+        default:
+            return "square.and.pencil"
+        }
+    }
+
+    private var tint: Color {
+        switch item.mission.status {
+        case "failed":
+            return .red
+        case "awaiting_review":
+            return .orange
+        case "completed":
+            return .green
+        default:
+            return .accentColor
+        }
+    }
+}
+
+private struct VentureMessageDraftView: View {
+    let summary: String
+    let message: VentureMessageDeliverable
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if !summary.isEmpty {
+                Text(summary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if let subject = message.subject, !subject.isEmpty {
+                ProductChangeSection(title: "件名", items: [subject])
+            }
+
+            ProductChangeSection(title: "候補", items: message.candidateRecipients.prefixArray(3))
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("本文")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Text(message.body)
+                    .font(.caption)
+                    .foregroundStyle(.primary)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Text("この画面では送信しません。送信は別Proposalの承認後に扱います。")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
 private struct VentureProductChangeSummaryView: View {
     let summary: String
     let productChange: VentureProductChangeDeliverable
-    let fallbackPullRequests: [VentureDevelopmentMissionResult.PullRequest]
+    let supportingPullRequests: [VentureDevelopmentMissionResult.PullRequest]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -905,7 +1071,7 @@ private struct VentureProductChangeSummaryView: View {
 
     private var pullRequestURLs: [String] {
         var seen: Set<String> = []
-        return (productChange.pullRequests + fallbackPullRequests.map(\.url)).filter { url in
+        return (productChange.pullRequests + supportingPullRequests.map(\.url)).filter { url in
             guard !url.isEmpty, !seen.contains(url) else {
                 return false
             }

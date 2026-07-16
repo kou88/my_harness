@@ -15,6 +15,7 @@ final class ProductOpsState {
     var decisionInboxState: LoadState<VentureDecisionInboxPayload> = .idle
     var developmentMissionsState: LoadState<[VentureDevelopmentMissionItem]> = .idle
     var researchMissionsState: LoadState<[VentureResearchMissionItem]> = .idle
+    var messageMissionsState: LoadState<[VentureMessageMissionItem]> = .idle
     var needsState: LoadState<[Need]> = .idle
     var candidatesState: LoadState<[NeedCandidate]> = .idle
     var developmentTasksState: LoadState<[DevelopmentTask]> = .idle
@@ -99,6 +100,13 @@ final class ProductOpsState {
         return items
     }
 
+    var messageMissionItems: [VentureMessageMissionItem] {
+        guard case .loaded(let items) = messageMissionsState else {
+            return []
+        }
+        return items
+    }
+
     var needs: [Need] {
         guard case .loaded(let items) = needsState else {
             return []
@@ -125,6 +133,7 @@ final class ProductOpsState {
         decisionInboxState = .idle
         developmentMissionsState = .idle
         researchMissionsState = .idle
+        messageMissionsState = .idle
         needsState = .idle
         candidatesState = .idle
         developmentTasksState = .idle
@@ -176,6 +185,7 @@ final class ProductOpsState {
         decisionInboxState = .loading
         developmentMissionsState = .loading
         researchMissionsState = .loading
+        messageMissionsState = .loading
         do {
             var payload = try await apiClient.fetchVentureDecisionInbox(ventureId: ventureId)
             if payload.refreshRequired {
@@ -193,11 +203,17 @@ final class ProductOpsState {
             } catch {
                 researchMissionsState = .failed("調査Missionの読み込みに失敗しました: \(error.localizedDescription)")
             }
+            do {
+                messageMissionsState = .loaded(try await apiClient.fetchVentureMessageMissions(ventureId: ventureId).items)
+            } catch {
+                messageMissionsState = .failed("文案Missionの読み込みに失敗しました: \(error.localizedDescription)")
+            }
             message = nil
         } catch {
             decisionInboxState = .failed("次にやることの読み込みに失敗しました: \(error.localizedDescription)")
             developmentMissionsState = .idle
             researchMissionsState = .idle
+            messageMissionsState = .idle
         }
     }
 
@@ -222,7 +238,8 @@ final class ProductOpsState {
                 decision,
                 item: item,
                 developmentMission: result.developmentMission,
-                researchMission: result.researchMission
+                researchMission: result.researchMission,
+                messageMission: result.messageMission
             )
             await loadDecisionInbox()
         } catch {
@@ -244,6 +261,7 @@ final class ProductOpsState {
             decisionInboxState = .loaded(payload)
             developmentMissionsState = .loaded(try await apiClient.fetchVentureDevelopmentMissions(ventureId: ventureId).items)
             researchMissionsState = .loaded(try await apiClient.fetchVentureResearchMissions(ventureId: ventureId).items)
+            messageMissionsState = .loaded(try await apiClient.fetchVentureMessageMissions(ventureId: ventureId).items)
             if payload.items.contains(where: { $0.proposalId == item.proposalId }) {
                 message = "判断を保存できませんでした: \(error.localizedDescription)"
             } else {
@@ -609,7 +627,8 @@ final class ProductOpsState {
         _ decision: VentureDecision,
         item: VentureDecisionInboxItem,
         developmentMission: VentureDevelopmentMission?,
-        researchMission: VentureResearchMission?
+        researchMission: VentureResearchMission?,
+        messageMission: VentureMessageMission?
     ) -> String {
         switch decision {
         case .approved:
@@ -618,6 +637,9 @@ final class ProductOpsState {
             }
             if researchMission != nil {
                 return "調査を開始しました"
+            }
+            if messageMission != nil {
+                return "メッセージ下書きを作成します。送信はしていません"
             }
             if item.actionKind == "outreach" {
                 return "メッセージ下書きを作成します。送信はしていません"

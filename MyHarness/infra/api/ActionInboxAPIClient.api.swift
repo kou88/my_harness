@@ -57,6 +57,10 @@ final class ActionInboxAPIClient {
         var data: VentureResearchMissionListPayload
     }
 
+    private struct VentureMessageMissionListEnvelope: Decodable {
+        var data: VentureMessageMissionListPayload
+    }
+
     private struct VentureLearningAdoptionEnvelope: Decodable {
         var data: VentureLearningAdoptionResult
     }
@@ -212,6 +216,11 @@ final class ActionInboxAPIClient {
     func fetchVentureResearchMissions(ventureId: String) async throws -> VentureResearchMissionListPayload {
         let data = try await request(path: "/api/v2/ventures/\(ventureId)/research-missions", method: "GET")
         return try decoder.decode(VentureResearchMissionListEnvelope.self, from: data).data
+    }
+
+    func fetchVentureMessageMissions(ventureId: String) async throws -> VentureMessageMissionListPayload {
+        let data = try await request(path: "/api/v2/ventures/\(ventureId)/message-missions", method: "GET")
+        return try decoder.decode(VentureMessageMissionListEnvelope.self, from: data).data
     }
 
     func adoptResearchLearning(deliverableId: String, decisionNote: String) async throws -> VentureLearningAdoptionResult {
