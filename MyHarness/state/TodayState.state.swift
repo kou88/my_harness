@@ -31,7 +31,7 @@ final class TodayState {
     }
 
     var routineRows: [TodayItemRowState] {
-        rows.filter { $0.item.scheduleKind == .routine }
+        displayOrdered(rows.filter { $0.item.scheduleKind == .routine })
     }
 
     var pinnedOneShotRowsForRoutineScreen: [TodayItemRowState] {
