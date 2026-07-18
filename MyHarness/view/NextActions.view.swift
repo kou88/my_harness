@@ -19,6 +19,7 @@ struct NextActionsView: View {
     private enum NextActionsSheet: Identifiable {
         case needMemo
         case proposalFeedback(PendingVentureProposalFeedback)
+        case missionDetail(VentureMissionSummaryItem)
 
         var id: String {
             switch self {
@@ -26,6 +27,8 @@ struct NextActionsView: View {
                 return "needMemo"
             case .proposalFeedback(let feedback):
                 return feedback.id
+            case .missionDetail(let item):
+                return "mission-\(item.id)"
             }
         }
     }
@@ -67,6 +70,8 @@ struct NextActionsView: View {
                     state: productOpsState,
                     pending: feedback
                 )
+            case .missionDetail(let item):
+                VentureMissionDetailSheet(state: productOpsState, item: item)
             }
         }
     }
@@ -122,22 +127,10 @@ struct NextActionsView: View {
     private func ventureDecisionContent(_ payload: VentureDecisionInboxPayload) -> some View {
         let recommended = payload.items.first
         let remaining = Array(payload.items.dropFirst())
-        let developmentMissionItems = productOpsState.developmentMissionItems
-        let researchMissionItems = productOpsState.researchMissionItems
-        let messageMissionItems = productOpsState.messageMissionItems
-        let verificationMissionItems = productOpsState.verificationMissionItems
-        let knowledgeChangeMissionItems = productOpsState.knowledgeChangeMissionItems
+        let missionItems = productOpsState.missionSummaryItems
         let monitoringAlertItems = productOpsState.monitoringAlertItems
-        let reviewMissions = developmentMissionItems.filter { $0.mission.status == "awaiting_review" || $0.mission.status == "failed" }
-        let reviewResearchMissions = researchMissionItems.filter { $0.mission.status == "awaiting_review" || $0.mission.status == "failed" }
-        let reviewMessageMissions = messageMissionItems.filter { $0.mission.status == "awaiting_review" || $0.mission.status == "failed" }
-        let reviewVerificationMissions = verificationMissionItems.filter { $0.mission.status == "awaiting_review" || $0.mission.status == "failed" }
-        let reviewKnowledgeChangeMissions = knowledgeChangeMissionItems.filter { $0.mission.status == "awaiting_review" || $0.mission.status == "failed" }
-        let runningMissions = developmentMissionItems.filter { ["queued", "dispatching", "running"].contains($0.mission.status) }
-        let runningResearchMissions = researchMissionItems.filter { ["queued", "dispatching", "running"].contains($0.mission.status) }
-        let runningMessageMissions = messageMissionItems.filter { ["queued", "dispatching", "running"].contains($0.mission.status) }
-        let runningVerificationMissions = verificationMissionItems.filter { ["queued", "dispatching", "running"].contains($0.mission.status) }
-        let runningKnowledgeChangeMissions = knowledgeChangeMissionItems.filter { ["queued", "dispatching", "running"].contains($0.mission.status) }
+        let reviewMissions = missionItems.filter { $0.status == "awaiting_review" || $0.status == "failed" }
+        let runningMissions = missionItems.filter { ["queued", "dispatching", "running"].contains($0.status) }
 
         if let message = payload.recommendationStatusMessage {
             Section {
@@ -168,30 +161,15 @@ struct NextActionsView: View {
             }
         }
 
-        if !monitoringAlertItems.isEmpty || !reviewMissions.isEmpty || !reviewResearchMissions.isEmpty || !reviewMessageMissions.isEmpty || !reviewVerificationMissions.isEmpty || !reviewKnowledgeChangeMissions.isEmpty {
+        if !monitoringAlertItems.isEmpty || !reviewMissions.isEmpty {
             Section("結果確認") {
                 ForEach(monitoringAlertItems) { item in
                     VentureMonitoringAlertRow(item: item)
                 }
                 ForEach(reviewMissions) { item in
-                    VentureDevelopmentMissionRow(item: item)
-                }
-                ForEach(reviewResearchMissions) { item in
-                    VentureResearchMissionRow(
-                        item: item,
-                        onAdopt: { deliverable in
-                            Task { await productOpsState.adoptResearchLearning(deliverable: deliverable) }
-                        }
-                    )
-                }
-                ForEach(reviewMessageMissions) { item in
-                    VentureMessageMissionRow(item: item)
-                }
-                ForEach(reviewVerificationMissions) { item in
-                    VentureVerificationMissionRow(item: item)
-                }
-                ForEach(reviewKnowledgeChangeMissions) { item in
-                    VentureKnowledgeChangeMissionRow(item: item)
+                    VentureMissionSummaryRow(item: item) {
+                        presentedSheet = .missionDetail(item)
+                    }
                 }
             }
         }
@@ -212,58 +190,32 @@ struct NextActionsView: View {
             }
         }
 
-        if !runningMissions.isEmpty || !runningResearchMissions.isEmpty || !runningMessageMissions.isEmpty || !runningVerificationMissions.isEmpty || !runningKnowledgeChangeMissions.isEmpty {
+        if !runningMissions.isEmpty {
             Section("進行中") {
                 ForEach(runningMissions) { item in
-                    VentureDevelopmentMissionRow(item: item)
-                }
-                ForEach(runningResearchMissions) { item in
-                    VentureResearchMissionRow(item: item, onAdopt: { _ in })
-                }
-                ForEach(runningMessageMissions) { item in
-                    VentureMessageMissionRow(item: item)
-                }
-                ForEach(runningVerificationMissions) { item in
-                    VentureVerificationMissionRow(item: item)
-                }
-                ForEach(runningKnowledgeChangeMissions) { item in
-                    VentureKnowledgeChangeMissionRow(item: item)
+                    VentureMissionSummaryRow(item: item) {
+                        presentedSheet = .missionDetail(item)
+                    }
                 }
             }
         }
 
-        if case .failed(let message) = productOpsState.developmentMissionsState {
+        if productOpsState.nextMissionCursor != nil {
             Section {
-                ProductOpsMessageBar(text: message, systemImage: "exclamationmark.triangle")
-                    .listRowSeparator(.hidden)
-            }
-        }
-
-        if case .failed(let message) = productOpsState.researchMissionsState {
-            Section {
-                ProductOpsMessageBar(text: message, systemImage: "exclamationmark.triangle")
-                    .listRowSeparator(.hidden)
-            }
-        }
-
-        if case .failed(let message) = productOpsState.messageMissionsState {
-            Section {
-                ProductOpsMessageBar(text: message, systemImage: "exclamationmark.triangle")
-                    .listRowSeparator(.hidden)
-            }
-        }
-
-        if case .failed(let message) = productOpsState.verificationMissionsState {
-            Section {
-                ProductOpsMessageBar(text: message, systemImage: "exclamationmark.triangle")
-                    .listRowSeparator(.hidden)
-            }
-        }
-
-        if case .failed(let message) = productOpsState.knowledgeChangeMissionsState {
-            Section {
-                ProductOpsMessageBar(text: message, systemImage: "exclamationmark.triangle")
-                    .listRowSeparator(.hidden)
+                Button {
+                    Task { await productOpsState.loadMoreMissionItems() }
+                } label: {
+                    HStack {
+                        Spacer()
+                        if productOpsState.isLoadingMoreMissionItems {
+                            ProgressView()
+                        } else {
+                            Label("さらに表示", systemImage: "chevron.down")
+                        }
+                        Spacer()
+                    }
+                }
+                .disabled(productOpsState.isLoadingMoreMissionItems)
             }
         }
 
@@ -797,6 +749,152 @@ private struct MissionProgressSummaryRow: View {
                 .foregroundStyle(.secondary)
         }
         .padding(.vertical, 6)
+    }
+}
+
+private struct VentureMissionSummaryRow: View {
+    let item: VentureMissionSummaryItem
+    let onOpen: () -> Void
+
+    var body: some View {
+        Button(action: onOpen) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: iconName)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(tint)
+                    .frame(width: 22)
+                    .padding(.top, 3)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        ProductOpsTokenView(item.kindLabel)
+                        ProductOpsTokenView(statusLabel)
+                    }
+                    Text(item.title)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .multilineTextAlignment(.leading)
+                    Text(item.summary)
+                        .font(.caption)
+                        .foregroundStyle(item.status == "failed" ? .red : .secondary)
+                        .multilineTextAlignment(.leading)
+                }
+
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+                    .padding(.top, 10)
+            }
+            .padding(.vertical, 5)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var statusLabel: String {
+        switch item.status {
+        case "queued": return "待機中"
+        case "dispatching": return "配送中"
+        case "running": return "実行中"
+        case "awaiting_review": return "結果確認"
+        case "failed": return "失敗"
+        default: return item.status
+        }
+    }
+
+    private var iconName: String {
+        switch item.missionKind {
+        case "development": return "hammer"
+        case "research": return "magnifyingglass"
+        case "message": return "text.bubble"
+        case "verification": return "checkmark.seal"
+        case "knowledge_change": return "books.vertical"
+        default: return "circle.dotted"
+        }
+    }
+
+    private var tint: Color {
+        switch item.status {
+        case "failed": return .red
+        case "awaiting_review": return .orange
+        default: return .blue
+        }
+    }
+}
+
+@MainActor
+private struct VentureMissionDetailSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let state: ProductOpsState
+    let item: VentureMissionSummaryItem
+    @State private var detail: VentureMissionDetail?
+    @State private var errorMessage: String?
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if let detail {
+                    List {
+                        detailContent(detail)
+                    }
+                    .listStyle(.plain)
+                } else if let errorMessage {
+                    ContentUnavailableView {
+                        Label("詳細を読み込めません", systemImage: "exclamationmark.triangle")
+                    } description: {
+                        Text(errorMessage)
+                    } actions: {
+                        Button("再試行") {
+                            Task { await load() }
+                        }
+                    }
+                } else {
+                    ProgressView("詳細を読み込んでいます")
+                }
+            }
+            .navigationTitle(item.kindLabel)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("閉じる") { dismiss() }
+                }
+            }
+            .task { await load() }
+        }
+    }
+
+    @ViewBuilder
+    private func detailContent(_ detail: VentureMissionDetail) -> some View {
+        switch detail {
+        case .development(let mission):
+            VentureDevelopmentMissionRow(item: mission)
+        case .research(let mission):
+            VentureResearchMissionRow(
+                item: mission,
+                onAdopt: { deliverable in
+                    Task {
+                        await state.adoptResearchLearning(deliverable: deliverable)
+                        dismiss()
+                    }
+                }
+            )
+        case .message(let mission):
+            VentureMessageMissionRow(item: mission)
+        case .verification(let mission):
+            VentureVerificationMissionRow(item: mission)
+        case .knowledgeChange(let mission):
+            VentureKnowledgeChangeMissionRow(item: mission)
+        }
+    }
+
+    private func load() async {
+        errorMessage = nil
+        do {
+            detail = try await state.fetchMissionDetail(item)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 }
 

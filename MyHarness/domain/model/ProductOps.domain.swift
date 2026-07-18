@@ -25,23 +25,61 @@ struct VentureDecisionInboxPayload: Decodable, Hashable {
         case "generating":
             return "次の提案を生成しています。完了すると通知されます。"
         case "failed":
-            return lastError.map { "提案生成に失敗しました: \($0)" } ?? "提案生成に失敗しました。"
+            return lastError.map { "提案生成に失敗しました: \(Self.displayError($0))" } ?? "提案生成に失敗しました。"
         default:
             return nil
         }
+    }
+
+    private static func displayError(_ message: String) -> String {
+        if message.contains("No online OS Agent host is tagged for Codex App Server") {
+            return "MacのCodex実行環境がオフラインです。接続後に再試行してください。"
+        }
+        return message
     }
 }
 
 struct VentureNextActionsPayload: Decodable, Hashable {
     var generatedAt: Date
     var decisionInbox: VentureDecisionInboxPayload
-    var developmentMissions: [VentureDevelopmentMissionItem]
-    var researchMissions: [VentureResearchMissionItem]
-    var messageMissions: [VentureMessageMissionItem]
-    var verificationMissions: [VentureVerificationMissionItem]
-    var knowledgeChangeMissions: [VentureKnowledgeChangeMissionItem]
+    var missionItems: VentureMissionSummaryPage
     var monitoringAlerts: [VentureMonitoringAlertItem]
     var missionProgress: VentureMissionProgressPayload
+}
+
+struct VentureMissionSummaryPage: Decodable, Hashable {
+    var items: [VentureMissionSummaryItem]
+    var nextCursor: String?
+}
+
+struct VentureMissionSummaryItem: Identifiable, Decodable, Hashable {
+    var id: String
+    var missionKind: String
+    var capability: String
+    var deliverableKind: String
+    var title: String
+    var summary: String
+    var status: String
+    var updatedAt: Date
+
+    var kindLabel: String {
+        switch missionKind {
+        case "development": return "Codex実装"
+        case "research": return "調査"
+        case "message": return "文案"
+        case "verification": return "検証"
+        case "knowledge_change": return "Knowledge"
+        default: return capability
+        }
+    }
+}
+
+enum VentureMissionDetail: Hashable {
+    case development(VentureDevelopmentMissionItem)
+    case research(VentureResearchMissionItem)
+    case message(VentureMessageMissionItem)
+    case verification(VentureVerificationMissionItem)
+    case knowledgeChange(VentureKnowledgeChangeMissionItem)
 }
 
 struct VentureDecisionInboxItem: Identifiable, Decodable, Hashable {

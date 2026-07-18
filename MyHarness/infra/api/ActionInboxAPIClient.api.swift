@@ -61,20 +61,40 @@ final class ActionInboxAPIClient {
         var data: VentureDevelopmentMissionListPayload
     }
 
+    private struct VentureDevelopmentMissionEnvelope: Decodable {
+        var data: VentureDevelopmentMissionItem
+    }
+
     private struct VentureResearchMissionListEnvelope: Decodable {
         var data: VentureResearchMissionListPayload
+    }
+
+    private struct VentureResearchMissionEnvelope: Decodable {
+        var data: VentureResearchMissionItem
     }
 
     private struct VentureMessageMissionListEnvelope: Decodable {
         var data: VentureMessageMissionListPayload
     }
 
+    private struct VentureMessageMissionEnvelope: Decodable {
+        var data: VentureMessageMissionItem
+    }
+
     private struct VentureVerificationMissionListEnvelope: Decodable {
         var data: VentureVerificationMissionListPayload
     }
 
+    private struct VentureVerificationMissionEnvelope: Decodable {
+        var data: VentureVerificationMissionItem
+    }
+
     private struct VentureKnowledgeChangeMissionListEnvelope: Decodable {
         var data: VentureKnowledgeChangeMissionListPayload
+    }
+
+    private struct VentureKnowledgeChangeMissionEnvelope: Decodable {
+        var data: VentureKnowledgeChangeMissionItem
     }
 
     private struct VentureMonitoringAlertListEnvelope: Decodable {
@@ -247,9 +267,40 @@ final class ActionInboxAPIClient {
         return try decoder.decode(VentureDecisionInboxEnvelope.self, from: data).data
     }
 
-    func fetchVentureNextActions(ventureId: String) async throws -> VentureNextActionsPayload {
-        let data = try await request(path: "/api/v2/ventures/\(ventureId)/next-actions", method: "GET")
+    func fetchVentureNextActions(ventureId: String, limit: Int = 10, cursor: String? = nil) async throws -> VentureNextActionsPayload {
+        var queryItems = [URLQueryItem(name: "limit", value: String(limit))]
+        if let cursor {
+            queryItems.append(URLQueryItem(name: "cursor", value: cursor))
+        }
+        let data = try await request(
+            path: "/api/v2/ventures/\(ventureId)/next-actions",
+            method: "GET",
+            queryItems: queryItems
+        )
         return try decoder.decode(VentureNextActionsEnvelope.self, from: data).data
+    }
+
+    func fetchVentureMissionDetail(_ item: VentureMissionSummaryItem) async throws -> VentureMissionDetail {
+        let data: Data
+        switch item.missionKind {
+        case "development":
+            data = try await request(path: "/api/v2/development-missions/\(item.id)", method: "GET")
+            return .development(try decoder.decode(VentureDevelopmentMissionEnvelope.self, from: data).data)
+        case "research":
+            data = try await request(path: "/api/v2/research-missions/\(item.id)", method: "GET")
+            return .research(try decoder.decode(VentureResearchMissionEnvelope.self, from: data).data)
+        case "message":
+            data = try await request(path: "/api/v2/message-missions/\(item.id)", method: "GET")
+            return .message(try decoder.decode(VentureMessageMissionEnvelope.self, from: data).data)
+        case "verification":
+            data = try await request(path: "/api/v2/verification-missions/\(item.id)", method: "GET")
+            return .verification(try decoder.decode(VentureVerificationMissionEnvelope.self, from: data).data)
+        case "knowledge_change":
+            data = try await request(path: "/api/v2/knowledge-change-missions/\(item.id)", method: "GET")
+            return .knowledgeChange(try decoder.decode(VentureKnowledgeChangeMissionEnvelope.self, from: data).data)
+        default:
+            throw ClientError.invalidResponse
+        }
     }
 
     func fetchVentureDevelopmentMissions(ventureId: String) async throws -> VentureDevelopmentMissionListPayload {

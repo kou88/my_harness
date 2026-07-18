@@ -13,6 +13,7 @@ final class ProductOpsState {
 
     var nextActionsState: LoadState<NextActionsPayload> = .idle
     var decisionInboxState: LoadState<VentureDecisionInboxPayload> = .idle
+    var missionItemsState: LoadState<VentureMissionSummaryPage> = .idle
     var developmentMissionsState: LoadState<[VentureDevelopmentMissionItem]> = .idle
     var researchMissionsState: LoadState<[VentureResearchMissionItem]> = .idle
     var messageMissionsState: LoadState<[VentureMessageMissionItem]> = .idle
@@ -30,6 +31,7 @@ final class ProductOpsState {
     var isPostingVentureDecision = false
     var isRequestingRecommendationHeartbeat = false
     var isScanningMonitoringAlerts = false
+    var isLoadingMoreMissionItems = false
     var message: String?
     var configurationErrorMessage: String?
 
@@ -135,6 +137,20 @@ final class ProductOpsState {
         return items
     }
 
+    var missionSummaryItems: [VentureMissionSummaryItem] {
+        guard case .loaded(let page) = missionItemsState else {
+            return []
+        }
+        return page.items
+    }
+
+    var nextMissionCursor: String? {
+        guard case .loaded(let page) = missionItemsState else {
+            return nil
+        }
+        return page.nextCursor
+    }
+
     var missionProgress: VentureMissionProgressPayload? {
         guard case .loaded(let payload) = missionProgressState else {
             return nil
@@ -166,6 +182,7 @@ final class ProductOpsState {
     func reset() {
         nextActionsState = .idle
         decisionInboxState = .idle
+        missionItemsState = .idle
         developmentMissionsState = .idle
         researchMissionsState = .idle
         messageMissionsState = .idle
@@ -229,6 +246,7 @@ final class ProductOpsState {
         } else {
             hasVisibleContent = false
             decisionInboxState = .loading
+            missionItemsState = .loading
             developmentMissionsState = .loading
             researchMissionsState = .loading
             messageMissionsState = .loading
@@ -246,6 +264,7 @@ final class ProductOpsState {
                 message = errorMessage
             } else {
                 decisionInboxState = .failed(errorMessage)
+                missionItemsState = .idle
                 developmentMissionsState = .idle
                 researchMissionsState = .idle
                 messageMissionsState = .idle
@@ -259,6 +278,38 @@ final class ProductOpsState {
 
     func loadDecisionInbox() async {
         await loadNextActions()
+    }
+
+    func loadMoreMissionItems() async {
+        guard let apiClient, let cursor = nextMissionCursor, !isLoadingMoreMissionItems else { return }
+        isLoadingMoreMissionItems = true
+        defer { isLoadingMoreMissionItems = false }
+        do {
+            let payload = try await apiClient.fetchVentureNextActions(
+                ventureId: ventureId,
+                limit: 10,
+                cursor: cursor
+            )
+            let existing = missionSummaryItems
+            let knownIds = Set(existing.map(\.id))
+            let additional = payload.missionItems.items.filter { !knownIds.contains($0.id) }
+            decisionInboxState = .loaded(payload.decisionInbox)
+            missionItemsState = .loaded(VentureMissionSummaryPage(
+                items: existing + additional,
+                nextCursor: payload.missionItems.nextCursor
+            ))
+            monitoringAlertsState = .loaded(payload.monitoringAlerts)
+            missionProgressState = .loaded(payload.missionProgress)
+        } catch {
+            message = "続きを読み込めませんでした: \(error.localizedDescription)"
+        }
+    }
+
+    func fetchMissionDetail(_ item: VentureMissionSummaryItem) async throws -> VentureMissionDetail {
+        guard let apiClient else {
+            throw ActionInboxConfigurationError.missingValue("ActionAPIBaseURL")
+        }
+        return try await apiClient.fetchVentureMissionDetail(item)
     }
 
     func decideVentureProposal(
@@ -328,6 +379,8 @@ final class ProductOpsState {
 
     private func recommendationHeartbeatMessage(_ result: VentureRecommendationHeartbeatResult) -> String {
         switch result.reason {
+        case "queued":
+            return "提案生成を開始しました。完了すると通知されます。"
         case "generated":
             return result.generatedCount > 0
                 ? "次の提案を\(result.generatedCount)件準備しました。"
@@ -614,11 +667,7 @@ final class ProductOpsState {
 
     private func applyNextActionsPayload(_ payload: VentureNextActionsPayload) {
         decisionInboxState = .loaded(payload.decisionInbox)
-        developmentMissionsState = .loaded(payload.developmentMissions)
-        researchMissionsState = .loaded(payload.researchMissions)
-        messageMissionsState = .loaded(payload.messageMissions)
-        verificationMissionsState = .loaded(payload.verificationMissions)
-        knowledgeChangeMissionsState = .loaded(payload.knowledgeChangeMissions)
+        missionItemsState = .loaded(payload.missionItems)
         monitoringAlertsState = .loaded(payload.monitoringAlerts)
         missionProgressState = .loaded(payload.missionProgress)
     }
