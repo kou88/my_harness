@@ -41,6 +41,10 @@ final class ActionInboxAPIClient {
         var data: VentureDecisionInboxPayload
     }
 
+    private struct VentureNextActionsEnvelope: Decodable {
+        var data: VentureNextActionsPayload
+    }
+
     private struct VentureProposalGenerateEnvelope: Decodable {
         var data: VentureProposalGenerateResult
     }
@@ -241,6 +245,11 @@ final class ActionInboxAPIClient {
     func fetchVentureDecisionInbox(ventureId: String) async throws -> VentureDecisionInboxPayload {
         let data = try await request(path: "/api/v2/ventures/\(ventureId)/decision-inbox", method: "GET")
         return try decoder.decode(VentureDecisionInboxEnvelope.self, from: data).data
+    }
+
+    func fetchVentureNextActions(ventureId: String) async throws -> VentureNextActionsPayload {
+        let data = try await request(path: "/api/v2/ventures/\(ventureId)/next-actions", method: "GET")
+        return try decoder.decode(VentureNextActionsEnvelope.self, from: data).data
     }
 
     func fetchVentureDevelopmentMissions(ventureId: String) async throws -> VentureDevelopmentMissionListPayload {

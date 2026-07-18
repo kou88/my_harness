@@ -32,6 +32,18 @@ struct VentureDecisionInboxPayload: Decodable, Hashable {
     }
 }
 
+struct VentureNextActionsPayload: Decodable, Hashable {
+    var generatedAt: Date
+    var decisionInbox: VentureDecisionInboxPayload
+    var developmentMissions: [VentureDevelopmentMissionItem]
+    var researchMissions: [VentureResearchMissionItem]
+    var messageMissions: [VentureMessageMissionItem]
+    var verificationMissions: [VentureVerificationMissionItem]
+    var knowledgeChangeMissions: [VentureKnowledgeChangeMissionItem]
+    var monitoringAlerts: [VentureMonitoringAlertItem]
+    var missionProgress: VentureMissionProgressPayload
+}
+
 struct VentureDecisionInboxItem: Identifiable, Decodable, Hashable {
     var proposalId: String
     var title: String

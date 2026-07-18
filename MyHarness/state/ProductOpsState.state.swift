@@ -223,69 +223,37 @@ final class ProductOpsState {
 
     func loadNextActions() async {
         guard let apiClient else { return }
-        decisionInboxState = .loading
-        developmentMissionsState = .loading
-        researchMissionsState = .loading
-        messageMissionsState = .loading
-        verificationMissionsState = .loading
-        knowledgeChangeMissionsState = .loading
-        monitoringAlertsState = .loading
-        missionCatalogState = .loading
-        missionProgressState = .loading
+        let hasVisibleContent: Bool
+        if case .loaded = decisionInboxState {
+            hasVisibleContent = true
+        } else {
+            hasVisibleContent = false
+            decisionInboxState = .loading
+            developmentMissionsState = .loading
+            researchMissionsState = .loading
+            messageMissionsState = .loading
+            verificationMissionsState = .loading
+            knowledgeChangeMissionsState = .loading
+            monitoringAlertsState = .loading
+            missionProgressState = .loading
+        }
         do {
-            let payload = try await apiClient.fetchVentureDecisionInbox(ventureId: ventureId)
-            decisionInboxState = .loaded(payload)
-            do {
-                developmentMissionsState = .loaded(try await apiClient.fetchVentureDevelopmentMissions(ventureId: ventureId).items)
-            } catch {
-                developmentMissionsState = .failed("開発Missionの読み込みに失敗しました: \(error.localizedDescription)")
-            }
-            do {
-                researchMissionsState = .loaded(try await apiClient.fetchVentureResearchMissions(ventureId: ventureId).items)
-            } catch {
-                researchMissionsState = .failed("調査Missionの読み込みに失敗しました: \(error.localizedDescription)")
-            }
-            do {
-                messageMissionsState = .loaded(try await apiClient.fetchVentureMessageMissions(ventureId: ventureId).items)
-            } catch {
-                messageMissionsState = .failed("文案Missionの読み込みに失敗しました: \(error.localizedDescription)")
-            }
-            do {
-                verificationMissionsState = .loaded(try await apiClient.fetchVentureVerificationMissions(ventureId: ventureId).items)
-            } catch {
-                verificationMissionsState = .failed("検証Missionの読み込みに失敗しました: \(error.localizedDescription)")
-            }
-            do {
-                knowledgeChangeMissionsState = .loaded(try await apiClient.fetchVentureKnowledgeChangeMissions(ventureId: ventureId).items)
-            } catch {
-                knowledgeChangeMissionsState = .failed("Knowledge更新候補の読み込みに失敗しました: \(error.localizedDescription)")
-            }
-            do {
-                monitoringAlertsState = .loaded(try await apiClient.fetchVentureMonitoringAlerts(ventureId: ventureId).items)
-            } catch {
-                monitoringAlertsState = .failed("監視アラートの読み込みに失敗しました: \(error.localizedDescription)")
-            }
-            do {
-                missionCatalogState = .loaded(try await apiClient.fetchVentureMissionCatalog())
-            } catch {
-                missionCatalogState = .failed("Missionカタログの読み込みに失敗しました: \(error.localizedDescription)")
-            }
-            do {
-                missionProgressState = .loaded(try await apiClient.fetchVentureMissionProgress(ventureId: ventureId))
-            } catch {
-                missionProgressState = .failed("Mission進捗の読み込みに失敗しました: \(error.localizedDescription)")
-            }
+            applyNextActionsPayload(try await apiClient.fetchVentureNextActions(ventureId: ventureId))
             message = nil
         } catch {
-            decisionInboxState = .failed("次にやることの読み込みに失敗しました: \(error.localizedDescription)")
-            developmentMissionsState = .idle
-            researchMissionsState = .idle
-            messageMissionsState = .idle
-            verificationMissionsState = .idle
-            knowledgeChangeMissionsState = .idle
-            monitoringAlertsState = .idle
-            missionCatalogState = .idle
-            missionProgressState = .idle
+            let errorMessage = "次にやることの読み込みに失敗しました: \(error.localizedDescription)"
+            if hasVisibleContent {
+                message = errorMessage
+            } else {
+                decisionInboxState = .failed(errorMessage)
+                developmentMissionsState = .idle
+                researchMissionsState = .idle
+                messageMissionsState = .idle
+                verificationMissionsState = .idle
+                knowledgeChangeMissionsState = .idle
+                monitoringAlertsState = .idle
+                missionProgressState = .idle
+            }
         }
     }
 
@@ -346,17 +314,9 @@ final class ProductOpsState {
             return
         }
         do {
-            let payload = try await apiClient.fetchVentureDecisionInbox(ventureId: ventureId)
-            decisionInboxState = .loaded(payload)
-            developmentMissionsState = .loaded(try await apiClient.fetchVentureDevelopmentMissions(ventureId: ventureId).items)
-            researchMissionsState = .loaded(try await apiClient.fetchVentureResearchMissions(ventureId: ventureId).items)
-            messageMissionsState = .loaded(try await apiClient.fetchVentureMessageMissions(ventureId: ventureId).items)
-            verificationMissionsState = .loaded(try await apiClient.fetchVentureVerificationMissions(ventureId: ventureId).items)
-            knowledgeChangeMissionsState = .loaded(try await apiClient.fetchVentureKnowledgeChangeMissions(ventureId: ventureId).items)
-            monitoringAlertsState = .loaded(try await apiClient.fetchVentureMonitoringAlerts(ventureId: ventureId).items)
-            missionCatalogState = .loaded(try await apiClient.fetchVentureMissionCatalog())
-            missionProgressState = .loaded(try await apiClient.fetchVentureMissionProgress(ventureId: ventureId))
-            if payload.items.contains(where: { $0.proposalId == item.proposalId }) {
+            let payload = try await apiClient.fetchVentureNextActions(ventureId: ventureId)
+            applyNextActionsPayload(payload)
+            if payload.decisionInbox.items.contains(where: { $0.proposalId == item.proposalId }) {
                 message = "判断を保存できませんでした: \(error.localizedDescription)"
             } else {
                 message = decisionSavedAfterLostConnectionMessage(decision, item: item)
@@ -643,13 +603,24 @@ final class ProductOpsState {
         defer { isScanningMonitoringAlerts = false }
         do {
             let result = try await apiClient.scanVentureMonitoringAlerts(ventureId: ventureId)
-            monitoringAlertsState = .loaded(try await apiClient.fetchVentureMonitoringAlerts(ventureId: ventureId).items)
+            await loadNextActions()
             message = result.createdCount > 0
                 ? "監視アラートを\(result.createdCount)件作成しました"
                 : "新しい監視アラートはありません"
         } catch {
             message = "監視スキャンに失敗しました: \(error.localizedDescription)"
         }
+    }
+
+    private func applyNextActionsPayload(_ payload: VentureNextActionsPayload) {
+        decisionInboxState = .loaded(payload.decisionInbox)
+        developmentMissionsState = .loaded(payload.developmentMissions)
+        researchMissionsState = .loaded(payload.researchMissions)
+        messageMissionsState = .loaded(payload.messageMissions)
+        verificationMissionsState = .loaded(payload.verificationMissions)
+        knowledgeChangeMissionsState = .loaded(payload.knowledgeChangeMissions)
+        monitoringAlertsState = .loaded(payload.monitoringAlerts)
+        missionProgressState = .loaded(payload.missionProgress)
     }
 
     func updatePolicy(fields: ProjectPolicyEditableFields) async -> ProjectPolicy? {

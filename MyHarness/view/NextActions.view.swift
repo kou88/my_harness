@@ -453,7 +453,6 @@ struct NextActionsView: View {
 
     private func loadAllIfPossible() async {
         await productOpsState.loadNextActionsIfPossible()
-        await actionInboxState.loadIfPossible()
     }
 
     private func signIn() async {
