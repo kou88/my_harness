@@ -983,25 +983,29 @@ private struct VentureMissionDetailSheet: View {
     @ViewBuilder
     private func deliverableContent(_ deliverable: VentureDeliverable) -> some View {
         if let value = deliverable.productChangePayload {
-            VentureProductChangeSummaryView(summary: deliverable.summary, productChange: value, supportingPullRequests: [])
+            VentureProductChangeSummaryView(summary: deliverable.displaySummary, productChange: value, supportingPullRequests: [])
         } else if let value = deliverable.researchReportPayload {
-            VentureResearchReportSummaryView(summary: deliverable.summary, report: value)
+            VentureResearchReportSummaryView(summary: deliverable.displaySummary, report: value)
         } else if let value = deliverable.messagePayload {
-            VentureMessageDraftView(summary: deliverable.summary, message: value)
+            VentureMessageDraftView(summary: deliverable.displaySummary, message: value)
         } else if let value = deliverable.verificationReportPayload {
-            VentureVerificationReportSummaryView(summary: deliverable.summary, report: value)
+            VentureVerificationReportSummaryView(
+                summary: deliverable.displaySummary,
+                report: value,
+                isCompact: false
+            )
         } else if let value = deliverable.knowledgeChangePayload {
-            VentureKnowledgeChangeSummaryView(summary: deliverable.summary, knowledgeChange: value)
+            VentureKnowledgeChangeSummaryView(summary: deliverable.displaySummary, knowledgeChange: value)
         } else if let value = deliverable.alertPayload {
             VStack(alignment: .leading, spacing: 6) {
-                Text(deliverable.summary).font(.subheadline)
+                Text(deliverable.displaySummary).font(.subheadline)
                 ProductChangeSection(title: "検知", items: [value.detectedIssue])
                 ProductChangeSection(title: "推奨対応", items: [value.recommendedAction])
             }
         } else {
             VStack(alignment: .leading, spacing: 6) {
                 Text(deliverable.title).font(.subheadline.weight(.semibold))
-                Text(deliverable.summary)
+                Text(deliverable.displaySummary)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1836,6 +1840,7 @@ private struct VentureVerificationMissionRow: View {
 private struct VentureVerificationReportSummaryView: View {
     let summary: String
     let report: VentureVerificationReportDeliverable
+    var isCompact = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -1855,7 +1860,7 @@ private struct VentureVerificationReportSummaryView: View {
                     Text("検証項目")
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.secondary)
-                    ForEach(report.checkedCriteria.prefix(4), id: \.criterion) { criterion in
+                    ForEach(visibleCriteria, id: \.criterion) { criterion in
                         HStack(alignment: .top, spacing: 5) {
                             Image(systemName: checkIcon(criterion.status))
                                 .font(.caption2.weight(.semibold))
@@ -1877,9 +1882,21 @@ private struct VentureVerificationReportSummaryView: View {
                 }
             }
 
-            ProductChangeSection(title: "リスク", items: report.risks.prefixArray(3), tint: .orange)
-            ProductChangeSection(title: "次対応", items: report.requiredFollowUps.prefixArray(3))
+            ProductChangeSection(title: "リスク", items: visibleRisks, tint: .orange)
+            ProductChangeSection(title: "次対応", items: visibleFollowUps)
         }
+    }
+
+    private var visibleCriteria: [VentureVerificationReportDeliverable.CheckedCriterion] {
+        isCompact ? Array(report.checkedCriteria.prefix(4)) : report.checkedCriteria
+    }
+
+    private var visibleRisks: [String] {
+        isCompact ? Array(report.risks.prefix(3)) : report.risks
+    }
+
+    private var visibleFollowUps: [String] {
+        isCompact ? Array(report.requiredFollowUps.prefix(3)) : report.requiredFollowUps
     }
 
     private var verdictLabel: String {

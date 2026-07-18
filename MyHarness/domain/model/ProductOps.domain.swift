@@ -602,6 +602,17 @@ struct VentureDeliverable: Identifiable, Decodable, Hashable {
     var payload: ProductOpsMetadataValue
     var createdAt: Date
 
+    var displaySummary: String {
+        guard let data = summary.data(using: .utf8),
+              let value = try? JSONDecoder().decode(ProductOpsMetadataValue.self, from: data),
+              let object = value.unwrappedObjectValue,
+              let normalized = object["summary"]?.stringValue,
+              !normalized.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return summary
+        }
+        return normalized
+    }
+
     var productChangePayload: VentureProductChangeDeliverable? {
         guard kind == "product_change" else {
             return nil
@@ -660,7 +671,7 @@ struct VentureProductChangeDeliverable: Hashable {
     var unresolvedIssues: [String]
 
     init?(payload: ProductOpsMetadataValue) {
-        guard let object = payload.objectValue else {
+        guard let object = payload.unwrappedObjectValue else {
             return nil
         }
         changedBehavior = object["changedBehavior"]?.stringArrayValue ?? object["changed_behavior"]?.stringArrayValue ?? []
@@ -712,7 +723,7 @@ struct VentureResearchReportDeliverable: Decodable, Hashable {
     }
 
     init?(payload: ProductOpsMetadataValue) {
-        guard let object = payload.objectValue else {
+        guard let object = payload.unwrappedObjectValue else {
             return nil
         }
         researchQuestion = object["researchQuestion"]?.stringValue ?? object["research_question"]?.stringValue ?? ""
@@ -748,7 +759,7 @@ struct VentureMessageDeliverable: Decodable, Hashable {
     }
 
     init?(payload: ProductOpsMetadataValue) {
-        guard let object = payload.objectValue else {
+        guard let object = payload.unwrappedObjectValue else {
             return nil
         }
         channel = object["channel"]?.stringValue ?? ""
@@ -784,9 +795,10 @@ struct VentureVerificationReportDeliverable: Decodable, Hashable {
     }
 
     init?(payload: ProductOpsMetadataValue) {
-        guard let object = payload.objectValue else {
+        guard let root = payload.unwrappedObjectValue else {
             return nil
         }
+        let object = root["report"]?.unwrappedObjectValue ?? root
         verdict = object["verdict"]?.stringValue ?? "review_required"
         checkedCriteria = (object["checkedCriteria"]?.arrayValue ?? object["checked_criteria"]?.arrayValue ?? []).compactMap { value in
             guard let item = value.objectValue else {
@@ -822,7 +834,7 @@ struct VentureKnowledgeChangeDeliverable: Decodable, Hashable {
     }
 
     init?(payload: ProductOpsMetadataValue) {
-        guard let object = payload.objectValue else {
+        guard let object = payload.unwrappedObjectValue else {
             return nil
         }
         currentState = object["currentState"]?.stringValue ?? object["current_state"]?.stringValue ?? ""
@@ -851,7 +863,7 @@ struct VentureAlertDeliverable: Decodable, Hashable {
     }
 
     init?(payload: ProductOpsMetadataValue) {
-        guard let object = payload.objectValue else {
+        guard let object = payload.unwrappedObjectValue else {
             return nil
         }
         severity = object["severity"]?.stringValue ?? "warning"
@@ -1164,6 +1176,18 @@ extension ProductOpsMetadataValue {
             return nil
         }
         return arrayValue.compactMap(\.stringValue)
+    }
+
+    var unwrappedObjectValue: [String: ProductOpsMetadataValue]? {
+        if let objectValue {
+            return objectValue
+        }
+        guard case .string(let value) = self,
+              let data = value.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode(ProductOpsMetadataValue.self, from: data) else {
+            return nil
+        }
+        return decoded.objectValue
     }
 }
 
