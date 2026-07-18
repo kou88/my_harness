@@ -13,8 +13,23 @@ enum VentureDecision: String, Encodable, Hashable {
 
 struct VentureDecisionInboxPayload: Decodable, Hashable {
     var generatedAt: Date
-    var refreshRequired: Bool
+    var recommendationStatus: String
+    var lastGeneratedAt: Date?
+    var lastError: String?
     var items: [VentureDecisionInboxItem]
+
+    var recommendationStatusMessage: String? {
+        switch recommendationStatus {
+        case "queued":
+            return "次の提案を準備待ちです。バックエンドのHeartbeatが生成します。"
+        case "generating":
+            return "次の提案を生成しています。完了すると通知されます。"
+        case "failed":
+            return lastError.map { "提案生成に失敗しました: \($0)" } ?? "提案生成に失敗しました。"
+        default:
+            return nil
+        }
+    }
 }
 
 struct VentureDecisionInboxItem: Identifiable, Decodable, Hashable {
@@ -777,14 +792,23 @@ struct VentureLearningAdoptionResult: Decodable, Hashable {
         var adoptedAt: Date
     }
 
-    struct RefreshedRecommendationSet: Decodable, Hashable {
-        var recommendationSetId: String
-        var generatedAt: Date
-        var count: Int
+    struct RecommendationJob: Decodable, Hashable {
+        var id: String
+        var ownerUserId: String
+        var ventureId: String
+        var reason: String
+        var status: String
+        var runAfter: Date
+        var leaseUntil: Date?
+        var attempts: Int
+        var lastError: String
+        var createdAt: Date
+        var updatedAt: Date
+        var completedAt: Date?
     }
 
     var learning: Learning
-    var refreshedRecommendationSet: RefreshedRecommendationSet
+    var recommendationJob: RecommendationJob
 }
 
 struct Need: Identifiable, Decodable, Hashable {

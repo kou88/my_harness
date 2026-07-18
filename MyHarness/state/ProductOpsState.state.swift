@@ -231,11 +231,7 @@ final class ProductOpsState {
         missionCatalogState = .loading
         missionProgressState = .loading
         do {
-            var payload = try await apiClient.fetchVentureDecisionInbox(ventureId: ventureId)
-            if payload.refreshRequired {
-                _ = try await apiClient.generateVentureProposals(ventureId: ventureId)
-                payload = try await apiClient.fetchVentureDecisionInbox(ventureId: ventureId)
-            }
+            let payload = try await apiClient.fetchVentureDecisionInbox(ventureId: ventureId)
             decisionInboxState = .loaded(payload)
             do {
                 developmentMissionsState = .loaded(try await apiClient.fetchVentureDevelopmentMissions(ventureId: ventureId).items)
@@ -335,11 +331,7 @@ final class ProductOpsState {
             return
         }
         do {
-            var payload = try await apiClient.fetchVentureDecisionInbox(ventureId: ventureId)
-            if payload.refreshRequired {
-                _ = try await apiClient.generateVentureProposals(ventureId: ventureId)
-                payload = try await apiClient.fetchVentureDecisionInbox(ventureId: ventureId)
-            }
+            let payload = try await apiClient.fetchVentureDecisionInbox(ventureId: ventureId)
             decisionInboxState = .loaded(payload)
             developmentMissionsState = .loaded(try await apiClient.fetchVentureDevelopmentMissions(ventureId: ventureId).items)
             researchMissionsState = .loaded(try await apiClient.fetchVentureResearchMissions(ventureId: ventureId).items)

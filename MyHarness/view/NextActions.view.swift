@@ -139,6 +139,16 @@ struct NextActionsView: View {
         let runningVerificationMissions = verificationMissionItems.filter { ["queued", "dispatching", "running"].contains($0.mission.status) }
         let runningKnowledgeChangeMissions = knowledgeChangeMissionItems.filter { ["queued", "dispatching", "running"].contains($0.mission.status) }
 
+        if let message = payload.recommendationStatusMessage {
+            Section {
+                ProductOpsMessageBar(
+                    text: message,
+                    systemImage: payload.recommendationStatus == "failed" ? "exclamationmark.triangle" : "clock"
+                )
+                .listRowSeparator(.hidden)
+            }
+        }
+
         if let recommended {
             Section("おすすめ") {
                 RecommendedVentureProposalCard(
@@ -271,12 +281,6 @@ struct NextActionsView: View {
             }
         }
 
-        if payload.refreshRequired {
-            Section {
-                ProductOpsMessageBar(text: "方針または判断軸が更新されています。再読み込みしてください。", systemImage: "arrow.triangle.2.circlepath")
-                    .listRowSeparator(.hidden)
-            }
-        }
     }
 
     @ViewBuilder
