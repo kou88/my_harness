@@ -2,6 +2,7 @@ import SwiftUI
 
 @MainActor
 struct AppRootView: View {
+    @Environment(\.scenePhase) private var scenePhase
     private let dependencies: AppDependencies
 
     @State private var router = AppRouter()
@@ -9,6 +10,8 @@ struct AppRootView: View {
     @State private var settingsState: SettingsState
     @State private var actionInboxState: ActionInboxState
     @State private var productOpsState: ProductOpsState
+    @State private var lastForegroundRefreshAt = Date.distantPast
+    @State private var pushRegistrationErrorMessage: String?
 
     init(dependencies: AppDependencies) {
         self.dependencies = dependencies
@@ -26,6 +29,9 @@ struct AppRootView: View {
             projectId: ProductOpsProject.landlordSaaS,
             configurationErrorMessage: dependencies.actionInbox.configurationErrorMessage
         ))
+        _pushRegistrationErrorMessage = State(
+            initialValue: ActionPushNotificationCoordinator.shared.registrationErrorMessage
+        )
     }
 
     var body: some View {
@@ -79,6 +85,34 @@ struct AppRootView: View {
                 await actionInboxState.loadIfPossible()
                 await productOpsState.loadRecommendationsIfPossible()
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .actionPushRegistrationFailed)) { notification in
+            guard let message = notification.object as? String else { return }
+            actionInboxState.reportPushRegistrationFailure(message)
+            pushRegistrationErrorMessage = message
+        }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active,
+                  Date().timeIntervalSince(lastForegroundRefreshAt) >= 15 else {
+                return
+            }
+            lastForegroundRefreshAt = Date()
+            Task {
+                await productOpsState.loadRecommendationsIfPossible()
+            }
+        }
+        .alert(
+            "Push通知を登録できません",
+            isPresented: Binding(
+                get: { pushRegistrationErrorMessage != nil },
+                set: { if !$0 { pushRegistrationErrorMessage = nil } }
+            )
+        ) {
+            Button("閉じる", role: .cancel) {
+                pushRegistrationErrorMessage = nil
+            }
+        } message: {
+            Text(pushRegistrationErrorMessage ?? "Push通知の端末登録に失敗しました。")
         }
         .sheet(
             item: Binding(

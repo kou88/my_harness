@@ -19,8 +19,8 @@ struct NextActionsView: View {
     private enum NextActionsSheet: Identifiable {
         case needMemo
         case proposalFeedback(PendingVentureProposalFeedback)
-        case proposalDetail(VentureDecisionInboxItem)
-        case missionDetail(VentureMissionSummaryItem, requestedAction: String?)
+        case proposalDetail(proposalId: String, decisionItem: VentureDecisionInboxItem?)
+        case missionDetail(missionId: String, kindLabel: String, requestedAction: String?)
         case alertDetail(VentureMonitoringAlertItem)
 
         var id: String {
@@ -29,10 +29,10 @@ struct NextActionsView: View {
                 return "needMemo"
             case .proposalFeedback(let feedback):
                 return feedback.id
-            case .proposalDetail(let item):
-                return "proposal-\(item.id)"
-            case .missionDetail(let item, let requestedAction):
-                return "mission-\(item.id)-\(requestedAction ?? "detail")"
+            case .proposalDetail(let proposalId, _):
+                return "proposal-\(proposalId)"
+            case .missionDetail(let missionId, _, let requestedAction):
+                return "mission-\(missionId)-\(requestedAction ?? "detail")"
             case .alertDetail(let item):
                 return "alert-\(item.id)"
             }
@@ -57,6 +57,13 @@ struct NextActionsView: View {
         }
         .task {
             await loadAllIfPossible()
+            await presentPendingDeepLink(refreshBeforePresentation: false)
+        }
+        .onChange(of: router.pendingProductOpsDeepLink) { _, destination in
+            guard destination != nil else { return }
+            Task {
+                await presentPendingDeepLink(refreshBeforePresentation: true)
+            }
         }
         .safeAreaInset(edge: .bottom) {
             if let message = actionInboxState.message {
@@ -76,18 +83,20 @@ struct NextActionsView: View {
                     state: productOpsState,
                     pending: feedback
                 )
-            case .proposalDetail(let item):
+            case .proposalDetail(let proposalId, let decisionItem):
                 VentureProposalDetailSheet(
                     state: productOpsState,
-                    item: item,
-                    onApprove: { decide(item, .approved) },
-                    onLater: { decide(item, .deferred) },
-                    onReject: { decide(item, .rejected) }
+                    proposalId: proposalId,
+                    decisionItem: decisionItem,
+                    onApprove: { item in decide(item, .approved) },
+                    onLater: { item in decide(item, .deferred) },
+                    onReject: { item in decide(item, .rejected) }
                 )
-            case .missionDetail(let item, let requestedAction):
+            case .missionDetail(let missionId, let kindLabel, let requestedAction):
                 VentureMissionDetailSheet(
                     state: productOpsState,
-                    item: item,
+                    missionId: missionId,
+                    kindLabel: kindLabel,
                     requestedAction: requestedAction
                 )
             case .alertDetail(let item):
@@ -252,10 +261,17 @@ struct NextActionsView: View {
             title: item.title,
             contextLabel: "おすすめ",
             isWorking: isWorking,
-            onOpen: { presentedSheet = .proposalDetail(item) }
+            onOpen: { presentedSheet = .proposalDetail(proposalId: item.proposalId, decisionItem: item) }
         )
-        .swipeActions(edge: .leading, allowsFullSwipe: item.approvalRisk == "low" && item.actionKind != "build_experiment") {
-            if item.approvalRisk == "low" && item.actionKind != "build_experiment" {
+        .swipeActions(
+            edge: .leading,
+            allowsFullSwipe: item.availableDecisions.contains("approve") &&
+                item.approvalRisk == "low" &&
+                item.actionKind != "build_experiment"
+        ) {
+            if item.availableDecisions.contains("approve") &&
+                item.approvalRisk == "low" &&
+                item.actionKind != "build_experiment" {
                 Button {
                     decide(item, .approved)
                 } label: {
@@ -266,24 +282,40 @@ struct NextActionsView: View {
             }
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            Button(role: .destructive) {
-                decide(item, .rejected)
-            } label: {
-                Label("却下", systemImage: "xmark")
+            if item.availableDecisions.contains("reject") {
+                Button(role: .destructive) {
+                    decide(item, .rejected)
+                } label: {
+                    Label("却下", systemImage: "xmark")
+                }
+                .disabled(isWorking)
             }
-            .disabled(isWorking)
 
-            Button {
-                decide(item, .deferred)
-            } label: {
-                Label("あとで", systemImage: "clock")
+            if item.availableDecisions.contains("defer") {
+                Button {
+                    decide(item, .deferred)
+                } label: {
+                    Label("あとで", systemImage: "clock")
+                }
+                .tint(.orange)
+                .disabled(isWorking)
             }
-            .tint(.orange)
-            .disabled(isWorking)
         }
-        .accessibilityAction(named: Text(item.approvalLabel)) { decide(item, .approved) }
-        .accessibilityAction(named: Text("あとで")) { decide(item, .deferred) }
-        .accessibilityAction(named: Text("却下")) { decide(item, .rejected) }
+        .modifier(ConditionalAccessibilityAction(
+            isAvailable: item.availableDecisions.contains("approve"),
+            label: item.approvalLabel,
+            action: { decide(item, .approved) }
+        ))
+        .modifier(ConditionalAccessibilityAction(
+            isAvailable: item.availableDecisions.contains("defer"),
+            label: "あとで",
+            action: { decide(item, .deferred) }
+        ))
+        .modifier(ConditionalAccessibilityAction(
+            isAvailable: item.availableDecisions.contains("reject"),
+            label: "却下",
+            action: { decide(item, .rejected) }
+        ))
     }
 
     private func missionCompactRow(_ item: VentureMissionSummaryItem) -> some View {
@@ -292,7 +324,13 @@ struct NextActionsView: View {
             title: item.title,
             contextLabel: missionSectionLabel(item.status),
             isWorking: isWorking,
-            onOpen: { presentedSheet = .missionDetail(item, requestedAction: nil) }
+            onOpen: {
+                presentedSheet = .missionDetail(
+                    missionId: item.id,
+                    kindLabel: item.kindLabel,
+                    requestedAction: nil
+                )
+            }
         )
         .swipeActions(edge: .leading, allowsFullSwipe: false) {
             if item.availableActions.contains("adopt") {
@@ -306,7 +344,11 @@ struct NextActionsView: View {
             }
             if item.availableActions.contains("retry") {
                 Button {
-                    presentedSheet = .missionDetail(item, requestedAction: "retry")
+                    presentedSheet = .missionDetail(
+                        missionId: item.id,
+                        kindLabel: item.kindLabel,
+                        requestedAction: "retry"
+                    )
                 } label: {
                     Label("再実行", systemImage: "arrow.clockwise")
                 }
@@ -325,7 +367,11 @@ struct NextActionsView: View {
             }
             if item.availableActions.contains("reject") {
                 Button(role: .destructive) {
-                    presentedSheet = .missionDetail(item, requestedAction: "reject")
+                    presentedSheet = .missionDetail(
+                        missionId: item.id,
+                        kindLabel: item.kindLabel,
+                        requestedAction: "reject"
+                    )
                 } label: {
                     Label("却下", systemImage: "xmark")
                 }
@@ -333,7 +379,11 @@ struct NextActionsView: View {
             }
             if item.availableActions.contains("request_revision") {
                 Button {
-                    presentedSheet = .missionDetail(item, requestedAction: "request_revision")
+                    presentedSheet = .missionDetail(
+                        missionId: item.id,
+                        kindLabel: item.kindLabel,
+                        requestedAction: "request_revision"
+                    )
                 } label: {
                     Label("修正", systemImage: "arrow.triangle.2.circlepath")
                 }
@@ -523,6 +573,38 @@ struct NextActionsView: View {
         await productOpsState.loadNextActionsIfPossible()
     }
 
+    private func presentPendingDeepLink(refreshBeforePresentation: Bool) async {
+        guard let destination = router.consumePendingProductOpsDeepLink() else { return }
+        if refreshBeforePresentation {
+            switch destination {
+            case .proposal:
+                await productOpsState.loadRecommendationsIfPossible()
+            case .mission:
+                break
+            case .monitoringAlert:
+                await productOpsState.loadNextActionsIfPossible()
+            }
+        }
+
+        switch destination {
+        case .proposal(let proposalId):
+            let decisionItem = productOpsState.decisionItems.first { $0.proposalId == proposalId }
+            presentedSheet = .proposalDetail(proposalId: proposalId, decisionItem: decisionItem)
+        case .mission(let missionId, let kind):
+            presentedSheet = .missionDetail(
+                missionId: missionId,
+                kindLabel: kind.label,
+                requestedAction: nil
+            )
+        case .monitoringAlert(let alertId):
+            guard let item = productOpsState.monitoringAlertItems.first(where: { $0.id == alertId }) else {
+                productOpsState.message = "監視アラートはすでに解決済みか、表示対象外です。"
+                return
+            }
+            presentedSheet = .alertDetail(item)
+        }
+    }
+
     private func signIn() async {
         await actionInboxState.signIn()
         await productOpsState.loadNextActionsIfPossible()
@@ -611,6 +693,12 @@ struct NextActionsView: View {
     }
 
     private func decide(_ item: VentureDecisionInboxItem, _ decision: VentureDecision) {
+        let command = switch decision {
+        case .approved: "approve"
+        case .deferred: "defer"
+        case .rejected: "reject"
+        }
+        guard item.availableDecisions.contains(command) else { return }
         if decision == .approved {
             Task {
                 await productOpsState.decideVentureProposal(
@@ -632,6 +720,21 @@ struct NextActionsView: View {
             return ["high_business_impact"]
         default:
             return ["good_next_step"]
+        }
+    }
+}
+
+private struct ConditionalAccessibilityAction: ViewModifier {
+    let isAvailable: Bool
+    let label: String
+    let action: () -> Void
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if isAvailable {
+            content.accessibilityAction(named: Text(label), action)
+        } else {
+            content
         }
     }
 }
@@ -676,10 +779,11 @@ private struct CompactNextActionRow: View {
 private struct VentureProposalDetailSheet: View {
     @Environment(\.dismiss) private var dismiss
     let state: ProductOpsState
-    let item: VentureDecisionInboxItem
-    let onApprove: () -> Void
-    let onLater: () -> Void
-    let onReject: () -> Void
+    let proposalId: String
+    let decisionItem: VentureDecisionInboxItem?
+    let onApprove: (VentureDecisionInboxItem) -> Void
+    let onLater: (VentureDecisionInboxItem) -> Void
+    let onReject: (VentureDecisionInboxItem) -> Void
     @State private var detail: VentureProposalDetail?
     @State private var errorMessage: String?
 
@@ -692,7 +796,9 @@ private struct VentureProposalDetailSheet: View {
                     }
                     .listStyle(.plain)
                     .safeAreaInset(edge: .bottom) {
-                        actionBar
+                        if hasAvailableActions {
+                            actionBar
+                        }
                     }
                 } else if let errorMessage {
                     ContentUnavailableView {
@@ -751,6 +857,19 @@ private struct VentureProposalDetailSheet: View {
             detailSection("検証する仮説", text: hypothesis.statement)
         }
 
+        if let change = detail.proposal.decisionFrameChange {
+            Section("判断軸の変更") {
+                Text(change.rationale)
+                    .fixedSize(horizontal: false, vertical: true)
+                ForEach(changedLenses(change)) { lens in
+                    LabeledContent(lens.label) {
+                        Text("\(weightText(lens.current)) → \(weightText(lens.proposed))")
+                            .monospacedDigit()
+                    }
+                }
+            }
+        }
+
         Section("方針との関連") {
             Text(detail.strategy.mission)
             if !detail.strategy.targetSegments.isEmpty {
@@ -791,6 +910,25 @@ private struct VentureProposalDetailSheet: View {
         }
     }
 
+    private struct LensChange: Identifiable {
+        var id: String
+        var label: String
+        var current: Double
+        var proposed: Double
+    }
+
+    private func changedLenses(_ change: VentureProposalDecisionFrameChange) -> [LensChange] {
+        let currentByKey = Dictionary(uniqueKeysWithValues: change.currentLenses.map { ($0.key, $0) })
+        return change.proposedLenses.compactMap { proposed in
+            guard let current = currentByKey[proposed.key], current.weight != proposed.weight else { return nil }
+            return LensChange(id: proposed.key, label: proposed.label, current: current.weight, proposed: proposed.weight)
+        }
+    }
+
+    private func weightText(_ value: Double) -> String {
+        value.formatted(.number.precision(.fractionLength(0))) + "%"
+    }
+
     private func detailSection(_ title: String, text: String) -> some View {
         Section(title) {
             Text(text)
@@ -809,37 +947,32 @@ private struct VentureProposalDetailSheet: View {
 
     private var actionBar: some View {
         HStack(spacing: 10) {
-            Button(role: .destructive) {
-                dismiss()
-                onReject()
-            } label: {
-                Text("却下")
-                    .lineLimit(2)
-                    .frame(maxWidth: .infinity, minHeight: 48)
+            if let decisionItem, decisionItem.availableDecisions.contains("reject") {
+                proposalActionButton("却下", tint: .red, role: .destructive) {
+                    dismiss()
+                    onReject(decisionItem)
+                }
+            } else {
+                proposalActionPlaceholder
             }
-            .buttonStyle(ProductOpsTranslucentActionButtonStyle(tint: .red))
 
-            Button {
-                dismiss()
-                onLater()
-            } label: {
-                Text("あとで")
-                    .lineLimit(2)
-                    .frame(maxWidth: .infinity, minHeight: 48)
+            if let decisionItem, decisionItem.availableDecisions.contains("defer") {
+                proposalActionButton("あとで", tint: .orange) {
+                    dismiss()
+                    onLater(decisionItem)
+                }
+            } else {
+                proposalActionPlaceholder
             }
-            .buttonStyle(ProductOpsTranslucentActionButtonStyle(tint: .orange))
 
-            Button {
-                dismiss()
-                onApprove()
-            } label: {
-                Text(item.approvalLabel)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.8)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity, minHeight: 48)
+            if let decisionItem, decisionItem.availableDecisions.contains("approve") {
+                proposalActionButton(decisionItem.approvalLabel, tint: .accentColor) {
+                    dismiss()
+                    onApprove(decisionItem)
+                }
+            } else {
+                proposalActionPlaceholder
             }
-            .buttonStyle(ProductOpsTranslucentActionButtonStyle(tint: .accentColor))
         }
         .font(.subheadline.weight(.semibold))
         .controlSize(.large)
@@ -848,10 +981,38 @@ private struct VentureProposalDetailSheet: View {
         .background(.ultraThinMaterial)
     }
 
+    private var hasAvailableActions: Bool {
+        guard let decisionItem else { return false }
+        return ["approve", "defer", "reject"].contains { decisionItem.availableDecisions.contains($0) }
+    }
+
+    private func proposalActionButton(
+        _ title: String,
+        tint: Color,
+        role: ButtonRole? = nil,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(role: role, action: action) {
+            Text(title)
+                .lineLimit(2)
+                .minimumScaleFactor(0.8)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity, minHeight: 48)
+        }
+        .buttonStyle(ProductOpsTranslucentActionButtonStyle(tint: tint))
+    }
+
+    private var proposalActionPlaceholder: some View {
+        Color.clear
+            .frame(maxWidth: .infinity)
+            .frame(height: 52)
+            .accessibilityHidden(true)
+    }
+
     private func load() async {
         errorMessage = nil
         do {
-            detail = try await state.fetchProposalDetail(item)
+            detail = try await state.fetchProposalDetail(proposalId: proposalId)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -1207,7 +1368,8 @@ private struct VentureMissionSummaryRow: View {
 private struct VentureMissionDetailSheet: View {
     @Environment(\.dismiss) private var dismiss
     let state: ProductOpsState
-    let item: VentureMissionSummaryItem
+    let missionId: String
+    let kindLabel: String
     let requestedAction: String?
     @State private var detail: VentureMissionDetail?
     @State private var errorMessage: String?
@@ -1244,7 +1406,7 @@ private struct VentureMissionDetailSheet: View {
                     ProgressView("詳細を読み込んでいます")
                 }
             }
-            .navigationTitle(item.kindLabel)
+            .navigationTitle(kindLabel)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -1322,6 +1484,11 @@ private struct VentureMissionDetailSheet: View {
                         report: report,
                         isCompact: false
                     )
+                } else if let error = verification.reportDecodingError {
+                    VentureDeliverableDecodingErrorView(
+                        title: "検証レポート",
+                        message: error
+                    )
                 } else {
                     HStack(spacing: 8) {
                         Image(systemName: verificationStatusIcon(verification.status))
@@ -1376,6 +1543,22 @@ private struct VentureMissionDetailSheet: View {
                                 .foregroundStyle(.red)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
+                        if let executorSessionId = attempt.executorSessionId {
+                            LabeledContent("Session") {
+                                Text(executorSessionId)
+                                    .font(.caption2.monospaced())
+                                    .foregroundStyle(.secondary)
+                                    .textSelection(.enabled)
+                            }
+                        }
+                        if let executorTurnId = attempt.executorTurnId {
+                            LabeledContent("Turn") {
+                                Text(executorTurnId)
+                                    .font(.caption2.monospaced())
+                                    .foregroundStyle(.secondary)
+                                    .textSelection(.enabled)
+                            }
+                        }
                         ForEach(detail.reviews.filter { $0.attemptId == attempt.id }) { review in
                             Text(reviewSummary(review))
                                 .font(.caption)
@@ -1391,34 +1574,42 @@ private struct VentureMissionDetailSheet: View {
 
     @ViewBuilder
     private func deliverableContent(_ deliverable: VentureDeliverable) -> some View {
-        if let value = deliverable.productChangePayload {
-            VentureProductChangeSummaryView(summary: deliverable.displaySummary, productChange: value, supportingPullRequests: [])
-        } else if let value = deliverable.researchReportPayload {
-            VentureResearchReportSummaryView(summary: deliverable.displaySummary, report: value)
-        } else if let value = deliverable.messagePayload {
-            VentureMessageDraftView(summary: deliverable.displaySummary, message: value)
-        } else if let value = deliverable.verificationReportPayload {
-            VentureVerificationReportSummaryView(
-                summary: deliverable.displaySummary,
-                report: value,
-                isCompact: false
+        let result = Result { try deliverable.decodePayload() }
+        switch result {
+        case .success(let payload):
+            switch payload {
+            case .decisionBrief(let value):
+                VentureDecisionBriefSummaryView(summary: deliverable.displaySummary, brief: value)
+            case .productChange(let value):
+                VentureProductChangeSummaryView(
+                    summary: deliverable.displaySummary,
+                    productChange: value,
+                    supportingPullRequests: []
+                )
+            case .researchReport(let value):
+                VentureResearchReportSummaryView(summary: deliverable.displaySummary, report: value)
+            case .message(let value):
+                VentureMessageDraftView(summary: deliverable.displaySummary, message: value)
+            case .verificationReport(let value):
+                VentureVerificationReportSummaryView(
+                    summary: deliverable.displaySummary,
+                    report: value,
+                    isCompact: false
+                )
+            case .knowledgeChange(let value):
+                VentureKnowledgeChangeSummaryView(summary: deliverable.displaySummary, knowledgeChange: value)
+            case .alert(let value):
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(deliverable.displaySummary).font(.subheadline)
+                    ProductChangeSection(title: "検知", items: [value.detectedIssue])
+                    ProductChangeSection(title: "推奨対応", items: [value.recommendedAction])
+                }
+            }
+        case .failure(let error):
+            VentureDeliverableDecodingErrorView(
+                title: deliverable.title,
+                message: error.localizedDescription
             )
-        } else if let value = deliverable.knowledgeChangePayload {
-            VentureKnowledgeChangeSummaryView(summary: deliverable.displaySummary, knowledgeChange: value)
-        } else if let value = deliverable.alertPayload {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(deliverable.displaySummary).font(.subheadline)
-                ProductChangeSection(title: "検知", items: [value.detectedIssue])
-                ProductChangeSection(title: "推奨対応", items: [value.recommendedAction])
-            }
-        } else {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(deliverable.title).font(.subheadline.weight(.semibold))
-                Text(deliverable.displaySummary)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
         }
     }
 
@@ -1493,7 +1684,7 @@ private struct VentureMissionDetailSheet: View {
     private func load() async {
         errorMessage = nil
         do {
-            detail = try await state.fetchMissionDetail(item)
+            detail = try await state.fetchMissionDetail(missionId: missionId)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -2016,6 +2207,48 @@ private struct VentureResearchMissionRow: View {
         default:
             return .accentColor
         }
+    }
+}
+
+private struct VentureDecisionBriefSummaryView: View {
+    let summary: String
+    let brief: VentureDecisionBriefDeliverable
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if !summary.isEmpty {
+                Text(summary)
+                    .font(.subheadline)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            ProductChangeSection(title: "決めたいこと", items: [brief.decisionQuestion])
+            ProductChangeSection(title: "おすすめ", items: [brief.recommendation], tint: .primary)
+            ProductChangeSection(title: "根拠", items: brief.reasons)
+            ProductChangeSection(title: "反対材料", items: brief.contraryEvidence, tint: .orange)
+            ProductChangeSection(title: "リスク", items: brief.risks, tint: .orange)
+            ProductChangeSection(title: "未知", items: brief.unknowns)
+            ProductChangeSection(title: "次の操作", items: brief.nextOperations, tint: .accentColor)
+        }
+    }
+}
+
+private struct VentureDeliverableDecodingErrorView: View {
+    let title: String
+    let message: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("成果物を表示できません", systemImage: "exclamationmark.triangle")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.red)
+            Text(title)
+                .font(.subheadline)
+            Text(message)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .accessibilityElement(children: .combine)
     }
 }
 

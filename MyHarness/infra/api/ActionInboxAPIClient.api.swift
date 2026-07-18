@@ -150,11 +150,11 @@ final class ActionInboxAPIClient {
     }
 
     private struct PushDeviceEnvelope: Decodable {
-        var data: PushDevice?
+        var data: PushDevice
     }
 
     private struct PushDevice: Decodable {
-        var id: String?
+        var id: String
     }
 
     private struct DecisionRequest: Encodable {
@@ -627,7 +627,7 @@ final class ActionInboxAPIClient {
         token: String,
         environment: PushEnvironment,
         appVersion: String
-    ) async throws -> String? {
+    ) async throws -> String {
         let data = try await request(
             path: "/api/push-devices",
             method: "POST",
@@ -638,8 +638,12 @@ final class ActionInboxAPIClient {
                 appVersion: appVersion
             )
         )
-        guard !data.isEmpty else { return nil }
-        return try? decoder.decode(PushDeviceEnvelope.self, from: data).data?.id
+        guard !data.isEmpty else { throw ClientError.invalidResponse }
+        let device = try decoder.decode(PushDeviceEnvelope.self, from: data).data
+        guard !device.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw ClientError.invalidResponse
+        }
+        return device.id
     }
 
     func deletePushDevice(id: String) async throws {

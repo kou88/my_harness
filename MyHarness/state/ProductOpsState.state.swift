@@ -214,7 +214,7 @@ final class ProductOpsState {
 
     func loadNextActionsIfPossible() async {
         guard isConfigured, isSignedIn else { return }
-        await loadDecisionInbox()
+        await loadNextActions()
     }
 
     func loadNeedsIfPossible() async {
@@ -282,7 +282,26 @@ final class ProductOpsState {
     }
 
     func loadDecisionInbox() async {
-        await loadNextActions()
+        guard let apiClient else { return }
+        let hadVisibleContent: Bool
+        if case .loaded = decisionInboxState {
+            hadVisibleContent = true
+        } else {
+            hadVisibleContent = false
+            decisionInboxState = .loading
+        }
+        do {
+            decisionInboxState = .loaded(
+                try await apiClient.fetchVentureDecisionInbox(ventureId: ventureId)
+            )
+        } catch {
+            let errorMessage = "おすすめの更新に失敗しました: \(error.localizedDescription)"
+            if hadVisibleContent {
+                message = errorMessage
+            } else {
+                decisionInboxState = .failed(errorMessage)
+            }
+        }
     }
 
     func loadMoreMissionItems() async {
@@ -311,17 +330,25 @@ final class ProductOpsState {
     }
 
     func fetchMissionDetail(_ item: VentureMissionSummaryItem) async throws -> VentureMissionDetail {
+        try await fetchMissionDetail(missionId: item.id)
+    }
+
+    func fetchMissionDetail(missionId: String) async throws -> VentureMissionDetail {
         guard let apiClient else {
             throw ActionInboxConfigurationError.missingValue("ActionAPIBaseURL")
         }
-        return try await apiClient.fetchVentureMissionDetail(missionId: item.id)
+        return try await apiClient.fetchVentureMissionDetail(missionId: missionId)
     }
 
     func fetchProposalDetail(_ item: VentureDecisionInboxItem) async throws -> VentureProposalDetail {
+        try await fetchProposalDetail(proposalId: item.proposalId)
+    }
+
+    func fetchProposalDetail(proposalId: String) async throws -> VentureProposalDetail {
         guard let apiClient else {
             throw ActionInboxConfigurationError.missingValue("ActionAPIBaseURL")
         }
-        return try await apiClient.fetchVentureProposalDetail(proposalId: item.proposalId)
+        return try await apiClient.fetchVentureProposalDetail(proposalId: proposalId)
     }
 
     func isMutatingVentureProposal(id: String) -> Bool {
@@ -418,7 +445,7 @@ final class ProductOpsState {
                 researchMission: result.researchMission,
                 messageMission: result.messageMission
             )
-            await loadDecisionInbox()
+            await loadNextActions()
         } catch {
             decisionInboxState = previousInbox
             await reconcileDecisionAfterFailure(item: item, decision: decision, error: error)

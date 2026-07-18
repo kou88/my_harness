@@ -8,6 +8,7 @@ final class AppRouter {
     var selectedTab: AppTab = .today
     var nextActionsPath: [AppRoute] = []
     var todayPath: [AppRoute] = []
+    var pendingProductOpsDeepLink: ProductOpsDeepLinkDestination?
 
     func push(_ route: AppRoute) {
         switch route.preferredTab {
@@ -32,12 +33,54 @@ final class AppRouter {
         case "open":
             selectedTab = .today
             todayPath = []
+        case "next-actions":
+            showNextActions()
         case "suggestions":
-            selectedTab = .nextActions
-            nextActionsPath = tail.first.map { [.actionSuggestionDetail(id: $0)] } ?? []
+            if let id = nonEmptyId(tail.first) {
+                selectedTab = .nextActions
+                nextActionsPath = [.actionSuggestionDetail(id: id)]
+            } else {
+                showNextActions()
+            }
+        case "proposal", "proposals":
+            showProductOpsDetail(nonEmptyId(tail.first).map(ProductOpsDeepLinkDestination.proposal))
+        case "mission", "missions":
+            showProductOpsDetail(nonEmptyId(tail.first).map {
+                ProductOpsDeepLinkDestination.mission(id: $0, kind: .generic)
+            })
+        case "development-missions":
+            showProductOpsDetail(nonEmptyId(tail.first).map {
+                ProductOpsDeepLinkDestination.mission(id: $0, kind: .development)
+            })
+        case "research", "research-missions":
+            showProductOpsDetail(nonEmptyId(tail.first).map {
+                ProductOpsDeepLinkDestination.mission(id: $0, kind: .research)
+            })
+        case "message", "message-missions":
+            showProductOpsDetail(nonEmptyId(tail.first).map {
+                ProductOpsDeepLinkDestination.mission(id: $0, kind: .message)
+            })
+        case "verification", "verification-missions":
+            showProductOpsDetail(nonEmptyId(tail.first).map {
+                ProductOpsDeepLinkDestination.mission(id: $0, kind: .verification)
+            })
+        case "knowledge", "knowledge-change", "knowledge_change", "knowledge-change-missions":
+            showProductOpsDetail(nonEmptyId(tail.first).map {
+                ProductOpsDeepLinkDestination.mission(id: $0, kind: .knowledgeChange)
+            })
+        case "decision-brief", "decision_brief", "decision-brief-missions":
+            showProductOpsDetail(nonEmptyId(tail.first).map {
+                ProductOpsDeepLinkDestination.mission(id: $0, kind: .decisionBrief)
+            })
+        case "monitoring-alert", "monitoring_alert", "monitoring-alerts":
+            showProductOpsDetail(nonEmptyId(tail.first).map(ProductOpsDeepLinkDestination.monitoringAlert))
         case "development":
-            selectedTab = .nextActions
-            nextActionsPath = [.developmentBacklog]
+            if let id = nonEmptyId(tail.first) {
+                showProductOpsDetail(.mission(id: id, kind: .development))
+            } else {
+                selectedTab = .nextActions
+                nextActionsPath = [.developmentBacklog]
+            }
         case "policy":
             selectedTab = .nextActions
             nextActionsPath = [.projectPolicy]
@@ -54,9 +97,71 @@ final class AppRouter {
         }
     }
 
+    func consumePendingProductOpsDeepLink() -> ProductOpsDeepLinkDestination? {
+        defer { pendingProductOpsDeepLink = nil }
+        return pendingProductOpsDeepLink
+    }
+
+    private func showNextActions() {
+        selectedTab = .nextActions
+        nextActionsPath = []
+        pendingProductOpsDeepLink = nil
+    }
+
+    private func showProductOpsDetail(_ destination: ProductOpsDeepLinkDestination?) {
+        showNextActions()
+        pendingProductOpsDeepLink = destination
+    }
+
+    private func nonEmptyId(_ value: String?) -> String? {
+        guard let value, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        return value
+    }
+
     private func routeSuggestionReference(_ route: AppRoute) {
         selectedTab = .nextActions
         nextActionsPath = route.referenceId.isEmpty ? [] : [route]
+    }
+}
+
+enum ProductOpsMissionDeepLinkKind: String, Hashable {
+    case generic
+    case development
+    case research
+    case message
+    case verification
+    case knowledgeChange
+    case decisionBrief
+
+    var label: String {
+        switch self {
+        case .generic: return "Mission"
+        case .development: return "Codex実装"
+        case .research: return "調査"
+        case .message: return "文案"
+        case .verification: return "検証"
+        case .knowledgeChange: return "Knowledge"
+        case .decisionBrief: return "判断材料"
+        }
+    }
+}
+
+enum ProductOpsDeepLinkDestination: Identifiable, Hashable {
+    case proposal(String)
+    case mission(id: String, kind: ProductOpsMissionDeepLinkKind)
+    case monitoringAlert(String)
+
+    var id: String {
+        switch self {
+        case .proposal(let id):
+            return "proposal-\(id)"
+        case .mission(let id, let kind):
+            return "mission-\(kind.rawValue)-\(id)"
+        case .monitoringAlert(let id):
+            return "monitoring-alert-\(id)"
+        }
     }
 }
 

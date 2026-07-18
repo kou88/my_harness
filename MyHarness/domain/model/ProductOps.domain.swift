@@ -162,7 +162,11 @@ struct VentureMissionDetail: Decodable, Hashable {
 
     var currentDeliverable: VentureDeliverable? {
         guard let attemptId = mission.currentAttemptId else { return nil }
-        return deliverables.first { $0.attemptId == attemptId }
+        return deliverables
+            .filter {
+                $0.attemptId == attemptId && $0.kind == mission.primaryDeliverableSpec.kind
+            }
+            .max { $0.createdAt < $1.createdAt }
     }
 }
 
@@ -178,7 +182,21 @@ struct VentureMissionVerification: Decodable, Hashable {
     }
 
     var report: VentureVerificationReportDeliverable? {
-        reportDeliverable?.verificationReportPayload ?? result?.report
+        guard let reportDeliverable else { return result?.report }
+        guard case .verificationReport(let report) = try? reportDeliverable.decodePayload() else { return nil }
+        return report
+    }
+
+    var reportDecodingError: String? {
+        guard let reportDeliverable else { return nil }
+        do {
+            guard case .verificationReport = try reportDeliverable.decodePayload() else {
+                return "検証成果物の種類が一致しません。"
+            }
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
     }
 
     var summary: String {
@@ -221,6 +239,8 @@ struct VentureDecisionInboxItem: Identifiable, Decodable, Hashable {
             return "仕様案を作る"
         case "analyze":
             return "分析する"
+        case "revise_decision_frame":
+            return "判断軸を更新"
         default:
             return "承認"
         }
@@ -238,6 +258,8 @@ struct VentureDecisionInboxItem: Identifiable, Decodable, Hashable {
             return "仕様"
         case "analyze":
             return "分析"
+        case "revise_decision_frame":
+            return "判断軸"
         default:
             return "Proposal"
         }
@@ -255,6 +277,8 @@ struct VentureDecisionInboxItem: Identifiable, Decodable, Hashable {
             return "実装前の仕様案を作る"
         case "analyze":
             return "情報整理と分析を進める"
+        case "revise_decision_frame":
+            return "提案の判断軸を新しいVersionへ更新する"
         default:
             return "次の学習Betとして進める"
         }
@@ -291,6 +315,26 @@ struct VentureProposalDetailProposal: Decodable, Hashable {
     var evidenceRefs: [String]
     var suggestedSuccessCriteria: [String]
     var suggestedStopConditions: [String]
+    var decisionFrameChange: VentureProposalDecisionFrameChange?
+}
+
+struct VentureProposalDecisionFrameChange: Decodable, Hashable {
+    var baseDecisionFrameVersionId: String
+    var proposedDecisionFrameVersionId: String
+    var rationale: String
+    var currentLenses: [VentureProposalDecisionLens]
+    var proposedLenses: [VentureProposalDecisionLens]
+}
+
+struct VentureProposalDecisionLens: Decodable, Hashable, Identifiable {
+    var key: String
+    var label: String
+    var weight: Double
+    var direction: String
+    var required: Bool
+    var description: String
+
+    var id: String { key }
 }
 
 struct VentureProposalDetailAssessment: Decodable, Hashable {
@@ -754,46 +798,186 @@ struct VentureDeliverable: Identifiable, Decodable, Hashable {
         return normalized
     }
 
-    var productChangePayload: VentureProductChangeDeliverable? {
-        guard kind == "product_change" else {
-            return nil
+    func decodePayload() throws -> VentureDecodedDeliverablePayload {
+        switch kind {
+        case "decision_brief":
+            return .decisionBrief(try VentureDecisionBriefDeliverable(payload: payload))
+        case "product_change":
+            return .productChange(try VentureProductChangeDeliverable(payload: payload))
+        case "research_report":
+            return .researchReport(try VentureResearchReportDeliverable(payload: payload))
+        case "message":
+            return .message(try VentureMessageDeliverable(payload: payload))
+        case "verification_report":
+            return .verificationReport(try VentureVerificationReportDeliverable(payload: payload))
+        case "knowledge_change":
+            return .knowledgeChange(try VentureKnowledgeChangeDeliverable(payload: payload))
+        case "alert":
+            return .alert(try VentureAlertDeliverable(payload: payload))
+        default:
+            throw VentureDeliverablePayloadDecodingError(
+                kind: kind,
+                reason: "未対応の成果物種類です。"
+            )
         }
-        return VentureProductChangeDeliverable(payload: payload)
+    }
+
+    var productChangePayload: VentureProductChangeDeliverable? {
+        guard case .productChange(let value) = try? decodePayload() else { return nil }
+        return value
     }
 
     var researchReportPayload: VentureResearchReportDeliverable? {
-        guard kind == "research_report" else {
-            return nil
-        }
-        return VentureResearchReportDeliverable(payload: payload)
+        guard case .researchReport(let value) = try? decodePayload() else { return nil }
+        return value
     }
 
     var messagePayload: VentureMessageDeliverable? {
-        guard kind == "message" else {
-            return nil
-        }
-        return VentureMessageDeliverable(payload: payload)
+        guard case .message(let value) = try? decodePayload() else { return nil }
+        return value
     }
 
     var verificationReportPayload: VentureVerificationReportDeliverable? {
-        guard kind == "verification_report" else {
-            return nil
-        }
-        return VentureVerificationReportDeliverable(payload: payload)
+        guard case .verificationReport(let value) = try? decodePayload() else { return nil }
+        return value
     }
 
     var knowledgeChangePayload: VentureKnowledgeChangeDeliverable? {
-        guard kind == "knowledge_change" else {
-            return nil
-        }
-        return VentureKnowledgeChangeDeliverable(payload: payload)
+        guard case .knowledgeChange(let value) = try? decodePayload() else { return nil }
+        return value
     }
 
     var alertPayload: VentureAlertDeliverable? {
-        guard kind == "alert" else {
+        guard case .alert(let value) = try? decodePayload() else { return nil }
+        return value
+    }
+}
+
+enum VentureDecodedDeliverablePayload: Hashable {
+    case decisionBrief(VentureDecisionBriefDeliverable)
+    case researchReport(VentureResearchReportDeliverable)
+    case message(VentureMessageDeliverable)
+    case productChange(VentureProductChangeDeliverable)
+    case knowledgeChange(VentureKnowledgeChangeDeliverable)
+    case verificationReport(VentureVerificationReportDeliverable)
+    case alert(VentureAlertDeliverable)
+}
+
+struct VentureDeliverablePayloadDecodingError: LocalizedError, Hashable {
+    var kind: String
+    var reason: String
+
+    var errorDescription: String? {
+        "成果物（\(kind)）のデータが不正です。\(reason)"
+    }
+}
+
+private struct VentureDeliverablePayloadReader {
+    var kind: String
+    var object: [String: ProductOpsMetadataValue]
+
+    init(kind: String, payload: ProductOpsMetadataValue) throws {
+        guard let object = payload.unwrappedObjectValue else {
+            throw VentureDeliverablePayloadDecodingError(
+                kind: kind,
+                reason: "JSONオブジェクトを取得できません。"
+            )
+        }
+        self.kind = kind
+        self.object = object
+    }
+
+    init(kind: String, object: [String: ProductOpsMetadataValue]) {
+        self.kind = kind
+        self.object = object
+    }
+
+    func requiredString(_ keys: String...) throws -> String {
+        let (key, value) = try requiredValue(keys)
+        guard let text = value.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !text.isEmpty else {
+            throw invalidField(key, expectation: "空でない文字列")
+        }
+        return text
+    }
+
+    func requiredStringArray(_ keys: String...) throws -> [String] {
+        let (key, value) = try requiredValue(keys)
+        guard let values = value.arrayValue else {
+            throw invalidField(key, expectation: "文字列配列")
+        }
+        return try values.enumerated().map { index, item in
+            guard let text = item.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !text.isEmpty else {
+                throw invalidField("\(key)[\(index)]", expectation: "空でない文字列")
+            }
+            return text
+        }
+    }
+
+    func requiredObjectArray(_ keys: String...) throws -> [[String: ProductOpsMetadataValue]] {
+        let (key, value) = try requiredValue(keys)
+        guard let values = value.arrayValue else {
+            throw invalidField(key, expectation: "オブジェクト配列")
+        }
+        return try values.enumerated().map { index, item in
+            guard let object = item.objectValue else {
+                throw invalidField("\(key)[\(index)]", expectation: "オブジェクト")
+            }
+            return object
+        }
+    }
+
+    func requiredNullableString(_ keys: String...) throws -> String? {
+        let (key, value) = try requiredValue(keys)
+        if case .null = value {
             return nil
         }
-        return VentureAlertDeliverable(payload: payload)
+        guard let text = value.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !text.isEmpty else {
+            throw invalidField(key, expectation: "nullまたは空でない文字列")
+        }
+        return text
+    }
+
+    private func requiredValue(_ keys: [String]) throws -> (String, ProductOpsMetadataValue) {
+        for key in keys {
+            if let value = object[key] {
+                return (key, value)
+            }
+        }
+        throw VentureDeliverablePayloadDecodingError(
+            kind: kind,
+            reason: "必須項目「\(keys.joined(separator: " / "))」がありません。"
+        )
+    }
+
+    private func invalidField(_ field: String, expectation: String) -> VentureDeliverablePayloadDecodingError {
+        VentureDeliverablePayloadDecodingError(
+            kind: kind,
+            reason: "「\(field)」は\(expectation)である必要があります。"
+        )
+    }
+}
+
+struct VentureDecisionBriefDeliverable: Hashable {
+    var decisionQuestion: String
+    var recommendation: String
+    var reasons: [String]
+    var contraryEvidence: [String]
+    var risks: [String]
+    var unknowns: [String]
+    var nextOperations: [String]
+
+    init(payload: ProductOpsMetadataValue) throws {
+        let reader = try VentureDeliverablePayloadReader(kind: "decision_brief", payload: payload)
+        decisionQuestion = try reader.requiredString("decisionQuestion", "decision_question")
+        recommendation = try reader.requiredString("recommendation")
+        reasons = try reader.requiredStringArray("reasons")
+        contraryEvidence = try reader.requiredStringArray("contraryEvidence", "contrary_evidence")
+        risks = try reader.requiredStringArray("risks")
+        unknowns = try reader.requiredStringArray("unknowns")
+        nextOperations = try reader.requiredStringArray("nextOperations", "next_operations")
     }
 }
 
@@ -811,25 +995,28 @@ struct VentureProductChangeDeliverable: Hashable {
     var checks: [Check]
     var unresolvedIssues: [String]
 
-    init?(payload: ProductOpsMetadataValue) {
-        guard let object = payload.unwrappedObjectValue else {
-            return nil
-        }
-        changedBehavior = object["changedBehavior"]?.stringArrayValue ?? object["changed_behavior"]?.stringArrayValue ?? []
-        userVisibleImpact = object["userVisibleImpact"]?.stringValue ?? object["user_visible_impact"]?.stringValue ?? ""
-        changedRepositories = object["changedRepositories"]?.stringArrayValue ?? object["changed_repositories"]?.stringArrayValue ?? []
-        pullRequests = object["pullRequests"]?.stringArrayValue ?? object["pull_requests"]?.stringArrayValue ?? []
-        unresolvedIssues = object["unresolvedIssues"]?.stringArrayValue ?? object["unresolved_issues"]?.stringArrayValue ?? []
-        checks = (object["checks"]?.arrayValue ?? []).compactMap { value in
-            guard let check = value.objectValue else {
-                return nil
+    init(payload: ProductOpsMetadataValue) throws {
+        let reader = try VentureDeliverablePayloadReader(kind: "product_change", payload: payload)
+        changedBehavior = try reader.requiredStringArray("changedBehavior", "changed_behavior")
+        userVisibleImpact = try reader.requiredString("userVisibleImpact", "user_visible_impact")
+        changedRepositories = try reader.requiredStringArray("changedRepositories", "changed_repositories")
+        pullRequests = try reader.requiredStringArray("pullRequests", "pull_requests")
+        unresolvedIssues = try reader.requiredStringArray("unresolvedIssues", "unresolved_issues")
+        checks = try reader.requiredObjectArray("checks").map { object in
+            let checkReader = VentureDeliverablePayloadReader(kind: "product_change.checks", object: object)
+            let status = try checkReader.requiredString("status")
+            guard ["passed", "failed", "not_run"].contains(status) else {
+                throw VentureDeliverablePayloadDecodingError(
+                    kind: "product_change",
+                    reason: "checks.statusが許可値ではありません。"
+                )
             }
             return Check(
-                name: check["name"]?.stringValue ?? "",
-                status: check["status"]?.stringValue ?? "not_run",
-                detail: check["detail"]?.stringValue ?? ""
+                name: try checkReader.requiredString("name"),
+                status: status,
+                detail: try checkReader.requiredString("detail")
             )
-        }.filter { !$0.name.isEmpty }
+        }
     }
 }
 
@@ -863,18 +1050,16 @@ struct VentureResearchReportDeliverable: Decodable, Hashable {
         self.nextQuestions = nextQuestions
     }
 
-    init?(payload: ProductOpsMetadataValue) {
-        guard let object = payload.unwrappedObjectValue else {
-            return nil
-        }
-        researchQuestion = object["researchQuestion"]?.stringValue ?? object["research_question"]?.stringValue ?? ""
-        conclusion = object["conclusion"]?.stringValue ?? ""
-        findings = object["findings"]?.stringArrayValue ?? []
-        supportingEvidence = object["supportingEvidence"]?.stringArrayValue ?? object["supporting_evidence"]?.stringArrayValue ?? []
-        contradictingEvidence = object["contradictingEvidence"]?.stringArrayValue ?? object["contradicting_evidence"]?.stringArrayValue ?? []
-        sources = object["sources"]?.stringArrayValue ?? []
-        unknowns = object["unknowns"]?.stringArrayValue ?? []
-        nextQuestions = object["nextQuestions"]?.stringArrayValue ?? object["next_questions"]?.stringArrayValue ?? []
+    init(payload: ProductOpsMetadataValue) throws {
+        let reader = try VentureDeliverablePayloadReader(kind: "research_report", payload: payload)
+        researchQuestion = try reader.requiredString("researchQuestion", "research_question")
+        conclusion = try reader.requiredString("conclusion")
+        findings = try reader.requiredStringArray("findings")
+        supportingEvidence = try reader.requiredStringArray("supportingEvidence", "supporting_evidence")
+        contradictingEvidence = try reader.requiredStringArray("contradictingEvidence", "contradicting_evidence")
+        sources = try reader.requiredStringArray("sources")
+        unknowns = try reader.requiredStringArray("unknowns")
+        nextQuestions = try reader.requiredStringArray("nextQuestions", "next_questions")
     }
 }
 
@@ -899,15 +1084,19 @@ struct VentureMessageDeliverable: Decodable, Hashable {
         self.candidateRecipients = candidateRecipients
     }
 
-    init?(payload: ProductOpsMetadataValue) {
-        guard let object = payload.unwrappedObjectValue else {
-            return nil
+    init(payload: ProductOpsMetadataValue) throws {
+        let reader = try VentureDeliverablePayloadReader(kind: "message", payload: payload)
+        channel = try reader.requiredString("channel")
+        purpose = try reader.requiredString("purpose")
+        subject = try reader.requiredNullableString("subject")
+        body = try reader.requiredString("body")
+        candidateRecipients = try reader.requiredStringArray("candidateRecipients", "candidate_recipients")
+        guard ["x_post", "x_reply", "email", "direct_message"].contains(channel) else {
+            throw VentureDeliverablePayloadDecodingError(kind: "message", reason: "channelが許可値ではありません。")
         }
-        channel = object["channel"]?.stringValue ?? ""
-        purpose = object["purpose"]?.stringValue ?? ""
-        subject = object["subject"]?.stringValue
-        body = object["body"]?.stringValue ?? ""
-        candidateRecipients = object["candidateRecipients"]?.stringArrayValue ?? object["candidate_recipients"]?.stringArrayValue ?? []
+        guard ["question", "outreach", "announcement", "follow_up"].contains(purpose) else {
+            throw VentureDeliverablePayloadDecodingError(kind: "message", reason: "purposeが許可値ではありません。")
+        }
     }
 }
 
@@ -935,24 +1124,44 @@ struct VentureVerificationReportDeliverable: Decodable, Hashable {
         self.requiredFollowUps = requiredFollowUps
     }
 
-    init?(payload: ProductOpsMetadataValue) {
-        guard let root = payload.unwrappedObjectValue else {
-            return nil
+    init(payload: ProductOpsMetadataValue) throws {
+        let rootReader = try VentureDeliverablePayloadReader(kind: "verification_report", payload: payload)
+        let reader: VentureDeliverablePayloadReader
+        if let report = rootReader.object["report"] {
+            guard let reportObject = report.unwrappedObjectValue else {
+                throw VentureDeliverablePayloadDecodingError(
+                    kind: "verification_report",
+                    reason: "reportはJSONオブジェクトである必要があります。"
+                )
+            }
+            reader = VentureDeliverablePayloadReader(kind: "verification_report", object: reportObject)
+        } else {
+            reader = rootReader
         }
-        let object = root["report"]?.unwrappedObjectValue ?? root
-        verdict = object["verdict"]?.stringValue ?? "review_required"
-        checkedCriteria = (object["checkedCriteria"]?.arrayValue ?? object["checked_criteria"]?.arrayValue ?? []).compactMap { value in
-            guard let item = value.objectValue else {
-                return nil
+        verdict = try reader.requiredString("verdict")
+        guard ["passed", "failed", "review_required"].contains(verdict) else {
+            throw VentureDeliverablePayloadDecodingError(
+                kind: "verification_report",
+                reason: "verdictが許可値ではありません。"
+            )
+        }
+        checkedCriteria = try reader.requiredObjectArray("checkedCriteria", "checked_criteria").map { object in
+            let itemReader = VentureDeliverablePayloadReader(kind: "verification_report.checkedCriteria", object: object)
+            let status = try itemReader.requiredString("status")
+            guard ["passed", "failed", "not_run"].contains(status) else {
+                throw VentureDeliverablePayloadDecodingError(
+                    kind: "verification_report",
+                    reason: "checkedCriteria.statusが許可値ではありません。"
+                )
             }
             return CheckedCriterion(
-                criterion: item["criterion"]?.stringValue ?? "",
-                status: item["status"]?.stringValue ?? "not_run",
-                detail: item["detail"]?.stringValue ?? ""
+                criterion: try itemReader.requiredString("criterion"),
+                status: status,
+                detail: try itemReader.requiredString("detail")
             )
-        }.filter { !$0.criterion.isEmpty }
-        risks = object["risks"]?.stringArrayValue ?? []
-        requiredFollowUps = object["requiredFollowUps"]?.stringArrayValue ?? object["required_follow_ups"]?.stringArrayValue ?? []
+        }
+        risks = try reader.requiredStringArray("risks")
+        requiredFollowUps = try reader.requiredStringArray("requiredFollowUps", "required_follow_ups")
     }
 }
 
@@ -974,14 +1183,12 @@ struct VentureKnowledgeChangeDeliverable: Decodable, Hashable {
         self.sourceIds = sourceIds
     }
 
-    init?(payload: ProductOpsMetadataValue) {
-        guard let object = payload.unwrappedObjectValue else {
-            return nil
-        }
-        currentState = object["currentState"]?.stringValue ?? object["current_state"]?.stringValue ?? ""
-        proposedState = object["proposedState"]?.stringValue ?? object["proposed_state"]?.stringValue ?? ""
-        reason = object["reason"]?.stringValue ?? ""
-        sourceIds = object["sourceIds"]?.stringArrayValue ?? object["source_ids"]?.stringArrayValue ?? []
+    init(payload: ProductOpsMetadataValue) throws {
+        let reader = try VentureDeliverablePayloadReader(kind: "knowledge_change", payload: payload)
+        currentState = try reader.requiredString("currentState", "current_state")
+        proposedState = try reader.requiredString("proposedState", "proposed_state")
+        reason = try reader.requiredString("reason")
+        sourceIds = try reader.requiredStringArray("sourceIds", "source_ids")
     }
 }
 
@@ -1003,14 +1210,15 @@ struct VentureAlertDeliverable: Decodable, Hashable {
         self.entityRefs = entityRefs
     }
 
-    init?(payload: ProductOpsMetadataValue) {
-        guard let object = payload.unwrappedObjectValue else {
-            return nil
+    init(payload: ProductOpsMetadataValue) throws {
+        let reader = try VentureDeliverablePayloadReader(kind: "alert", payload: payload)
+        severity = try reader.requiredString("severity")
+        detectedIssue = try reader.requiredString("detectedIssue", "detected_issue")
+        recommendedAction = try reader.requiredString("recommendedAction", "recommended_action")
+        entityRefs = try reader.requiredStringArray("entityRefs", "entity_refs")
+        guard ["info", "warning", "critical"].contains(severity) else {
+            throw VentureDeliverablePayloadDecodingError(kind: "alert", reason: "severityが許可値ではありません。")
         }
-        severity = object["severity"]?.stringValue ?? "warning"
-        detectedIssue = object["detectedIssue"]?.stringValue ?? object["detected_issue"]?.stringValue ?? ""
-        recommendedAction = object["recommendedAction"]?.stringValue ?? object["recommended_action"]?.stringValue ?? ""
-        entityRefs = object["entityRefs"]?.stringArrayValue ?? object["entity_refs"]?.stringArrayValue ?? []
     }
 }
 

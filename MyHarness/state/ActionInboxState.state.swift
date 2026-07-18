@@ -33,6 +33,7 @@ final class ActionInboxState {
         self.apiClient = apiClient
         self.widgetRepository = widgetRepository
         self.configurationErrorMessage = configurationErrorMessage
+        self.message = ActionPushNotificationCoordinator.shared.registrationErrorMessage
     }
 
     var isConfigured: Bool {
@@ -213,6 +214,10 @@ final class ActionInboxState {
         } catch {
             message = "通知登録に失敗しました: \(error.localizedDescription)"
         }
+    }
+
+    func reportPushRegistrationFailure(_ message: String) {
+        self.message = message
     }
 
     private func runVersionedOperation(

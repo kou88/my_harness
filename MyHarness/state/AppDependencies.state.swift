@@ -79,7 +79,10 @@ struct AppDependencies {
             useCases: useCases,
             actionInbox: actionInboxDependencies
         )
-        ActionPushNotificationCoordinator.shared.configure(apiClient: actionInboxDependencies.apiClient)
+        ActionPushNotificationCoordinator.shared.configure(
+            apiClient: actionInboxDependencies.apiClient,
+            registerStoredToken: actionInboxDependencies.authSession?.isSignedIn == true
+        )
 
         if seedPreviewData {
             try seedPreviewDataIfNeeded(context: container.mainContext, calendar: calendar)
