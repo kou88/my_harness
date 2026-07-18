@@ -57,6 +57,10 @@ final class ActionInboxAPIClient {
         var data: VentureProposalDecisionResult
     }
 
+    private struct VentureMissionDetailEnvelope: Decodable {
+        var data: VentureMissionDetail
+    }
+
     private struct VentureDevelopmentMissionListEnvelope: Decodable {
         var data: VentureDevelopmentMissionListPayload
     }
@@ -216,6 +220,21 @@ final class ActionInboxAPIClient {
         var decisionNote: String
     }
 
+    private struct VentureDeliverableReviewRequest: Encodable {
+        var expectedMissionVersion: Int
+        var decision: String
+        var feedback: String
+    }
+
+    private struct VentureMissionRetryRequest: Encodable {
+        var expectedMissionVersion: Int
+        var feedback: String
+    }
+
+    private struct VentureMissionCancelRequest: Encodable {
+        var expectedMissionVersion: Int
+    }
+
     private struct EmptyRequest: Encodable {}
 
     private struct PushDeviceRequest: Encodable {
@@ -280,27 +299,42 @@ final class ActionInboxAPIClient {
         return try decoder.decode(VentureNextActionsEnvelope.self, from: data).data
     }
 
-    func fetchVentureMissionDetail(_ item: VentureMissionSummaryItem) async throws -> VentureMissionDetail {
-        let data: Data
-        switch item.missionKind {
-        case "development":
-            data = try await request(path: "/api/v2/development-missions/\(item.id)", method: "GET")
-            return .development(try decoder.decode(VentureDevelopmentMissionEnvelope.self, from: data).data)
-        case "research":
-            data = try await request(path: "/api/v2/research-missions/\(item.id)", method: "GET")
-            return .research(try decoder.decode(VentureResearchMissionEnvelope.self, from: data).data)
-        case "message":
-            data = try await request(path: "/api/v2/message-missions/\(item.id)", method: "GET")
-            return .message(try decoder.decode(VentureMessageMissionEnvelope.self, from: data).data)
-        case "verification":
-            data = try await request(path: "/api/v2/verification-missions/\(item.id)", method: "GET")
-            return .verification(try decoder.decode(VentureVerificationMissionEnvelope.self, from: data).data)
-        case "knowledge_change":
-            data = try await request(path: "/api/v2/knowledge-change-missions/\(item.id)", method: "GET")
-            return .knowledgeChange(try decoder.decode(VentureKnowledgeChangeMissionEnvelope.self, from: data).data)
-        default:
-            throw ClientError.invalidResponse
-        }
+    func fetchVentureMissionDetail(missionId: String) async throws -> VentureMissionDetail {
+        let data = try await request(path: "/api/v2/missions/\(missionId)", method: "GET")
+        return try decoder.decode(VentureMissionDetailEnvelope.self, from: data).data
+    }
+
+    func reviewVentureDeliverable(
+        deliverableId: String,
+        expectedMissionVersion: Int,
+        decision: String,
+        feedback: String
+    ) async throws {
+        try await request(
+            path: "/api/v2/deliverables/\(deliverableId)/reviews",
+            method: "POST",
+            body: VentureDeliverableReviewRequest(
+                expectedMissionVersion: expectedMissionVersion,
+                decision: decision,
+                feedback: feedback
+            )
+        )
+    }
+
+    func retryVentureMission(missionId: String, expectedMissionVersion: Int, feedback: String) async throws {
+        try await request(
+            path: "/api/v2/missions/\(missionId)/retry",
+            method: "POST",
+            body: VentureMissionRetryRequest(expectedMissionVersion: expectedMissionVersion, feedback: feedback)
+        )
+    }
+
+    func cancelVentureMission(missionId: String, expectedMissionVersion: Int) async throws {
+        try await request(
+            path: "/api/v2/missions/\(missionId)/cancel",
+            method: "POST",
+            body: VentureMissionCancelRequest(expectedMissionVersion: expectedMissionVersion)
+        )
     }
 
     func fetchVentureDevelopmentMissions(ventureId: String) async throws -> VentureDevelopmentMissionListPayload {

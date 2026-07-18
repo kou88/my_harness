@@ -31,6 +31,7 @@ final class ProductOpsState {
     var isPostingVentureDecision = false
     var isRequestingRecommendationHeartbeat = false
     var isScanningMonitoringAlerts = false
+    var isUpdatingMission = false
     var isLoadingMoreMissionItems = false
     var message: String?
     var configurationErrorMessage: String?
@@ -309,7 +310,59 @@ final class ProductOpsState {
         guard let apiClient else {
             throw ActionInboxConfigurationError.missingValue("ActionAPIBaseURL")
         }
-        return try await apiClient.fetchVentureMissionDetail(item)
+        return try await apiClient.fetchVentureMissionDetail(missionId: item.id)
+    }
+
+    func reviewMissionDeliverable(
+        detail: VentureMissionDetail,
+        decision: String,
+        feedback: String
+    ) async throws -> VentureMissionDetail {
+        guard let apiClient, let deliverable = detail.currentDeliverable else {
+            throw ActionInboxAPIClient.ClientError.invalidResponse
+        }
+        isUpdatingMission = true
+        defer { isUpdatingMission = false }
+        try await apiClient.reviewVentureDeliverable(
+            deliverableId: deliverable.id,
+            expectedMissionVersion: detail.mission.version,
+            decision: decision,
+            feedback: feedback
+        )
+        await loadNextActions()
+        message = decision == "adopted"
+            ? "成果物を採用しました"
+            : decision == "revision_requested"
+                ? "修正を依頼しました"
+                : "成果物を却下しました"
+        return try await apiClient.fetchVentureMissionDetail(missionId: detail.mission.id)
+    }
+
+    func retryMission(detail: VentureMissionDetail, feedback: String) async throws -> VentureMissionDetail {
+        guard let apiClient else { throw ActionInboxConfigurationError.missingValue("ActionAPIBaseURL") }
+        isUpdatingMission = true
+        defer { isUpdatingMission = false }
+        try await apiClient.retryVentureMission(
+            missionId: detail.mission.id,
+            expectedMissionVersion: detail.mission.version,
+            feedback: feedback
+        )
+        await loadNextActions()
+        message = "Missionを再実行します"
+        return try await apiClient.fetchVentureMissionDetail(missionId: detail.mission.id)
+    }
+
+    func cancelMission(detail: VentureMissionDetail) async throws -> VentureMissionDetail {
+        guard let apiClient else { throw ActionInboxConfigurationError.missingValue("ActionAPIBaseURL") }
+        isUpdatingMission = true
+        defer { isUpdatingMission = false }
+        try await apiClient.cancelVentureMission(
+            missionId: detail.mission.id,
+            expectedMissionVersion: detail.mission.version
+        )
+        await loadNextActions()
+        message = "Missionをキャンセルしました"
+        return try await apiClient.fetchVentureMissionDetail(missionId: detail.mission.id)
     }
 
     func decideVentureProposal(

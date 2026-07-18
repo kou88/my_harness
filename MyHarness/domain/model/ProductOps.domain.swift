@@ -74,12 +74,80 @@ struct VentureMissionSummaryItem: Identifiable, Decodable, Hashable {
     }
 }
 
-enum VentureMissionDetail: Hashable {
-    case development(VentureDevelopmentMissionItem)
-    case research(VentureResearchMissionItem)
-    case message(VentureMessageMissionItem)
-    case verification(VentureVerificationMissionItem)
-    case knowledgeChange(VentureKnowledgeChangeMissionItem)
+struct VentureDeliverableSpec: Decodable, Hashable {
+    var kind: String
+    var title: String
+    var description: String
+    var requiredSections: [String]
+    var acceptanceCriteria: [String]
+}
+
+struct VentureGenericMission: Identifiable, Decodable, Hashable {
+    var id: String
+    var ventureId: String
+    var sourceProposalId: String?
+    var sourceBetId: String?
+    var capability: String
+    var primaryDeliverableSpec: VentureDeliverableSpec
+    var supportingDeliverableSpecs: [VentureDeliverableSpec]
+    var sideEffectPolicy: VentureSideEffectPolicy
+    var reviewPolicy: String
+    var status: String
+    var version: Int
+    var currentAttemptId: String?
+    var createdAt: Date
+    var updatedAt: Date
+}
+
+struct VentureMissionInstructionSnapshot: Decodable, Hashable {
+    var schemaKey: String
+    var schemaVersion: Int
+    var contextSnapshotHash: String
+    var objective: String
+    var referenceIds: [String]
+    var payload: ProductOpsMetadataValue
+}
+
+struct VentureMissionAttempt: Identifiable, Decodable, Hashable {
+    var id: String
+    var missionId: String
+    var attemptNumber: Int
+    var revisionOfDeliverableId: String?
+    var sourceReviewId: String?
+    var executorType: String
+    var agentTaskId: String?
+    var executorSessionId: String?
+    var executorTurnId: String?
+    var status: String
+    var instructionSnapshot: VentureMissionInstructionSnapshot
+    var error: String?
+    var createdAt: Date
+    var updatedAt: Date
+}
+
+struct VentureDeliverableReview: Identifiable, Decodable, Hashable {
+    var id: String
+    var missionId: String
+    var attemptId: String
+    var deliverableId: String
+    var actorId: String
+    var decision: String
+    var feedback: String?
+    var reviewedAt: Date
+}
+
+struct VentureMissionDetail: Decodable, Hashable {
+    var mission: VentureGenericMission
+    var currentAttempt: VentureMissionAttempt?
+    var attempts: [VentureMissionAttempt]
+    var deliverables: [VentureDeliverable]
+    var reviews: [VentureDeliverableReview]
+    var availableActions: [String]
+
+    var currentDeliverable: VentureDeliverable? {
+        guard let attemptId = mission.currentAttemptId else { return nil }
+        return deliverables.first { $0.attemptId == attemptId }
+    }
 }
 
 struct VentureDecisionInboxItem: Identifiable, Decodable, Hashable {
@@ -525,6 +593,8 @@ struct VentureKnowledgeChangeMissionResult: Decodable, Hashable {
 struct VentureDeliverable: Identifiable, Decodable, Hashable {
     var id: String
     var missionId: String
+    var attemptId: String
+    var revisionOfDeliverableId: String?
     var resultId: String?
     var kind: String
     var title: String

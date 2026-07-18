@@ -830,13 +830,17 @@ private struct VentureMissionDetailSheet: View {
     let item: VentureMissionSummaryItem
     @State private var detail: VentureMissionDetail?
     @State private var errorMessage: String?
+    @State private var operationErrorMessage: String?
+    @State private var feedbackRequest: MissionFeedbackRequest?
+    @State private var feedbackText = ""
+    @State private var isSubmitting = false
 
     var body: some View {
         NavigationStack {
             Group {
                 if let detail {
                     List {
-                        detailContent(detail)
+                        missionContent(detail)
                     }
                     .listStyle(.plain)
                 } else if let errorMessage {
@@ -861,30 +865,194 @@ private struct VentureMissionDetailSheet: View {
                 }
             }
             .task { await load() }
+            .sheet(item: $feedbackRequest) { request in
+                MissionFeedbackSheet(
+                    request: request,
+                    feedback: $feedbackText,
+                    isSubmitting: isSubmitting,
+                    onSubmit: { startSubmission { await submitFeedback(request) } }
+                )
+            }
+            .alert("操作できませんでした", isPresented: Binding(
+                get: { operationErrorMessage != nil },
+                set: { if !$0 { operationErrorMessage = nil } }
+            )) {
+                Button("閉じる", role: .cancel) {}
+            } message: {
+                Text(operationErrorMessage ?? "")
+            }
         }
     }
 
     @ViewBuilder
-    private func detailContent(_ detail: VentureMissionDetail) -> some View {
-        switch detail {
-        case .development(let mission):
-            VentureDevelopmentMissionRow(item: mission)
-        case .research(let mission):
-            VentureResearchMissionRow(
-                item: mission,
-                onAdopt: { deliverable in
-                    Task {
-                        await state.adoptResearchLearning(deliverable: deliverable)
-                        dismiss()
+    private func missionContent(_ detail: VentureMissionDetail) -> some View {
+        Section {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 6) {
+                    ProductOpsTokenView(statusLabel(detail.mission.status))
+                    ProductOpsTokenView(detail.mission.primaryDeliverableSpec.kind)
+                    if let attempt = detail.currentAttempt {
+                        ProductOpsTokenView("Attempt \(attempt.attemptNumber)")
                     }
                 }
-            )
-        case .message(let mission):
-            VentureMessageMissionRow(item: mission)
-        case .verification(let mission):
-            VentureVerificationMissionRow(item: mission)
-        case .knowledgeChange(let mission):
-            VentureKnowledgeChangeMissionRow(item: mission)
+                Text(detail.mission.primaryDeliverableSpec.title)
+                    .font(.headline)
+                Text(detail.currentAttempt?.instructionSnapshot.objective ?? detail.mission.primaryDeliverableSpec.description)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                ProductChangeSection(
+                    title: "合格条件",
+                    items: detail.mission.primaryDeliverableSpec.acceptanceCriteria
+                )
+            }
+            .padding(.vertical, 4)
+        }
+
+        Section("最新の成果物") {
+            if let deliverable = detail.currentDeliverable {
+                deliverableContent(deliverable)
+            } else if let attempt = detail.currentAttempt, let error = attempt.error, !error.isEmpty {
+                Text(error)
+                    .font(.subheadline)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text(detail.mission.status == "failed" ? "成果物は作成されませんでした。" : "現在の実行結果を待っています。")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+        }
+
+        if !detail.availableActions.isEmpty {
+            Section("操作") {
+                missionActions(detail)
+                Text(actionBoundary(detail.mission.primaryDeliverableSpec.kind))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if detail.currentAttempt?.instructionSnapshot.schemaKey == "legacy_mission_attempt" {
+                    Text("旧形式のMissionでは成果物の修正・再実行を利用できません。必要な場合は新しいMissionを作成してください。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        } else if detail.currentAttempt?.instructionSnapshot.schemaKey == "legacy_mission_attempt"
+                    && detail.mission.status == "failed" {
+            Section("操作") {
+                Text("このMissionは旧形式のため、修正・再実行には新しいMissionの作成が必要です。成果物の採用または却下は行えます。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+
+        if !detail.attempts.isEmpty {
+            Section("実行履歴") {
+                ForEach(detail.attempts.sorted { $0.attemptNumber > $1.attemptNumber }) { attempt in
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text("Attempt \(attempt.attemptNumber)")
+                                .font(.subheadline.weight(.semibold))
+                            Spacer()
+                            ProductOpsTokenView(attemptStatusLabel(attempt.status))
+                        }
+                        Text(Self.dateFormatter.string(from: attempt.updatedAt))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        if let error = attempt.error, !error.isEmpty {
+                            Text(error)
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        ForEach(detail.reviews.filter { $0.attemptId == attempt.id }) { review in
+                            Text(reviewSummary(review))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .padding(.vertical, 3)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func deliverableContent(_ deliverable: VentureDeliverable) -> some View {
+        if let value = deliverable.productChangePayload {
+            VentureProductChangeSummaryView(summary: deliverable.summary, productChange: value, supportingPullRequests: [])
+        } else if let value = deliverable.researchReportPayload {
+            VentureResearchReportSummaryView(summary: deliverable.summary, report: value)
+        } else if let value = deliverable.messagePayload {
+            VentureMessageDraftView(summary: deliverable.summary, message: value)
+        } else if let value = deliverable.verificationReportPayload {
+            VentureVerificationReportSummaryView(summary: deliverable.summary, report: value)
+        } else if let value = deliverable.knowledgeChangePayload {
+            VentureKnowledgeChangeSummaryView(summary: deliverable.summary, knowledgeChange: value)
+        } else if let value = deliverable.alertPayload {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(deliverable.summary).font(.subheadline)
+                ProductChangeSection(title: "検知", items: [value.detectedIssue])
+                ProductChangeSection(title: "推奨対応", items: [value.recommendedAction])
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(deliverable.title).font(.subheadline.weight(.semibold))
+                Text(deliverable.summary)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func missionActions(_ detail: VentureMissionDetail) -> some View {
+        if detail.availableActions.contains("adopt") {
+            Button {
+                startSubmission { await adopt(detail) }
+            } label: {
+                Label("採用する", systemImage: "checkmark.circle")
+            }
+            .disabled(isSubmitting)
+        }
+        if detail.availableActions.contains("request_revision") {
+            Button {
+                feedbackText = ""
+                feedbackRequest = MissionFeedbackRequest(kind: .revision)
+            } label: {
+                Label("修正して再実行", systemImage: "arrow.triangle.2.circlepath")
+            }
+            .disabled(isSubmitting)
+        }
+        if detail.availableActions.contains("reject") {
+            Button(role: .destructive) {
+                feedbackText = ""
+                feedbackRequest = MissionFeedbackRequest(kind: .reject)
+            } label: {
+                Label("却下して終了", systemImage: "xmark.circle")
+            }
+            .disabled(isSubmitting)
+        }
+        if detail.availableActions.contains("retry") {
+            Button {
+                feedbackText = ""
+                feedbackRequest = MissionFeedbackRequest(kind: .retry)
+            } label: {
+                Label("再実行", systemImage: "arrow.clockwise")
+            }
+            .disabled(isSubmitting)
+        }
+        if detail.availableActions.contains("cancel") {
+            Button(role: .destructive) {
+                startSubmission { await cancel(detail) }
+            } label: {
+                Label("キャンセル", systemImage: "stop.circle")
+            }
+            .disabled(isSubmitting)
         }
     }
 
@@ -895,6 +1063,169 @@ private struct VentureMissionDetailSheet: View {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func adopt(_ detail: VentureMissionDetail) async {
+        defer { isSubmitting = false }
+        do {
+            self.detail = try await state.reviewMissionDeliverable(
+                detail: detail,
+                decision: "adopted",
+                feedback: "成果物を確認し採用"
+            )
+        } catch {
+            operationErrorMessage = error.localizedDescription
+        }
+    }
+
+    private func submitFeedback(_ request: MissionFeedbackRequest) async {
+        guard let detail else { return }
+        let feedback = feedbackText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !feedback.isEmpty else { return }
+        defer { isSubmitting = false }
+        do {
+            switch request.kind {
+            case .revision:
+                self.detail = try await state.reviewMissionDeliverable(
+                    detail: detail,
+                    decision: "revision_requested",
+                    feedback: feedback
+                )
+            case .reject:
+                self.detail = try await state.reviewMissionDeliverable(
+                    detail: detail,
+                    decision: "rejected",
+                    feedback: feedback
+                )
+            case .retry:
+                self.detail = try await state.retryMission(detail: detail, feedback: feedback)
+            }
+            feedbackRequest = nil
+            feedbackText = ""
+        } catch {
+            operationErrorMessage = error.localizedDescription
+        }
+    }
+
+    private func cancel(_ detail: VentureMissionDetail) async {
+        defer { isSubmitting = false }
+        do {
+            self.detail = try await state.cancelMission(detail: detail)
+        } catch {
+            operationErrorMessage = error.localizedDescription
+        }
+    }
+
+    private func startSubmission(_ operation: @escaping @MainActor () async -> Void) {
+        guard !isSubmitting else { return }
+        isSubmitting = true
+        Task { await operation() }
+    }
+
+    private func statusLabel(_ status: String) -> String {
+        switch status {
+        case "queued": return "待機中"
+        case "dispatching": return "依頼中"
+        case "running": return "実行中"
+        case "awaiting_review": return "結果確認"
+        case "completed": return "採用済み"
+        case "failed": return "失敗"
+        case "canceled": return "キャンセル"
+        case "rejected": return "却下"
+        default: return status
+        }
+    }
+
+    private func attemptStatusLabel(_ status: String) -> String {
+        switch status {
+        case "queued": return "待機中"
+        case "dispatching": return "依頼中"
+        case "running": return "実行中"
+        case "succeeded": return "実行成功"
+        case "failed": return "失敗"
+        case "canceled": return "中断"
+        default: return status
+        }
+    }
+
+    private func reviewSummary(_ review: VentureDeliverableReview) -> String {
+        let label = review.decision == "adopted" ? "採用" : review.decision == "revision_requested" ? "修正依頼" : "却下"
+        return review.feedback.map { "\(label): \($0)" } ?? label
+    }
+
+    private func actionBoundary(_ kind: String) -> String {
+        switch kind {
+        case "message": return "採用しても外部へ送信しません。送信には別の承認が必要です。"
+        case "product_change": return "採用してもPRマージや本番反映は行いません。"
+        case "knowledge_change": return "採用しても方針の正本は自動更新しません。"
+        default: return "採用後の副作用はMissionの承認境界に従います。"
+        }
+    }
+
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "ja_JP")
+        formatter.timeZone = TimeZone(identifier: "Asia/Tokyo")
+        formatter.dateFormat = "yyyy/MM/dd HH:mm:ss"
+        return formatter
+    }()
+}
+
+private struct MissionFeedbackRequest: Identifiable {
+    enum Kind {
+        case revision
+        case reject
+        case retry
+    }
+
+    let id = UUID()
+    let kind: Kind
+
+    var title: String {
+        switch kind {
+        case .revision: return "修正内容"
+        case .reject: return "却下理由"
+        case .retry: return "再実行の指示"
+        }
+    }
+
+    var actionLabel: String {
+        switch kind {
+        case .revision: return "修正を依頼"
+        case .reject: return "却下して終了"
+        case .retry: return "再実行"
+        }
+    }
+}
+
+private struct MissionFeedbackSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let request: MissionFeedbackRequest
+    @Binding var feedback: String
+    let isSubmitting: Bool
+    let onSubmit: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section(request.title) {
+                    TextEditor(text: $feedback)
+                        .frame(minHeight: 150)
+                }
+            }
+            .navigationTitle(request.title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("閉じる") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(request.actionLabel) { onSubmit() }
+                        .disabled(feedback.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSubmitting)
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
     }
 }
 
