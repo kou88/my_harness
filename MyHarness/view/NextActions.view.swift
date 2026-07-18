@@ -809,18 +809,16 @@ private struct VentureProposalDetailSheet: View {
 
     private var actionBar: some View {
         HStack(spacing: 10) {
-            Button {
+            Button(role: .destructive) {
                 dismiss()
-                onApprove()
+                onReject()
             } label: {
-                Text(item.approvalLabel)
+                Text("却下")
                     .lineLimit(2)
-                    .minimumScaleFactor(0.8)
-                    .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity, minHeight: 34)
             }
             .buttonStyle(.bordered)
-            .tint(.accentColor)
+            .tint(.red)
 
             Button {
                 dismiss()
@@ -833,16 +831,18 @@ private struct VentureProposalDetailSheet: View {
             .buttonStyle(.bordered)
             .tint(.orange)
 
-            Button(role: .destructive) {
+            Button {
                 dismiss()
-                onReject()
+                onApprove()
             } label: {
-                Text("却下")
+                Text(item.approvalLabel)
                     .lineLimit(2)
+                    .minimumScaleFactor(0.8)
+                    .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity, minHeight: 34)
             }
             .buttonStyle(.bordered)
-            .tint(.red)
+            .tint(.accentColor)
         }
         .font(.subheadline.weight(.semibold))
         .controlSize(.large)
@@ -1405,65 +1405,73 @@ private struct VentureMissionDetailSheet: View {
         }
     }
 
-    @ViewBuilder
-    private func missionActions(_ detail: VentureMissionDetail) -> some View {
-        if detail.availableActions.contains("adopt") {
-            Button {
-                startSubmission { await adopt(detail) }
-            } label: {
-                Label("採用する", systemImage: "checkmark.circle")
-            }
-            .disabled(isSubmitting)
-        }
-        if detail.availableActions.contains("request_revision") {
-            Button {
-                feedbackText = ""
-                feedbackRequest = MissionFeedbackRequest(kind: .revision)
-            } label: {
-                Label("修正して再実行", systemImage: "arrow.triangle.2.circlepath")
-            }
-            .disabled(isSubmitting)
-        }
-        if detail.availableActions.contains("reject") {
-            Button(role: .destructive) {
-                feedbackText = ""
-                feedbackRequest = MissionFeedbackRequest(kind: .reject)
-            } label: {
-                Label("却下して終了", systemImage: "xmark.circle")
-            }
-            .disabled(isSubmitting)
-        }
-        if detail.availableActions.contains("retry") {
-            Button {
-                feedbackText = ""
-                feedbackRequest = MissionFeedbackRequest(kind: .retry)
-            } label: {
-                Label("再実行", systemImage: "arrow.clockwise")
-            }
-            .disabled(isSubmitting)
-        }
-        if detail.availableActions.contains("cancel") {
-            Button(role: .destructive) {
-                startSubmission { await cancel(detail) }
-            } label: {
-                Label("キャンセル", systemImage: "stop.circle")
-            }
-            .disabled(isSubmitting)
-        }
-    }
-
     private func missionActionBar(_ detail: VentureMissionDetail) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
-                missionActions(detail)
+        HStack(spacing: 10) {
+            if detail.availableActions.contains("reject") {
+                missionActionButton("却下して終了", tint: .red, role: .destructive) {
+                    feedbackText = ""
+                    feedbackRequest = MissionFeedbackRequest(kind: .reject)
+                }
+            } else if detail.availableActions.contains("cancel") {
+                missionActionButton("キャンセル", tint: .red, role: .destructive) {
+                    startSubmission { await cancel(detail) }
+                }
+            } else {
+                missionActionPlaceholder
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+
+            if detail.availableActions.contains("request_revision") {
+                missionActionButton("修正して再実行", tint: .orange) {
+                    feedbackText = ""
+                    feedbackRequest = MissionFeedbackRequest(kind: .revision)
+                }
+            } else {
+                missionActionPlaceholder
+            }
+
+            if detail.availableActions.contains("adopt") {
+                missionActionButton("採用する", tint: .accentColor) {
+                    startSubmission { await adopt(detail) }
+                }
+            } else if detail.availableActions.contains("retry") {
+                missionActionButton("再実行", tint: .accentColor) {
+                    feedbackText = ""
+                    feedbackRequest = MissionFeedbackRequest(kind: .retry)
+                }
+            } else {
+                missionActionPlaceholder
+            }
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
         .font(.subheadline.weight(.semibold))
-        .buttonStyle(.bordered)
         .controlSize(.large)
         .background(.ultraThinMaterial)
+    }
+
+    private func missionActionButton(
+        _ title: String,
+        tint: Color,
+        role: ButtonRole? = nil,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(role: role, action: action) {
+            Text(title)
+                .lineLimit(2)
+                .minimumScaleFactor(0.8)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity, minHeight: 34)
+        }
+        .buttonStyle(.bordered)
+        .tint(tint)
+        .disabled(isSubmitting)
+    }
+
+    private var missionActionPlaceholder: some View {
+        Color.clear
+            .frame(maxWidth: .infinity)
+            .frame(height: 52)
+            .accessibilityHidden(true)
     }
 
     private func load() async {
