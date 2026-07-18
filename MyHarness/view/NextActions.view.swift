@@ -815,10 +815,9 @@ private struct VentureProposalDetailSheet: View {
             } label: {
                 Text("却下")
                     .lineLimit(2)
-                    .frame(maxWidth: .infinity, minHeight: 34)
+                    .frame(maxWidth: .infinity, minHeight: 48)
             }
-            .buttonStyle(.bordered)
-            .tint(.red)
+            .buttonStyle(ProductOpsTranslucentActionButtonStyle(tint: .red))
 
             Button {
                 dismiss()
@@ -826,10 +825,9 @@ private struct VentureProposalDetailSheet: View {
             } label: {
                 Text("あとで")
                     .lineLimit(2)
-                    .frame(maxWidth: .infinity, minHeight: 34)
+                    .frame(maxWidth: .infinity, minHeight: 48)
             }
-            .buttonStyle(.bordered)
-            .tint(.orange)
+            .buttonStyle(ProductOpsTranslucentActionButtonStyle(tint: .orange))
 
             Button {
                 dismiss()
@@ -839,10 +837,9 @@ private struct VentureProposalDetailSheet: View {
                     .lineLimit(2)
                     .minimumScaleFactor(0.8)
                     .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity, minHeight: 34)
+                    .frame(maxWidth: .infinity, minHeight: 48)
             }
-            .buttonStyle(.bordered)
-            .tint(.accentColor)
+            .buttonStyle(ProductOpsTranslucentActionButtonStyle(tint: .accentColor))
         }
         .font(.subheadline.weight(.semibold))
         .controlSize(.large)
@@ -1317,6 +1314,26 @@ private struct VentureMissionDetailSheet: View {
             }
         }
 
+        if let verification = detail.verification {
+            Section("AIレビュー") {
+                if let report = verification.report {
+                    VentureVerificationReportSummaryView(
+                        summary: verification.summary,
+                        report: report,
+                        isCompact: false
+                    )
+                } else {
+                    HStack(spacing: 8) {
+                        Image(systemName: verificationStatusIcon(verification.status))
+                            .foregroundStyle(verificationStatusTint(verification.status))
+                        Text(verificationStatusText(verification.status))
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+
         if !detail.availableActions.isEmpty {
             Section("操作の境界") {
                 Text(actionBoundary(detail.mission.primaryDeliverableSpec.kind))
@@ -1460,10 +1477,9 @@ private struct VentureMissionDetailSheet: View {
                 .lineLimit(2)
                 .minimumScaleFactor(0.8)
                 .multilineTextAlignment(.center)
-                .frame(maxWidth: .infinity, minHeight: 34)
+                .frame(maxWidth: .infinity, minHeight: 48)
         }
-        .buttonStyle(.bordered)
-        .tint(tint)
+        .buttonStyle(ProductOpsTranslucentActionButtonStyle(tint: tint))
         .disabled(isSubmitting)
     }
 
@@ -1573,6 +1589,32 @@ private struct VentureMissionDetailSheet: View {
         case "canceled": return "キャンセル"
         case "rejected": return "却下"
         default: return status
+        }
+    }
+
+    private func verificationStatusText(_ status: String) -> String {
+        switch status {
+        case "queued", "dispatching": return "AIレビューを準備しています"
+        case "running": return "AIレビューを実行しています"
+        case "failed": return "AIレビューに失敗しました"
+        case "canceled": return "元成果物の判断に伴いAIレビューを終了しました"
+        default: return "AIレビュー結果を待っています"
+        }
+    }
+
+    private func verificationStatusIcon(_ status: String) -> String {
+        switch status {
+        case "failed": return "exclamationmark.triangle"
+        case "canceled": return "xmark.circle"
+        default: return "checkmark.seal"
+        }
+    }
+
+    private func verificationStatusTint(_ status: String) -> Color {
+        switch status {
+        case "failed": return .red
+        case "canceled": return .secondary
+        default: return .accentColor
         }
     }
 
@@ -2270,6 +2312,29 @@ private struct VentureVerificationMissionRow: View {
         default:
             return .accentColor
         }
+    }
+}
+
+private struct ProductOpsTranslucentActionButtonStyle: ButtonStyle {
+    let tint: Color
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(tint)
+            .contentShape(Rectangle())
+            .background {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(.ultraThinMaterial)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(tint.opacity(configuration.isPressed ? 0.2 : 0.1))
+                    }
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(tint.opacity(0.3), lineWidth: 1)
+            }
+            .opacity(configuration.isPressed ? 0.75 : 1)
     }
 }
 

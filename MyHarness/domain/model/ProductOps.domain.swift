@@ -65,6 +65,7 @@ struct VentureMissionSummaryItem: Identifiable, Decodable, Hashable {
     var currentDeliverableId: String?
     var availableActions: [String]
     var sideEffectPolicy: VentureSideEffectPolicy
+    var verification: VentureVerificationSummary?
     var updatedAt: Date
 
     var kindLabel: String {
@@ -73,10 +74,19 @@ struct VentureMissionSummaryItem: Identifiable, Decodable, Hashable {
         case "research": return "調査"
         case "message": return "文案"
         case "verification": return "検証"
+        case "decision_brief": return "判断材料"
         case "knowledge_change": return "Knowledge"
         default: return capability
         }
     }
+}
+
+struct VentureVerificationSummary: Decodable, Hashable {
+    var missionId: String
+    var status: String
+    var verdict: String?
+    var summary: String?
+    var updatedAt: Date
 }
 
 struct VentureDeliverableSpec: Decodable, Hashable {
@@ -147,11 +157,32 @@ struct VentureMissionDetail: Decodable, Hashable {
     var attempts: [VentureMissionAttempt]
     var deliverables: [VentureDeliverable]
     var reviews: [VentureDeliverableReview]
+    var verification: VentureMissionVerification?
     var availableActions: [String]
 
     var currentDeliverable: VentureDeliverable? {
         guard let attemptId = mission.currentAttemptId else { return nil }
         return deliverables.first { $0.attemptId == attemptId }
+    }
+}
+
+struct VentureMissionVerification: Decodable, Hashable {
+    var missionId: String
+    var sourceDeliverableId: String
+    var status: String
+    var result: VentureVerificationMissionResult?
+    var deliverables: [VentureDeliverable]
+
+    var reportDeliverable: VentureDeliverable? {
+        deliverables.first { $0.kind == "verification_report" }
+    }
+
+    var report: VentureVerificationReportDeliverable? {
+        reportDeliverable?.verificationReportPayload ?? result?.report
+    }
+
+    var summary: String {
+        reportDeliverable?.displaySummary ?? result?.summary ?? ""
     }
 }
 
