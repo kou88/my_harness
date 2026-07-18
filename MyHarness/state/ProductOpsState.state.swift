@@ -44,6 +44,8 @@ final class ProductOpsState {
     private var mutatingNeedIds: Set<String> = []
     private var updatingDevelopmentTaskIds: Set<String> = []
     private var startingCodexTaskIds: Set<String> = []
+    private var mutatingVentureProposalIds: Set<String> = []
+    private var mutatingMissionIds: Set<String> = []
 
     init(
         authSession: CognitoAuthSession?,
@@ -200,6 +202,8 @@ final class ProductOpsState {
         mutatingNeedIds.removeAll()
         updatingDevelopmentTaskIds.removeAll()
         startingCodexTaskIds.removeAll()
+        mutatingVentureProposalIds.removeAll()
+        mutatingMissionIds.removeAll()
         isRequestingRecommendationHeartbeat = false
     }
 
@@ -313,6 +317,21 @@ final class ProductOpsState {
         return try await apiClient.fetchVentureMissionDetail(missionId: item.id)
     }
 
+    func fetchProposalDetail(_ item: VentureDecisionInboxItem) async throws -> VentureProposalDetail {
+        guard let apiClient else {
+            throw ActionInboxConfigurationError.missingValue("ActionAPIBaseURL")
+        }
+        return try await apiClient.fetchVentureProposalDetail(proposalId: item.proposalId)
+    }
+
+    func isMutatingVentureProposal(id: String) -> Bool {
+        mutatingVentureProposalIds.contains(id)
+    }
+
+    func isMutatingMission(id: String) -> Bool {
+        mutatingMissionIds.contains(id)
+    }
+
     func reviewMissionDeliverable(
         detail: VentureMissionDetail,
         decision: String,
@@ -371,9 +390,15 @@ final class ProductOpsState {
         reasonCodes: [String],
         feedbackNote: String? = nil
     ) async {
-        guard let apiClient else { return }
+        guard let apiClient, !mutatingVentureProposalIds.contains(item.proposalId) else { return }
+        let previousInbox = decisionInboxState
+        mutatingVentureProposalIds.insert(item.proposalId)
         isPostingVentureDecision = true
-        defer { isPostingVentureDecision = false }
+        removeVentureProposalFromInbox(id: item.proposalId)
+        defer {
+            mutatingVentureProposalIds.remove(item.proposalId)
+            isPostingVentureDecision = !mutatingVentureProposalIds.isEmpty
+        }
         do {
             let result = try await apiClient.decideVentureProposal(
                 proposalId: item.proposalId,
@@ -395,7 +420,50 @@ final class ProductOpsState {
             )
             await loadDecisionInbox()
         } catch {
+            decisionInboxState = previousInbox
             await reconcileDecisionAfterFailure(item: item, decision: decision, error: error)
+        }
+    }
+
+    func adoptMissionFromList(_ item: VentureMissionSummaryItem) async {
+        guard let apiClient,
+              let deliverableId = item.currentDeliverableId,
+              !mutatingMissionIds.contains(item.id) else { return }
+        let previousPage = missionItemsState
+        mutatingMissionIds.insert(item.id)
+        removeMissionFromList(id: item.id)
+        defer { mutatingMissionIds.remove(item.id) }
+        do {
+            try await apiClient.reviewVentureDeliverable(
+                deliverableId: deliverableId,
+                expectedMissionVersion: item.missionVersion,
+                decision: "adopted",
+                feedback: "成果物を確認し採用"
+            )
+            await loadNextActions()
+            message = "成果物を採用しました"
+        } catch {
+            missionItemsState = previousPage
+            message = "成果物を採用できませんでした: \(error.localizedDescription)"
+        }
+    }
+
+    func cancelMissionFromList(_ item: VentureMissionSummaryItem) async {
+        guard let apiClient, !mutatingMissionIds.contains(item.id) else { return }
+        let previousPage = missionItemsState
+        mutatingMissionIds.insert(item.id)
+        removeMissionFromList(id: item.id)
+        defer { mutatingMissionIds.remove(item.id) }
+        do {
+            try await apiClient.cancelVentureMission(
+                missionId: item.id,
+                expectedMissionVersion: item.missionVersion
+            )
+            await loadNextActions()
+            message = "Missionをキャンセルしました"
+        } catch {
+            missionItemsState = previousPage
+            message = "Missionをキャンセルできませんでした: \(error.localizedDescription)"
         }
     }
 
@@ -723,6 +791,18 @@ final class ProductOpsState {
         missionItemsState = .loaded(payload.missionItems)
         monitoringAlertsState = .loaded(payload.monitoringAlerts)
         missionProgressState = .loaded(payload.missionProgress)
+    }
+
+    private func removeVentureProposalFromInbox(id: String) {
+        guard case .loaded(var payload) = decisionInboxState else { return }
+        payload.items.removeAll { $0.proposalId == id }
+        decisionInboxState = .loaded(payload)
+    }
+
+    private func removeMissionFromList(id: String) {
+        guard case .loaded(var page) = missionItemsState else { return }
+        page.items.removeAll { $0.id == id }
+        missionItemsState = .loaded(page)
     }
 
     func updatePolicy(fields: ProjectPolicyEditableFields) async -> ProjectPolicy? {

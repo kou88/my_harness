@@ -19,7 +19,9 @@ struct NextActionsView: View {
     private enum NextActionsSheet: Identifiable {
         case needMemo
         case proposalFeedback(PendingVentureProposalFeedback)
-        case missionDetail(VentureMissionSummaryItem)
+        case proposalDetail(VentureDecisionInboxItem)
+        case missionDetail(VentureMissionSummaryItem, requestedAction: String?)
+        case alertDetail(VentureMonitoringAlertItem)
 
         var id: String {
             switch self {
@@ -27,8 +29,12 @@ struct NextActionsView: View {
                 return "needMemo"
             case .proposalFeedback(let feedback):
                 return feedback.id
-            case .missionDetail(let item):
-                return "mission-\(item.id)"
+            case .proposalDetail(let item):
+                return "proposal-\(item.id)"
+            case .missionDetail(let item, let requestedAction):
+                return "mission-\(item.id)-\(requestedAction ?? "detail")"
+            case .alertDetail(let item):
+                return "alert-\(item.id)"
             }
         }
     }
@@ -70,8 +76,22 @@ struct NextActionsView: View {
                     state: productOpsState,
                     pending: feedback
                 )
-            case .missionDetail(let item):
-                VentureMissionDetailSheet(state: productOpsState, item: item)
+            case .proposalDetail(let item):
+                VentureProposalDetailSheet(
+                    state: productOpsState,
+                    item: item,
+                    onApprove: { decide(item, .approved) },
+                    onLater: { decide(item, .deferred) },
+                    onReject: { decide(item, .rejected) }
+                )
+            case .missionDetail(let item, let requestedAction):
+                VentureMissionDetailSheet(
+                    state: productOpsState,
+                    item: item,
+                    requestedAction: requestedAction
+                )
+            case .alertDetail(let item):
+                VentureMonitoringAlertDetailSheet(item: item)
             }
         }
     }
@@ -125,12 +145,12 @@ struct NextActionsView: View {
 
     @ViewBuilder
     private func ventureDecisionContent(_ payload: VentureDecisionInboxPayload) -> some View {
-        let recommended = payload.items.first
-        let remaining = Array(payload.items.dropFirst())
+        let recommendations = payload.items
         let missionItems = productOpsState.missionSummaryItems
         let monitoringAlertItems = productOpsState.monitoringAlertItems
         let reviewMissions = missionItems.filter { $0.status == "awaiting_review" || $0.status == "failed" }
-        let runningMissions = missionItems.filter { ["queued", "dispatching", "running"].contains($0.status) }
+        let todoMissions = missionItems.filter { $0.status == "queued" }
+        let runningMissions = missionItems.filter { ["dispatching", "running"].contains($0.status) }
 
         if let message = payload.recommendationStatusMessage {
             Section {
@@ -142,60 +162,51 @@ struct NextActionsView: View {
             }
         }
 
-        if let recommended {
-            Section("おすすめ") {
-                RecommendedVentureProposalCard(
-                    item: recommended,
-                    isWorking: productOpsState.isPostingVentureDecision,
-                    onApprove: { decide(recommended, .approved) },
-                    onLater: { decide(recommended, .deferred) },
-                    onReject: { decide(recommended, .rejected) }
-                )
-                .listRowSeparator(.hidden)
-            }
-        }
-
-        if let progress = productOpsState.missionProgress, progress.totals.total > 0 {
-            Section("運用状況") {
-                MissionProgressSummaryRow(progress: progress)
-            }
-        }
-
-        if !monitoringAlertItems.isEmpty || !reviewMissions.isEmpty {
-            Section("結果確認") {
-                ForEach(monitoringAlertItems) { item in
-                    VentureMonitoringAlertRow(item: item)
-                }
-                ForEach(reviewMissions) { item in
-                    VentureMissionSummaryRow(item: item) {
-                        presentedSheet = .missionDetail(item)
-                    }
-                }
-            }
-        }
-
-        Section("やること") {
-            if remaining.isEmpty {
-                emptyRow(recommended == nil ? "判断待ちはありません" : "他の判断待ちはありません")
+        Section("おすすめ  \(recommendations.count)") {
+            if recommendations.isEmpty {
+                emptyRow("おすすめはありません")
             } else {
-                ForEach(remaining) { item in
-                    VentureProposalRow(
-                        item: item,
-                        isWorking: productOpsState.isPostingVentureDecision,
-                        onApprove: { decide(item, .approved) },
-                        onLater: { decide(item, .deferred) },
-                        onReject: { decide(item, .rejected) }
+                ForEach(recommendations) { item in
+                    proposalCompactRow(item)
+                }
+            }
+        }
+
+        Section("やること  \(todoMissions.count)") {
+            if todoMissions.isEmpty {
+                emptyRow("開始待ちはありません")
+            } else {
+                ForEach(todoMissions) { item in
+                    missionCompactRow(item)
+                }
+            }
+        }
+
+        Section("進行中  \(runningMissions.count)") {
+            if runningMissions.isEmpty {
+                emptyRow("進行中はありません")
+            } else {
+                ForEach(runningMissions) { item in
+                    missionCompactRow(item)
+                }
+            }
+        }
+
+        let reviewCount = monitoringAlertItems.count + reviewMissions.count
+        Section("確認待ち  \(reviewCount)") {
+            if reviewCount == 0 {
+                emptyRow("確認待ちはありません")
+            } else {
+                ForEach(monitoringAlertItems) { item in
+                    CompactNextActionRow(
+                        title: item.alert.detectedIssue,
+                        contextLabel: "確認待ち",
+                        isWorking: false,
+                        onOpen: { presentedSheet = .alertDetail(item) }
                     )
                 }
-            }
-        }
-
-        if !runningMissions.isEmpty {
-            Section("進行中") {
-                ForEach(runningMissions) { item in
-                    VentureMissionSummaryRow(item: item) {
-                        presentedSheet = .missionDetail(item)
-                    }
+                ForEach(reviewMissions) { item in
+                    missionCompactRow(item)
                 }
             }
         }
@@ -233,6 +244,111 @@ struct NextActionsView: View {
             }
         }
 
+    }
+
+    private func proposalCompactRow(_ item: VentureDecisionInboxItem) -> some View {
+        let isWorking = productOpsState.isMutatingVentureProposal(id: item.id)
+        return CompactNextActionRow(
+            title: item.title,
+            contextLabel: "おすすめ",
+            isWorking: isWorking,
+            onOpen: { presentedSheet = .proposalDetail(item) }
+        )
+        .swipeActions(edge: .leading, allowsFullSwipe: item.approvalRisk == "low" && item.actionKind != "build_experiment") {
+            if item.approvalRisk == "low" && item.actionKind != "build_experiment" {
+                Button {
+                    decide(item, .approved)
+                } label: {
+                    Label(item.approvalLabel, systemImage: "checkmark")
+                }
+                .tint(.green)
+                .disabled(isWorking)
+            }
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button(role: .destructive) {
+                decide(item, .rejected)
+            } label: {
+                Label("却下", systemImage: "xmark")
+            }
+            .disabled(isWorking)
+
+            Button {
+                decide(item, .deferred)
+            } label: {
+                Label("あとで", systemImage: "clock")
+            }
+            .tint(.orange)
+            .disabled(isWorking)
+        }
+        .accessibilityAction(named: Text(item.approvalLabel)) { decide(item, .approved) }
+        .accessibilityAction(named: Text("あとで")) { decide(item, .deferred) }
+        .accessibilityAction(named: Text("却下")) { decide(item, .rejected) }
+    }
+
+    private func missionCompactRow(_ item: VentureMissionSummaryItem) -> some View {
+        let isWorking = productOpsState.isMutatingMission(id: item.id)
+        return CompactNextActionRow(
+            title: item.title,
+            contextLabel: missionSectionLabel(item.status),
+            isWorking: isWorking,
+            onOpen: { presentedSheet = .missionDetail(item, requestedAction: nil) }
+        )
+        .swipeActions(edge: .leading, allowsFullSwipe: false) {
+            if item.availableActions.contains("adopt") {
+                Button {
+                    Task { await productOpsState.adoptMissionFromList(item) }
+                } label: {
+                    Label("採用", systemImage: "checkmark")
+                }
+                .tint(.green)
+                .disabled(isWorking)
+            }
+            if item.availableActions.contains("retry") {
+                Button {
+                    presentedSheet = .missionDetail(item, requestedAction: "retry")
+                } label: {
+                    Label("再実行", systemImage: "arrow.clockwise")
+                }
+                .tint(.green)
+                .disabled(isWorking)
+            }
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            if item.availableActions.contains("cancel") {
+                Button(role: .destructive) {
+                    Task { await productOpsState.cancelMissionFromList(item) }
+                } label: {
+                    Label("キャンセル", systemImage: "stop")
+                }
+                .disabled(isWorking)
+            }
+            if item.availableActions.contains("reject") {
+                Button(role: .destructive) {
+                    presentedSheet = .missionDetail(item, requestedAction: "reject")
+                } label: {
+                    Label("却下", systemImage: "xmark")
+                }
+                .disabled(isWorking)
+            }
+            if item.availableActions.contains("request_revision") {
+                Button {
+                    presentedSheet = .missionDetail(item, requestedAction: "request_revision")
+                } label: {
+                    Label("修正", systemImage: "arrow.triangle.2.circlepath")
+                }
+                .tint(.orange)
+                .disabled(isWorking)
+            }
+        }
+    }
+
+    private func missionSectionLabel(_ status: String) -> String {
+        switch status {
+        case "queued": return "やること"
+        case "dispatching", "running": return "進行中"
+        default: return "確認待ち"
+        }
     }
 
     @ViewBuilder
@@ -516,6 +632,258 @@ struct NextActionsView: View {
             return ["high_business_impact"]
         default:
             return ["good_next_step"]
+        }
+    }
+}
+
+private struct CompactNextActionRow: View {
+    let title: String
+    let contextLabel: String
+    let isWorking: Bool
+    let onOpen: () -> Void
+
+    var body: some View {
+        Button(action: onOpen) {
+            HStack(spacing: 10) {
+                Text(title)
+                    .font(.body)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .multilineTextAlignment(.leading)
+                Spacer(minLength: 8)
+                if isWorking {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(isWorking)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(title)、\(contextLabel)")
+        .accessibilityHint("ダブルタップで詳細を表示。上下にスワイプすると利用可能な操作を選べます。")
+    }
+}
+
+@MainActor
+private struct VentureProposalDetailSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let state: ProductOpsState
+    let item: VentureDecisionInboxItem
+    let onApprove: () -> Void
+    let onLater: () -> Void
+    let onReject: () -> Void
+    @State private var detail: VentureProposalDetail?
+    @State private var errorMessage: String?
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if let detail {
+                    List {
+                        proposalContent(detail)
+                    }
+                    .listStyle(.plain)
+                    .safeAreaInset(edge: .bottom) {
+                        actionBar
+                    }
+                } else if let errorMessage {
+                    ContentUnavailableView {
+                        Label("提案の詳細を読み込めません", systemImage: "exclamationmark.triangle")
+                    } description: {
+                        Text(errorMessage)
+                    } actions: {
+                        Button("再試行") { Task { await load() } }
+                    }
+                } else {
+                    ProgressView("詳細を読み込んでいます")
+                }
+            }
+            .navigationTitle("おすすめ")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("閉じる") { dismiss() }
+                }
+            }
+            .task { await load() }
+        }
+    }
+
+    @ViewBuilder
+    private func proposalContent(_ detail: VentureProposalDetail) -> some View {
+        Section {
+            Text(detail.proposal.title)
+                .font(.title3.weight(.semibold))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+
+        detailSection("なぜ今やるのか", text: detail.proposal.whyNow)
+        detailSection("提案内容", text: detail.proposal.summary)
+        detailSection("期待する結果", text: detail.proposal.expectedOutcome)
+
+        if !detail.proposal.targetUnknowns.isEmpty {
+            listSection("対象の未知", items: detail.proposal.targetUnknowns)
+        }
+        if !detail.proposal.unblocksDecision.isEmpty {
+            detailSection("この結果で可能になる判断", text: detail.proposal.unblocksDecision)
+        }
+        if let opportunity = detail.opportunity {
+            Section("Opportunity") {
+                Text(opportunity.problemStatement)
+                Text(opportunity.desiredOutcomeStatement)
+                    .foregroundStyle(.secondary)
+                if !opportunity.evidenceSummary.isEmpty {
+                    Text(opportunity.evidenceSummary)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        if let hypothesis = detail.hypothesis {
+            detailSection("検証する仮説", text: hypothesis.statement)
+        }
+
+        Section("方針との関連") {
+            Text(detail.strategy.mission)
+            if !detail.strategy.targetSegments.isEmpty {
+                LabeledContent("対象", value: detail.strategy.targetSegments.map(\.label).joined(separator: "、"))
+            }
+            if !detail.strategy.focusAreas.isEmpty {
+                Text(detail.strategy.focusAreas.map { "・\($0)" }.joined(separator: "\n"))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+        }
+
+        if !detail.learnings.isEmpty {
+            Section("過去のLearning") {
+                ForEach(detail.learnings) { learning in
+                    Text(learning.summary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+
+        Section {
+            DisclosureGroup("詳細情報を表示") {
+                LabeledContent("順位", value: String(detail.assessment.rank))
+                LabeledContent("総合評価", value: String(format: "%.2f", detail.assessment.totalScore))
+                ForEach(detail.assessment.scores.keys.sorted(), id: \.self) { key in
+                    LabeledContent(key, value: String(format: "%.2f", detail.assessment.scores[key] ?? 0))
+                }
+                LabeledContent("評価方式", value: detail.assessment.algorithmKey)
+                LabeledContent("生成モデル", value: detail.recommendation.metadata.draftingModel)
+                LabeledContent("Prompt", value: detail.recommendation.metadata.draftingPromptVersion)
+                LabeledContent("Rating", value: detail.recommendation.metadata.ratingAlgorithmVersion)
+                Text("Context: \(detail.recommendation.metadata.contextSnapshotHash)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+        }
+    }
+
+    private func detailSection(_ title: String, text: String) -> some View {
+        Section(title) {
+            Text(text)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func listSection(_ title: String, items: [String]) -> some View {
+        Section(title) {
+            ForEach(items, id: \.self) { value in
+                Label(value, systemImage: "circle.fill")
+                    .labelStyle(ProductOpsBulletLabelStyle())
+            }
+        }
+    }
+
+    private var actionBar: some View {
+        HStack(spacing: 8) {
+            Button {
+                dismiss()
+                onApprove()
+            } label: {
+                Label(item.approvalLabel, systemImage: "checkmark")
+            }
+            .buttonStyle(.borderedProminent)
+
+            Button("あとで") {
+                dismiss()
+                onLater()
+            }
+            .buttonStyle(.bordered)
+
+            Button("却下", role: .destructive) {
+                dismiss()
+                onReject()
+            }
+            .buttonStyle(.bordered)
+        }
+        .font(.caption.weight(.semibold))
+        .controlSize(.small)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(.bar)
+    }
+
+    private func load() async {
+        errorMessage = nil
+        do {
+            detail = try await state.fetchProposalDetail(item)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+}
+
+private struct ProductOpsBulletLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            configuration.icon
+                .font(.system(size: 5))
+                .foregroundStyle(.secondary)
+            configuration.title
+        }
+    }
+}
+
+private struct VentureMonitoringAlertDetailSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let item: VentureMonitoringAlertItem
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("検知した問題") {
+                    Text(item.alert.detectedIssue)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Section("推奨対応") {
+                    Text(item.alert.recommendedAction)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Section("状態") {
+                    LabeledContent("重要度", value: item.alert.severity)
+                    LabeledContent("状態", value: item.alert.status)
+                }
+            }
+            .navigationTitle("監視アラート")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("閉じる") { dismiss() }
+                }
+            }
         }
     }
 }
@@ -828,12 +1196,14 @@ private struct VentureMissionDetailSheet: View {
     @Environment(\.dismiss) private var dismiss
     let state: ProductOpsState
     let item: VentureMissionSummaryItem
+    let requestedAction: String?
     @State private var detail: VentureMissionDetail?
     @State private var errorMessage: String?
     @State private var operationErrorMessage: String?
     @State private var feedbackRequest: MissionFeedbackRequest?
     @State private var feedbackText = ""
     @State private var isSubmitting = false
+    @State private var didHandleRequestedAction = false
 
     var body: some View {
         NavigationStack {
@@ -843,6 +1213,11 @@ private struct VentureMissionDetailSheet: View {
                         missionContent(detail)
                     }
                     .listStyle(.plain)
+                    .safeAreaInset(edge: .bottom) {
+                        if !detail.availableActions.isEmpty {
+                            missionActionBar(detail)
+                        }
+                    }
                 } else if let errorMessage {
                     ContentUnavailableView {
                         Label("詳細を読み込めません", systemImage: "exclamationmark.triangle")
@@ -864,7 +1239,10 @@ private struct VentureMissionDetailSheet: View {
                     Button("閉じる") { dismiss() }
                 }
             }
-            .task { await load() }
+            .task {
+                await load()
+                handleRequestedActionIfNeeded()
+            }
             .sheet(item: $feedbackRequest) { request in
                 MissionFeedbackSheet(
                     request: request,
@@ -925,8 +1303,7 @@ private struct VentureMissionDetailSheet: View {
         }
 
         if !detail.availableActions.isEmpty {
-            Section("操作") {
-                missionActions(detail)
+            Section("操作の境界") {
                 Text(actionBoundary(detail.mission.primaryDeliverableSpec.kind))
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -1060,12 +1437,45 @@ private struct VentureMissionDetailSheet: View {
         }
     }
 
+    private func missionActionBar(_ detail: VentureMissionDetail) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                missionActions(detail)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+        }
+        .background(.bar)
+    }
+
     private func load() async {
         errorMessage = nil
         do {
             detail = try await state.fetchMissionDetail(item)
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    private func handleRequestedActionIfNeeded() {
+        guard !didHandleRequestedAction, let requestedAction, let detail else { return }
+        didHandleRequestedAction = true
+        switch requestedAction {
+        case "request_revision" where detail.availableActions.contains("request_revision"):
+            feedbackText = ""
+            feedbackRequest = MissionFeedbackRequest(kind: .revision)
+        case "reject" where detail.availableActions.contains("reject"):
+            feedbackText = ""
+            feedbackRequest = MissionFeedbackRequest(kind: .reject)
+        case "retry" where detail.availableActions.contains("retry"):
+            feedbackText = ""
+            feedbackRequest = MissionFeedbackRequest(kind: .retry)
+        case "adopt" where detail.availableActions.contains("adopt"):
+            startSubmission { await adopt(detail) }
+        case "cancel" where detail.availableActions.contains("cancel"):
+            startSubmission { await cancel(detail) }
+        default:
+            break
         }
     }
 

@@ -57,6 +57,10 @@ final class ActionInboxAPIClient {
         var data: VentureProposalDecisionResult
     }
 
+    private struct VentureProposalDetailEnvelope: Decodable {
+        var data: VentureProposalDetail
+    }
+
     private struct VentureMissionDetailEnvelope: Decodable {
         var data: VentureMissionDetail
     }
@@ -302,6 +306,11 @@ final class ActionInboxAPIClient {
     func fetchVentureMissionDetail(missionId: String) async throws -> VentureMissionDetail {
         let data = try await request(path: "/api/v2/missions/\(missionId)", method: "GET")
         return try decoder.decode(VentureMissionDetailEnvelope.self, from: data).data
+    }
+
+    func fetchVentureProposalDetail(proposalId: String) async throws -> VentureProposalDetail {
+        let data = try await request(path: "/api/v2/proposals/\(proposalId)", method: "GET")
+        return try decoder.decode(VentureProposalDetailEnvelope.self, from: data).data
     }
 
     func reviewVentureDeliverable(

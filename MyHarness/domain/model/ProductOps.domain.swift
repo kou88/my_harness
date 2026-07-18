@@ -60,6 +60,11 @@ struct VentureMissionSummaryItem: Identifiable, Decodable, Hashable {
     var title: String
     var summary: String
     var status: String
+    var missionVersion: Int
+    var currentAttemptId: String?
+    var currentDeliverableId: String?
+    var availableActions: [String]
+    var sideEffectPolicy: VentureSideEffectPolicy
     var updatedAt: Date
 
     var kindLabel: String {
@@ -161,6 +166,7 @@ struct VentureDecisionInboxItem: Identifiable, Decodable, Hashable {
     var totalScore: Double
     var actionKind: String
     var actionChannel: String
+    var approvalRisk: String
     var intentKind: String
     var betKind: String?
     var opportunityId: String?
@@ -222,6 +228,110 @@ struct VentureDecisionInboxItem: Identifiable, Decodable, Hashable {
             return "次の学習Betとして進める"
         }
     }
+}
+
+struct VentureProposalDetail: Decodable, Hashable {
+    var proposal: VentureProposalDetailProposal
+    var assessment: VentureProposalDetailAssessment
+    var recommendation: VentureProposalDetailRecommendation
+    var opportunity: VentureProposalDetailOpportunity?
+    var hypothesis: VentureProposalDetailHypothesis?
+    var strategy: VentureProposalDetailStrategy
+    var decisionFrame: VentureProposalDetailDecisionFrame
+    var learnings: [VentureProposalDetailLearning]
+}
+
+struct VentureProposalDetailProposal: Decodable, Hashable {
+    var proposalId: String
+    var title: String
+    var summary: String
+    var whyNow: String
+    var expectedOutcome: String
+    var status: String
+    var version: Int
+    var actionKind: String
+    var actionChannel: String
+    var approvalRisk: String
+    var intentKind: String
+    var betKind: String?
+    var approvalEffect: String
+    var targetUnknowns: [String]
+    var unblocksDecision: String
+    var evidenceRefs: [String]
+    var suggestedSuccessCriteria: [String]
+    var suggestedStopConditions: [String]
+}
+
+struct VentureProposalDetailAssessment: Decodable, Hashable {
+    var rank: Int
+    var totalScore: Double
+    var scores: [String: Double]
+    var whyNow: String
+    var algorithmKey: String
+    var assessedAt: Date
+}
+
+struct VentureProposalDetailRecommendation: Decodable, Hashable {
+    var recommendationSetId: String
+    var generatedAt: Date
+    var metadata: VentureProposalDetailRecommendationMetadata
+}
+
+struct VentureProposalDetailRecommendationMetadata: Decodable, Hashable {
+    var contextSnapshotHash: String
+    var draftingPolicyKey: String
+    var draftingPromptVersion: String
+    var draftingModel: String
+    var ratingPolicyKey: String
+    var ratingAlgorithmVersion: String
+    var strategyVersionId: String
+    var decisionFrameVersionId: String
+}
+
+struct VentureProposalDetailOpportunity: Decodable, Hashable {
+    var id: String
+    var problemStatement: String
+    var desiredOutcomeStatement: String
+    var evidenceSummary: String
+    var unknowns: [String]
+    var confidence: String
+    var status: String
+}
+
+struct VentureProposalDetailHypothesis: Decodable, Hashable {
+    var id: String
+    var statement: String
+    var status: String
+    var criticality: Int
+    var confidence: Int
+    var unknowns: [String]
+}
+
+struct VentureProposalDetailTargetSegment: Decodable, Hashable {
+    var key: String
+    var label: String
+    var description: String
+}
+
+struct VentureProposalDetailStrategy: Decodable, Hashable {
+    var id: String
+    var mission: String
+    var targetSegments: [VentureProposalDetailTargetSegment]
+    var desiredOutcomes: [String]
+    var focusAreas: [String]
+    var exclusions: [String]
+}
+
+struct VentureProposalDetailDecisionFrame: Decodable, Hashable {
+    var id: String
+    var stage: String
+    var maxRecommendations: Int
+}
+
+struct VentureProposalDetailLearning: Identifiable, Decodable, Hashable {
+    var id: String
+    var summary: String
+    var createdAt: Date
 }
 
 struct VentureDevelopmentMissionListPayload: Decodable, Hashable {
