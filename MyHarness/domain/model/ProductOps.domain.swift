@@ -741,6 +741,31 @@ struct VentureAlertDeliverable: Decodable, Hashable {
     }
 }
 
+struct VentureRecommendationJob: Decodable, Hashable {
+    var id: String
+    var ownerUserId: String
+    var ventureId: String
+    var reason: String
+    var status: String
+    var runAfter: Date
+    var leaseUntil: Date?
+    var attempts: Int
+    var lastError: String
+    var createdAt: Date
+    var updatedAt: Date
+    var completedAt: Date?
+}
+
+struct VentureRecommendationHeartbeatResult: Decodable, Hashable {
+    var status: String
+    var reason: String
+    var recommendationStatus: String
+    var job: VentureRecommendationJob?
+    var recommendationSetId: String?
+    var generatedCount: Int
+    var lastError: String?
+}
+
 struct VentureProposalDecisionResult: Decodable, Hashable {
     struct ProposalSnapshot: Decodable, Hashable {
         var id: String
@@ -792,23 +817,8 @@ struct VentureLearningAdoptionResult: Decodable, Hashable {
         var adoptedAt: Date
     }
 
-    struct RecommendationJob: Decodable, Hashable {
-        var id: String
-        var ownerUserId: String
-        var ventureId: String
-        var reason: String
-        var status: String
-        var runAfter: Date
-        var leaseUntil: Date?
-        var attempts: Int
-        var lastError: String
-        var createdAt: Date
-        var updatedAt: Date
-        var completedAt: Date?
-    }
-
     var learning: Learning
-    var recommendationJob: RecommendationJob
+    var recommendationJob: VentureRecommendationJob
 }
 
 struct Need: Identifiable, Decodable, Hashable {

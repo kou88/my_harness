@@ -45,6 +45,10 @@ final class ActionInboxAPIClient {
         var data: VentureProposalGenerateResult
     }
 
+    private struct VentureRecommendationHeartbeatEnvelope: Decodable {
+        var data: VentureRecommendationHeartbeatResult
+    }
+
     private struct VentureProposalDecisionEnvelope: Decodable {
         var data: VentureProposalDecisionResult
     }
@@ -297,6 +301,12 @@ final class ActionInboxAPIClient {
     func generateVentureProposals(ventureId: String) async throws -> Int {
         let data = try await request(path: "/api/v2/ventures/\(ventureId)/proposals/generate", method: "POST", body: EmptyRequest())
         return try decoder.decode(VentureProposalGenerateEnvelope.self, from: data).data.count
+    }
+
+    @discardableResult
+    func runVentureRecommendationHeartbeat(ventureId: String) async throws -> VentureRecommendationHeartbeatResult {
+        let data = try await request(path: "/api/v2/ventures/\(ventureId)/recommendations/heartbeat", method: "POST", body: EmptyRequest())
+        return try decoder.decode(VentureRecommendationHeartbeatEnvelope.self, from: data).data
     }
 
     @discardableResult

@@ -28,6 +28,7 @@ final class ProductOpsState {
     var isPostingMemo = false
     var isSavingPolicy = false
     var isPostingVentureDecision = false
+    var isRequestingRecommendationHeartbeat = false
     var isScanningMonitoringAlerts = false
     var message: String?
     var configurationErrorMessage: String?
@@ -181,6 +182,7 @@ final class ProductOpsState {
         mutatingNeedIds.removeAll()
         updatingDevelopmentTaskIds.removeAll()
         startingCodexTaskIds.removeAll()
+        isRequestingRecommendationHeartbeat = false
     }
 
     func loadRecommendationsIfPossible() async {
@@ -325,6 +327,19 @@ final class ProductOpsState {
         }
     }
 
+    func requestRecommendationHeartbeat() async {
+        guard let apiClient else { return }
+        isRequestingRecommendationHeartbeat = true
+        defer { isRequestingRecommendationHeartbeat = false }
+        do {
+            let result = try await apiClient.runVentureRecommendationHeartbeat(ventureId: ventureId)
+            await loadNextActions()
+            message = recommendationHeartbeatMessage(result)
+        } catch {
+            message = "提案準備を開始できませんでした: \(error.localizedDescription)"
+        }
+    }
+
     private func reconcileDecisionAfterFailure(item: VentureDecisionInboxItem, decision: VentureDecision, error: Error) async {
         guard let apiClient else {
             message = "判断を保存できませんでした: \(error.localizedDescription)"
@@ -348,6 +363,25 @@ final class ProductOpsState {
             }
         } catch {
             message = "判断を保存できませんでした: \(error.localizedDescription)"
+        }
+    }
+
+    private func recommendationHeartbeatMessage(_ result: VentureRecommendationHeartbeatResult) -> String {
+        switch result.reason {
+        case "generated":
+            return result.generatedCount > 0
+                ? "次の提案を\(result.generatedCount)件準備しました。"
+                : "次の提案を準備しました。"
+        case "already_running":
+            return "提案生成はすでに実行中です。"
+        case "inbox_ready":
+            return "判断待ちの提案があるため、追加生成は行いませんでした。"
+        case "claim_conflict":
+            return "別の処理が提案生成を開始しました。"
+        case "generation_failed":
+            return result.lastError.map { "提案生成に失敗しました: \($0)" } ?? "提案生成に失敗しました。"
+        default:
+            return "提案準備の状態を更新しました。"
         }
     }
 

@@ -404,6 +404,13 @@ struct NextActionsView: View {
             .disabled(productOpsState.isScanningMonitoringAlerts)
 
             Button {
+                Task { await productOpsState.requestRecommendationHeartbeat() }
+            } label: {
+                Label("提案を今すぐ準備", systemImage: "arrow.triangle.2.circlepath")
+            }
+            .disabled(!actionInboxState.isSignedIn || productOpsState.isRequestingRecommendationHeartbeat)
+
+            Button {
                 router.push(.completedActions)
             } label: {
                 Label("完了した項目", systemImage: "checkmark.seal")
