@@ -808,32 +808,47 @@ private struct VentureProposalDetailSheet: View {
     }
 
     private var actionBar: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
             Button {
                 dismiss()
                 onApprove()
             } label: {
-                Label(item.approvalLabel, systemImage: "checkmark")
+                Text(item.approvalLabel)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.8)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity, minHeight: 34)
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.bordered)
+            .tint(.accentColor)
 
-            Button("あとで") {
+            Button {
                 dismiss()
                 onLater()
+            } label: {
+                Text("あとで")
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, minHeight: 34)
             }
             .buttonStyle(.bordered)
+            .tint(.orange)
 
-            Button("却下", role: .destructive) {
+            Button(role: .destructive) {
                 dismiss()
                 onReject()
+            } label: {
+                Text("却下")
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, minHeight: 34)
             }
             .buttonStyle(.bordered)
+            .tint(.red)
         }
-        .font(.caption.weight(.semibold))
-        .controlSize(.small)
+        .font(.subheadline.weight(.semibold))
+        .controlSize(.large)
         .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(.bar)
+        .padding(.vertical, 12)
+        .background(.ultraThinMaterial)
     }
 
     private func load() async {
@@ -1439,13 +1454,16 @@ private struct VentureMissionDetailSheet: View {
 
     private func missionActionBar(_ detail: VentureMissionDetail) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
+            HStack(spacing: 10) {
                 missionActions(detail)
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 10)
+            .padding(.vertical, 12)
         }
-        .background(.bar)
+        .font(.subheadline.weight(.semibold))
+        .buttonStyle(.bordered)
+        .controlSize(.large)
+        .background(.ultraThinMaterial)
     }
 
     private func load() async {
