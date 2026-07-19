@@ -15,6 +15,7 @@ struct NextActionsView: View {
     let actionInboxState: ActionInboxState
     let productOpsState: ProductOpsState
     @State private var presentedSheet: NextActionsSheet?
+    @State private var deferredSheet: NextActionsSheet?
 
     private enum NextActionsSheet: Identifiable {
         case directMissionRequest
@@ -75,7 +76,7 @@ struct NextActionsView: View {
                 ProductOpsMessageBar(text: message, systemImage: "info.circle")
             }
         }
-        .sheet(item: $presentedSheet) { sheet in
+        .sheet(item: $presentedSheet, onDismiss: presentDeferredSheetIfNeeded) { sheet in
             switch sheet {
             case .directMissionRequest:
                 DirectMissionRequestSheet(state: productOpsState)
@@ -94,8 +95,8 @@ struct NextActionsView: View {
                     proposalId: proposalId,
                     decisionItem: decisionItem,
                     onApprove: { item in decide(item, .approved) },
-                    onLater: { item in decide(item, .deferred) },
-                    onReject: { item in decide(item, .rejected) }
+                    onLater: { item in presentProposalFeedback(item, decision: .deferred) },
+                    onReject: { item in presentProposalFeedback(item, decision: .rejected) }
                 )
             case .missionDetail(let missionId, let kindLabel, let requestedAction):
                 VentureMissionDetailSheet(
@@ -764,7 +765,30 @@ struct NextActionsView: View {
                 )
             }
         } else {
-            presentedSheet = .proposalFeedback(PendingVentureProposalFeedback(item: item, decision: decision))
+            presentProposalFeedback(item, decision: decision)
+        }
+    }
+
+    private func presentProposalFeedback(_ item: VentureDecisionInboxItem, decision: VentureDecision) {
+        let nextSheet = NextActionsSheet.proposalFeedback(
+            PendingVentureProposalFeedback(item: item, decision: decision)
+        )
+        if let currentSheet = presentedSheet,
+           case .proposalDetail = currentSheet {
+            deferredSheet = nextSheet
+            presentedSheet = nil
+        } else {
+            presentedSheet = nextSheet
+        }
+    }
+
+    private func presentDeferredSheetIfNeeded() {
+        guard let nextSheet = deferredSheet else { return }
+        deferredSheet = nil
+        Task { @MainActor in
+            await Task.yield()
+            guard presentedSheet == nil else { return }
+            presentedSheet = nextSheet
         }
     }
 
@@ -1010,7 +1034,6 @@ private struct VentureProposalDetailSheet: View {
         HStack(spacing: 10) {
             if let decisionItem, decisionItem.availableDecisions.contains("reject") {
                 proposalActionButton("却下", tint: .red, role: .destructive) {
-                    dismiss()
                     onReject(decisionItem)
                 }
             } else {
@@ -1019,7 +1042,6 @@ private struct VentureProposalDetailSheet: View {
 
             if let decisionItem, decisionItem.availableDecisions.contains("defer") {
                 proposalActionButton("あとで", tint: .orange) {
-                    dismiss()
                     onLater(decisionItem)
                 }
             } else {
@@ -1028,8 +1050,8 @@ private struct VentureProposalDetailSheet: View {
 
             if let decisionItem, decisionItem.availableDecisions.contains("approve") {
                 proposalActionButton(decisionItem.approvalLabel, tint: .accentColor) {
-                    dismiss()
                     onApprove(decisionItem)
+                    dismiss()
                 }
             } else {
                 proposalActionPlaceholder
@@ -1499,6 +1521,7 @@ private struct VentureMissionDetailSheet: View {
     @State private var isSubmitting = false
     @State private var didHandleRequestedAction = false
     @State private var confirmsDismissal = false
+    @State private var dismissAfterFeedback = false
 
     var body: some View {
         NavigationStack {
@@ -1560,7 +1583,7 @@ private struct VentureMissionDetailSheet: View {
                 await load()
                 handleRequestedActionIfNeeded()
             }
-            .sheet(item: $feedbackRequest) { request in
+            .sheet(item: $feedbackRequest, onDismiss: dismissAfterTerminalFeedback) { request in
                 MissionFeedbackSheet(
                     request: request,
                     feedback: $feedbackText,
@@ -1935,11 +1958,11 @@ private struct VentureMissionDetailSheet: View {
                     feedback: feedback
                 )
             case .reject:
-                self.detail = try await state.reviewMissionDeliverable(
+                try await state.rejectMissionDeliverable(
                     detail: detail,
-                    decision: "rejected",
                     feedback: feedback
                 )
+                dismissAfterFeedback = true
             case .retry:
                 self.detail = try await state.retryMission(detail: detail, feedback: feedback)
             }
@@ -1973,6 +1996,12 @@ private struct VentureMissionDetailSheet: View {
         guard !isSubmitting else { return }
         isSubmitting = true
         Task { await operation() }
+    }
+
+    private func dismissAfterTerminalFeedback() {
+        guard dismissAfterFeedback else { return }
+        dismissAfterFeedback = false
+        dismiss()
     }
 
     private func statusLabel(_ status: String) -> String {

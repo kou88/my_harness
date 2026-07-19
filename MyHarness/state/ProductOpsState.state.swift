@@ -393,6 +393,27 @@ final class ProductOpsState {
         return try await apiClient.fetchVentureMissionDetail(missionId: detail.mission.id)
     }
 
+    func rejectMissionDeliverable(
+        detail: VentureMissionDetail,
+        feedback: String
+    ) async throws {
+        guard let apiClient, let deliverable = detail.currentDeliverable else {
+            throw ActionInboxAPIClient.ClientError.invalidResponse
+        }
+        isUpdatingMission = true
+        defer { isUpdatingMission = false }
+        try await apiClient.reviewVentureDeliverable(
+            deliverableId: deliverable.id,
+            expectedMissionVersion: detail.mission.version,
+            decision: "rejected",
+            feedback: feedback
+        )
+        removeMissionFromList(id: detail.mission.id)
+        removeMonitoringAlertForMission(id: detail.mission.id)
+        await loadNextActions()
+        message = "成果物を却下しました"
+    }
+
     func retryMission(detail: VentureMissionDetail, feedback: String) async throws -> VentureMissionDetail {
         guard let apiClient else { throw ActionInboxConfigurationError.missingValue("ActionAPIBaseURL") }
         isUpdatingMission = true
