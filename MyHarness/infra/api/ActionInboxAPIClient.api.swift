@@ -10,10 +10,18 @@ final class ActionInboxAPIClient {
             switch self {
             case .invalidResponse:
                 return "APIレスポンスを解釈できません。"
-            case .requestFailed(let status, let body):
-                return "API request failed: \(status) \(body)"
+            case .requestFailed(let status, let message):
+                return "APIエラー（\(status)）: \(message)"
             }
         }
+    }
+
+    private struct ErrorEnvelope: Decodable {
+        struct APIError: Decodable {
+            var message: String
+        }
+
+        var error: APIError
     }
 
     enum PushEnvironment: String, Codable {
@@ -730,7 +738,8 @@ final class ActionInboxAPIClient {
         }
         guard (200..<300).contains(httpResponse.statusCode) else {
             let body = String(data: data, encoding: .utf8) ?? ""
-            throw ClientError.requestFailed(httpResponse.statusCode, body)
+            let message = (try? decoder.decode(ErrorEnvelope.self, from: data).error.message) ?? body
+            throw ClientError.requestFailed(httpResponse.statusCode, message)
         }
         return data
     }
