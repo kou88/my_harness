@@ -26,6 +26,7 @@ struct AppRootView: View {
         _productOpsState = State(initialValue: ProductOpsState(
             authSession: dependencies.actionInbox.authSession,
             apiClient: dependencies.actionInbox.apiClient,
+            copyText: dependencies.useCases.copyText,
             projectId: ProductOpsProject.landlordSaaS,
             configurationErrorMessage: dependencies.actionInbox.configurationErrorMessage
         ))

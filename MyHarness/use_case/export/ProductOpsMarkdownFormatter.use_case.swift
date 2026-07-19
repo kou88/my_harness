@@ -1,0 +1,496 @@
+import Foundation
+
+enum ProductOpsMarkdownFormatter {
+    static func proposal(_ detail: VentureProposalDetail) -> String {
+        var document = ProductOpsMarkdownDocument(title: detail.proposal.title)
+
+        document.section("なぜ今やるのか", text: detail.proposal.whyNow)
+        document.section("提案内容", text: detail.proposal.summary)
+        document.section("期待する結果", text: detail.proposal.expectedOutcome)
+        document.listSection("対象の未知", items: detail.proposal.targetUnknowns)
+        document.section("この結果で可能になる判断", text: detail.proposal.unblocksDecision)
+        document.listSection("根拠の参照", items: detail.proposal.evidenceRefs)
+        document.listSection("推奨する成功条件", items: detail.proposal.suggestedSuccessCriteria)
+        document.listSection("推奨する停止条件", items: detail.proposal.suggestedStopConditions)
+
+        if let opportunity = detail.opportunity {
+            document.heading("Opportunity", level: 2)
+            document.section("課題", text: opportunity.problemStatement, level: 3)
+            document.section("望ましい結果", text: opportunity.desiredOutcomeStatement, level: 3)
+            document.section("根拠の要約", text: opportunity.evidenceSummary, level: 3)
+            document.listSection("未確認事項", items: opportunity.unknowns, level: 3)
+            document.keyValues([
+                ("状態", opportunity.status),
+                ("確信度", opportunity.confidence),
+                ("Opportunity ID", opportunity.id),
+            ])
+        }
+
+        if let hypothesis = detail.hypothesis {
+            document.heading("検証する仮説", level: 2)
+            document.paragraph(hypothesis.statement)
+            document.listSection("仮説の未確認事項", items: hypothesis.unknowns, level: 3)
+            document.keyValues([
+                ("状態", hypothesis.status),
+                ("重要度", String(hypothesis.criticality)),
+                ("確信度", String(hypothesis.confidence)),
+                ("Hypothesis ID", hypothesis.id),
+            ])
+        }
+
+        if let change = detail.proposal.decisionFrameChange {
+            document.heading("判断軸の変更", level: 2)
+            document.paragraph(change.rationale)
+            let currentByKey = Dictionary(uniqueKeysWithValues: change.currentLenses.map { ($0.key, $0) })
+            let changes = change.proposedLenses.compactMap { proposed -> String? in
+                guard let current = currentByKey[proposed.key], current.weight != proposed.weight else { return nil }
+                return "\(proposed.label): \(percentage(current.weight)) -> \(percentage(proposed.weight))"
+            }
+            document.listSection("変更内容", items: changes, level: 3)
+            document.keyValues([
+                ("変更前Version", change.baseDecisionFrameVersionId),
+                ("変更後Version", change.proposedDecisionFrameVersionId),
+            ])
+        }
+
+        document.heading("プロダクト方針", level: 2)
+        document.section("Mission", text: detail.strategy.mission, level: 3)
+        document.listSection(
+            "対象ユーザー",
+            items: detail.strategy.targetSegments.map { segment in
+                segment.description.isEmpty ? segment.label : "\(segment.label): \(segment.description)"
+            },
+            level: 3
+        )
+        document.listSection("望ましい結果", items: detail.strategy.desiredOutcomes, level: 3)
+        document.listSection("重点領域", items: detail.strategy.focusAreas, level: 3)
+        document.listSection("対象外", items: detail.strategy.exclusions, level: 3)
+        document.keyValues([("Strategy Version ID", detail.strategy.id)])
+
+        document.heading("Decision Frame", level: 2)
+        document.keyValues([
+            ("Stage", detail.decisionFrame.stage),
+            ("最大推薦件数", String(detail.decisionFrame.maxRecommendations)),
+            ("Decision Frame Version ID", detail.decisionFrame.id),
+        ])
+
+        if !detail.learnings.isEmpty {
+            document.heading("過去のLearning", level: 2)
+            for learning in detail.learnings.sorted(by: { $0.createdAt < $1.createdAt }) {
+                document.heading(dateText(learning.createdAt), level: 3)
+                document.paragraph(learning.summary)
+                document.keyValues([("Learning ID", learning.id)])
+            }
+        }
+
+        document.heading("評価", level: 2)
+        document.keyValues([
+            ("順位", String(detail.assessment.rank)),
+            ("総合評価", decimal(detail.assessment.totalScore)),
+            ("評価理由", detail.assessment.whyNow),
+            ("評価方式", detail.assessment.algorithmKey),
+            ("評価日時", dateText(detail.assessment.assessedAt)),
+        ])
+        document.listSection(
+            "評価軸",
+            items: detail.assessment.scores.keys.sorted().map { key in
+                "\(key): \(decimal(detail.assessment.scores[key] ?? 0))"
+            },
+            level: 3
+        )
+
+        document.heading("生成情報", level: 2)
+        document.keyValues([
+            ("Recommendation Set ID", detail.recommendation.recommendationSetId),
+            ("生成日時", dateText(detail.recommendation.generatedAt)),
+            ("生成Policy", detail.recommendation.metadata.draftingPolicyKey),
+            ("Prompt Version", detail.recommendation.metadata.draftingPromptVersion),
+            ("生成モデル", detail.recommendation.metadata.draftingModel),
+            ("Rating Policy", detail.recommendation.metadata.ratingPolicyKey),
+            ("Rating Version", detail.recommendation.metadata.ratingAlgorithmVersion),
+            ("Context Snapshot Hash", detail.recommendation.metadata.contextSnapshotHash),
+        ])
+
+        document.heading("Proposal情報", level: 2)
+        document.keyValues([
+            ("Proposal ID", detail.proposal.proposalId),
+            ("状態", detail.proposal.status),
+            ("Version", String(detail.proposal.version)),
+            ("Action", "\(detail.proposal.actionKind) / \(detail.proposal.actionChannel)"),
+            ("承認リスク", detail.proposal.approvalRisk),
+            ("Intent", detail.proposal.intentKind),
+            ("Bet", detail.proposal.betKind ?? "なし"),
+            ("承認時の効果", detail.proposal.approvalEffect),
+        ])
+
+        return document.rendered
+    }
+
+    static func mission(_ detail: VentureMissionDetail) -> String {
+        let mission = detail.mission
+        var document = ProductOpsMarkdownDocument(title: mission.primaryDeliverableSpec.title)
+
+        document.section("目的", text: detail.currentAttempt?.instructionSnapshot.objective ?? mission.primaryDeliverableSpec.description)
+        document.section("成果物", text: mission.primaryDeliverableSpec.description)
+        document.listSection("必要なセクション", items: mission.primaryDeliverableSpec.requiredSections)
+        document.listSection("合格条件", items: mission.primaryDeliverableSpec.acceptanceCriteria)
+
+        if !mission.supportingDeliverableSpecs.isEmpty {
+            document.heading("補助成果物", level: 2)
+            for spec in mission.supportingDeliverableSpecs {
+                document.heading(spec.title, level: 3)
+                document.paragraph(spec.description)
+                document.listSection("必要なセクション", items: spec.requiredSections, level: 4)
+                document.listSection("合格条件", items: spec.acceptanceCriteria, level: 4)
+            }
+        }
+
+        document.heading("Mission情報", level: 2)
+        document.keyValues([
+            ("状態", missionStatusLabel(mission.status)),
+            ("Capability", mission.capability),
+            ("成果物種類", mission.primaryDeliverableSpec.kind),
+            ("Review Policy", mission.reviewPolicy),
+            ("Version", String(mission.version)),
+            ("Mission ID", mission.id),
+            ("Venture ID", mission.ventureId),
+            ("Source Proposal ID", mission.sourceProposalId ?? "なし"),
+            ("Source Bet ID", mission.sourceBetId ?? "なし"),
+            ("作成日時", dateText(mission.createdAt)),
+            ("更新日時", dateText(mission.updatedAt)),
+        ])
+
+        document.heading("副作用と承認境界", level: 2)
+        document.keyValues([
+            ("外部送信", yesNo(mission.sideEffectPolicy.externalSend)),
+            ("Repository変更", yesNo(mission.sideEffectPolicy.repositoryWrite)),
+            ("データ変更", yesNo(mission.sideEffectPolicy.dataMutation)),
+            ("本番変更", yesNo(mission.sideEffectPolicy.productionChange)),
+            ("採用時の境界", actionBoundary(mission.primaryDeliverableSpec.kind)),
+        ])
+
+        let sortedDeliverables = detail.deliverables.sorted { $0.createdAt < $1.createdAt }
+        if sortedDeliverables.isEmpty {
+            document.heading("成果物", level: 2)
+            if let error = detail.currentAttempt?.error, !error.isEmpty {
+                document.paragraph("成果物は作成されませんでした。\n\nエラー: \(error)")
+            } else {
+                document.paragraph("現在の実行結果を待っています。")
+            }
+        } else {
+            document.heading("成果物", level: 2)
+            for deliverable in sortedDeliverables {
+                append(deliverable: deliverable, to: &document)
+            }
+        }
+
+        if let verification = detail.verification {
+            document.heading("AIレビュー", level: 2)
+            document.keyValues([
+                ("状態", missionStatusLabel(verification.status)),
+                ("要約", verification.summary),
+                ("Source Deliverable ID", verification.sourceDeliverableId),
+            ])
+            if let report = verification.report {
+                append(verificationReport: report, to: &document, headingLevel: 3)
+            } else if let error = verification.reportDecodingError {
+                document.section("読み込みエラー", text: error, level: 3)
+            }
+        }
+
+        if !detail.attempts.isEmpty {
+            document.heading("実行履歴", level: 2)
+            for attempt in detail.attempts.sorted(by: { $0.attemptNumber < $1.attemptNumber }) {
+                document.heading("Attempt \(attempt.attemptNumber)", level: 3)
+                document.keyValues([
+                    ("状態", attemptStatusLabel(attempt.status)),
+                    ("Executor", attempt.executorType),
+                    ("目的", attempt.instructionSnapshot.objective),
+                    ("Schema", "\(attempt.instructionSnapshot.schemaKey) v\(attempt.instructionSnapshot.schemaVersion)"),
+                    ("Context Snapshot Hash", attempt.instructionSnapshot.contextSnapshotHash),
+                    ("Agent Task ID", attempt.agentTaskId ?? "なし"),
+                    ("Executor Session ID", attempt.executorSessionId ?? "なし"),
+                    ("Executor Turn ID", attempt.executorTurnId ?? "なし"),
+                    ("作成日時", dateText(attempt.createdAt)),
+                    ("更新日時", dateText(attempt.updatedAt)),
+                ])
+                document.listSection("参照", items: attempt.instructionSnapshot.referenceIds, level: 4)
+                if let error = attempt.error, !error.isEmpty {
+                    document.section("エラー", text: error, level: 4)
+                }
+
+                let reviews = detail.reviews
+                    .filter { $0.attemptId == attempt.id }
+                    .sorted { $0.reviewedAt < $1.reviewedAt }
+                if !reviews.isEmpty {
+                    document.heading("レビュー", level: 4)
+                    for review in reviews {
+                        let feedback = review.feedback.map { ": \($0)" } ?? ""
+                        document.bullet("\(reviewDecisionLabel(review.decision))\(feedback)（\(dateText(review.reviewedAt))）")
+                    }
+                }
+            }
+        }
+
+        if !detail.availableActions.isEmpty {
+            document.listSection("利用可能な操作", items: detail.availableActions.map(actionLabel))
+        }
+
+        return document.rendered
+    }
+
+    static func monitoringAlert(_ item: VentureMonitoringAlertItem) -> String {
+        let payload = item.alertPayload ?? VentureAlertDeliverable(
+            severity: item.alert.severity,
+            detectedIssue: item.alert.detectedIssue,
+            recommendedAction: item.alert.recommendedAction,
+            entityRefs: item.alert.entityRefs
+        )
+        var document = ProductOpsMarkdownDocument(title: payload.detectedIssue)
+        document.section("検知した問題", text: payload.detectedIssue)
+        document.section("推奨対応", text: payload.recommendedAction)
+        document.listSection("関連項目", items: payload.entityRefs)
+        if let deliverable = item.alertDeliverable {
+            document.section("要約", text: deliverable.displaySummary)
+        }
+        document.heading("アラート情報", level: 2)
+        document.keyValues([
+            ("重要度", payload.severity),
+            ("状態", item.alert.status),
+            ("Alert ID", item.alert.id),
+            ("Mission ID", item.alert.missionId),
+            ("Deliverable ID", item.alert.deliverableId),
+            ("作成日時", dateText(item.alert.createdAt)),
+            ("更新日時", dateText(item.alert.updatedAt)),
+        ])
+        return document.rendered
+    }
+
+    private static func append(deliverable: VentureDeliverable, to document: inout ProductOpsMarkdownDocument) {
+        document.heading(deliverable.title, level: 3)
+        document.keyValues([
+            ("種類", deliverable.kind),
+            ("要約", deliverable.displaySummary),
+            ("Deliverable ID", deliverable.id),
+            ("Attempt ID", deliverable.attemptId),
+            ("Revision Of", deliverable.revisionOfDeliverableId ?? "なし"),
+            ("作成日時", dateText(deliverable.createdAt)),
+        ])
+
+        do {
+            switch try deliverable.decodePayload() {
+            case .decisionBrief(let value):
+                document.section("決めたいこと", text: value.decisionQuestion, level: 4)
+                document.section("おすすめ", text: value.recommendation, level: 4)
+                document.listSection("理由", items: value.reasons, level: 4)
+                document.listSection("反対材料", items: value.contraryEvidence, level: 4)
+                document.listSection("リスク", items: value.risks, level: 4)
+                document.listSection("未知", items: value.unknowns, level: 4)
+                document.listSection("次の操作", items: value.nextOperations, level: 4)
+            case .productChange(let value):
+                document.listSection("変更内容", items: value.changedBehavior, level: 4)
+                document.section("ユーザーへの影響", text: value.userVisibleImpact, level: 4)
+                document.listSection("変更Repository", items: value.changedRepositories, level: 4)
+                document.listSection("Draft PR", items: value.pullRequests, level: 4)
+                document.listSection(
+                    "検証結果",
+                    items: value.checks.map { "[\($0.status)] \($0.name): \($0.detail)" },
+                    level: 4
+                )
+                document.listSection("未解決事項", items: value.unresolvedIssues, level: 4)
+            case .researchReport(let value):
+                document.section("調査テーマ", text: value.researchQuestion, level: 4)
+                document.section("結論", text: value.conclusion, level: 4)
+                document.listSection("重要な発見", items: value.findings, level: 4)
+                document.listSection("支持する根拠", items: value.supportingEvidence, level: 4)
+                document.listSection("反例", items: value.contradictingEvidence, level: 4)
+                document.listSection("情報源", items: value.sources, level: 4)
+                document.listSection("まだ分からないこと", items: value.unknowns, level: 4)
+                document.listSection("次に確認すること", items: value.nextQuestions, level: 4)
+            case .message(let value):
+                document.keyValues([
+                    ("チャネル", value.channel),
+                    ("目的", value.purpose),
+                    ("件名", value.subject ?? "なし"),
+                ])
+                document.listSection("送信候補", items: value.candidateRecipients, level: 4)
+                document.section("本文", text: value.body, level: 4)
+            case .verificationReport(let value):
+                append(verificationReport: value, to: &document, headingLevel: 4)
+            case .knowledgeChange(let value):
+                document.section("現在", text: value.currentState, level: 4)
+                document.section("変更候補", text: value.proposedState, level: 4)
+                document.section("理由", text: value.reason, level: 4)
+                document.listSection("生成元", items: value.sourceIds, level: 4)
+            case .alert(let value):
+                document.keyValues([("重要度", value.severity)])
+                document.section("検知した問題", text: value.detectedIssue, level: 4)
+                document.section("推奨対応", text: value.recommendedAction, level: 4)
+                document.listSection("関連項目", items: value.entityRefs, level: 4)
+            }
+        } catch {
+            document.section("成果物の読み込みエラー", text: error.localizedDescription, level: 4)
+        }
+    }
+
+    private static func append(
+        verificationReport: VentureVerificationReportDeliverable,
+        to document: inout ProductOpsMarkdownDocument,
+        headingLevel: Int
+    ) {
+        document.keyValues([("判定", verificationReport.verdict)])
+        document.listSection(
+            "確認結果",
+            items: verificationReport.checkedCriteria.map {
+                "[\($0.status)] \($0.criterion): \($0.detail)"
+            },
+            level: headingLevel
+        )
+        document.listSection("リスク", items: verificationReport.risks, level: headingLevel)
+        document.listSection("必要な対応", items: verificationReport.requiredFollowUps, level: headingLevel)
+    }
+
+    private static func decimal(_ value: Double) -> String {
+        String(format: "%.2f", value)
+    }
+
+    private static func percentage(_ value: Double) -> String {
+        value.formatted(.number.precision(.fractionLength(0))) + "%"
+    }
+
+    private static func yesNo(_ value: Bool) -> String {
+        value ? "あり" : "なし"
+    }
+
+    private static func dateText(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "ja_JP")
+        formatter.timeZone = TimeZone(identifier: "Asia/Tokyo")
+        formatter.dateFormat = "yyyy/MM/dd HH:mm:ss"
+        return formatter.string(from: date)
+    }
+
+    private static func missionStatusLabel(_ status: String) -> String {
+        switch status {
+        case "queued": return "待機中"
+        case "dispatching": return "依頼中"
+        case "running": return "実行中"
+        case "awaiting_review": return "結果確認"
+        case "completed": return "採用済み"
+        case "failed": return "失敗"
+        case "canceled": return "キャンセル"
+        case "rejected": return "却下"
+        default: return status
+        }
+    }
+
+    private static func attemptStatusLabel(_ status: String) -> String {
+        switch status {
+        case "queued": return "待機中"
+        case "dispatching": return "依頼中"
+        case "running": return "実行中"
+        case "succeeded": return "実行成功"
+        case "failed": return "失敗"
+        case "canceled": return "中断"
+        default: return status
+        }
+    }
+
+    private static func reviewDecisionLabel(_ decision: String) -> String {
+        switch decision {
+        case "adopted": return "採用"
+        case "revision_requested": return "修正依頼"
+        case "rejected": return "却下"
+        default: return decision
+        }
+    }
+
+    private static func actionLabel(_ action: String) -> String {
+        switch action {
+        case "adopt": return "採用する"
+        case "request_revision": return "修正して再実行"
+        case "reject": return "却下して終了"
+        case "retry": return "再実行"
+        case "cancel": return "キャンセル"
+        default: return action
+        }
+    }
+
+    private static func actionBoundary(_ kind: String) -> String {
+        switch kind {
+        case "message": return "採用しても外部へ送信しません。送信には別の承認が必要です。"
+        case "product_change": return "採用してもPRマージや本番反映は行いません。"
+        case "knowledge_change": return "採用しても方針の正本は自動更新しません。"
+        default: return "採用後の副作用はMissionの承認境界に従います。"
+        }
+    }
+}
+
+private struct ProductOpsMarkdownDocument {
+    private var lines: [String]
+
+    init(title: String) {
+        lines = ["# \(Self.cleaned(title))", ""]
+    }
+
+    mutating func heading(_ title: String, level: Int) {
+        let value = Self.cleaned(title)
+        guard !value.isEmpty else { return }
+        lines.append(String(repeating: "#", count: max(1, min(level, 6))) + " " + value)
+        lines.append("")
+    }
+
+    mutating func paragraph(_ text: String) {
+        let value = Self.cleaned(text)
+        guard !value.isEmpty else { return }
+        lines.append(value)
+        lines.append("")
+    }
+
+    mutating func section(_ title: String, text: String, level: Int = 2) {
+        let value = Self.cleaned(text)
+        guard !value.isEmpty else { return }
+        heading(title, level: level)
+        paragraph(value)
+    }
+
+    mutating func listSection(_ title: String, items: [String], level: Int = 2) {
+        let values = items.map(Self.cleaned).filter { !$0.isEmpty }
+        guard !values.isEmpty else { return }
+        heading(title, level: level)
+        for value in values {
+            bullet(value)
+        }
+        lines.append("")
+    }
+
+    mutating func keyValues(_ values: [(String, String)]) {
+        let nonempty = values.compactMap { label, value -> (String, String)? in
+            let normalized = Self.cleaned(value)
+            return normalized.isEmpty ? nil : (label, normalized)
+        }
+        guard !nonempty.isEmpty else { return }
+        for (label, value) in nonempty {
+            bullet("**\(label)**: \(value)")
+        }
+        lines.append("")
+    }
+
+    mutating func bullet(_ value: String) {
+        let parts = value.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        guard let first = parts.first else { return }
+        lines.append("- \(first)")
+        lines.append(contentsOf: parts.dropFirst().map { "  \($0)" })
+    }
+
+    var rendered: String {
+        lines
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            + "\n"
+    }
+
+    private static func cleaned(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}

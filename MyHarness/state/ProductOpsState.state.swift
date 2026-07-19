@@ -38,6 +38,7 @@ final class ProductOpsState {
 
     private let authSession: CognitoAuthSession?
     private let apiClient: ActionInboxAPIClient?
+    private let copyText: CopyTextUseCase
     private let projectId: String
     private let ventureId: String
     private let nextActionOrderStorageKey: String
@@ -50,15 +51,22 @@ final class ProductOpsState {
     init(
         authSession: CognitoAuthSession?,
         apiClient: ActionInboxAPIClient?,
+        copyText: CopyTextUseCase,
         projectId: String,
         configurationErrorMessage: String?
     ) {
         self.authSession = authSession
         self.apiClient = apiClient
+        self.copyText = copyText
         self.projectId = projectId
         ventureId = ProductOpsProject.landlordSaaSVenture
         nextActionOrderStorageKey = "myHarness.nextActionTodoOrder.\(projectId)"
         self.configurationErrorMessage = configurationErrorMessage
+    }
+
+    func copyMarkdown(_ markdown: String) {
+        copyText.execute(markdown)
+        message = "Markdownをコピーしました"
     }
 
     var isConfigured: Bool {
