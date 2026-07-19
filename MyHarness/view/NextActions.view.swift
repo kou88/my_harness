@@ -1486,7 +1486,7 @@ private struct VentureMissionDetailSheet: View {
 
     @ViewBuilder
     private func missionContent(_ detail: VentureMissionDetail) -> some View {
-        Section {
+        Section("目的") {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 6) {
                     ProductOpsTokenView(statusLabel(detail.mission.status))
@@ -1500,19 +1500,47 @@ private struct VentureMissionDetailSheet: View {
                 }
                 Text(detail.mission.primaryDeliverableSpec.title)
                     .font(.headline)
-                Text(detail.currentAttempt?.instructionSnapshot.objective ?? detail.mission.primaryDeliverableSpec.description)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                ProductChangeSection(
-                    title: "合格条件",
-                    items: detail.mission.primaryDeliverableSpec.acceptanceCriteria
-                )
+                if detail.displayObjective != detail.mission.primaryDeliverableSpec.title {
+                    Text(detail.displayObjective)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             .padding(.vertical, 4)
         }
 
-        Section("最新の成果物") {
+        if let approvedInstruction = detail.approvedInstruction {
+            Section {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Text("承認済み依頼")
+                            .font(.subheadline.weight(.semibold))
+                        Spacer()
+                        Button {
+                            state.copyMarkdown(approvedInstruction)
+                        } label: {
+                            Image(systemName: "doc.on.doc")
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel("承認済み依頼をコピー")
+                    }
+                    ProductOpsRenderedMarkdown(markdown: approvedInstruction)
+                }
+                .padding(.vertical, 4)
+            }
+        }
+
+        if !detail.mission.primaryDeliverableSpec.acceptanceCriteria.isEmpty {
+            Section("合格条件") {
+                ForEach(detail.mission.primaryDeliverableSpec.acceptanceCriteria, id: \.self) { criterion in
+                    Label(criterion, systemImage: "checkmark.circle")
+                        .font(.subheadline)
+                }
+            }
+        }
+
+        Section("実行結果") {
             if let deliverable = detail.currentDeliverable {
                 deliverableContent(deliverable)
             } else if let attempt = detail.currentAttempt, let error = attempt.error, !error.isEmpty {
@@ -1548,6 +1576,24 @@ private struct VentureMissionDetailSheet: View {
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
+                }
+            }
+        }
+
+        if !detail.revisionReviews.isEmpty {
+            Section("修正指示") {
+                ForEach(detail.revisionReviews) { review in
+                    VStack(alignment: .leading, spacing: 4) {
+                        if let feedback = review.feedback {
+                            Text(feedback)
+                                .font(.subheadline)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Text(Self.dateFormatter.string(from: review.reviewedAt))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 2)
                 }
             }
         }
@@ -1611,7 +1657,7 @@ private struct VentureMissionDetailSheet: View {
                             }
                         }
                         ForEach(detail.reviews.filter { $0.attemptId == attempt.id }) { review in
-                            Text(reviewSummary(review))
+                            Text(review.decision == "revision_requested" ? "修正依頼（内容は「修正指示」に表示）" : reviewSummary(review))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -1638,7 +1684,11 @@ private struct VentureMissionDetailSheet: View {
                     supportingPullRequests: []
                 )
             case .researchReport(let value):
-                VentureResearchReportSummaryView(summary: deliverable.displaySummary, report: value)
+                VentureResearchReportDetailView(
+                    summary: deliverable.displaySummary,
+                    report: value,
+                    copyMarkdown: { markdown in state.copyMarkdown(markdown) }
+                )
             case .message(let value):
                 VentureMessageDraftView(summary: deliverable.displaySummary, message: value)
             case .verificationReport(let value):
@@ -1935,6 +1985,14 @@ private struct MissionFeedbackSheet: View {
                 Section(request.title) {
                     TextEditor(text: $feedback)
                         .frame(minHeight: 150)
+                }
+                if request.kind == .revision {
+                    Section("再実行について") {
+                        Label("元の依頼と前回の成果物を引き継ぎます。", systemImage: "arrow.triangle.2.circlepath")
+                        Label("外部への投稿、返信、DM、メール送信は行いません。", systemImage: "hand.raised")
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
             }
             .navigationTitle(request.title)
@@ -2337,6 +2395,120 @@ private struct VentureResearchReportSummaryView: View {
                 }
             }
         }
+    }
+}
+
+private struct VentureResearchReportDetailView: View {
+    let summary: String
+    let report: VentureResearchReportDeliverable
+    let copyMarkdown: (String) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            if let artifactMarkdown = report.artifactMarkdown {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("成果物本文")
+                            .font(.subheadline.weight(.semibold))
+                        Spacer()
+                        Button {
+                            copyMarkdown(artifactMarkdown)
+                        } label: {
+                            Image(systemName: "doc.on.doc")
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel("成果物本文をコピー")
+                    }
+                    ProductOpsRenderedMarkdown(markdown: artifactMarkdown)
+                }
+            } else if !summary.isEmpty {
+                Text(summary)
+                    .font(.subheadline)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            ProductChangeSection(title: "調査テーマ", items: [report.researchQuestion].filter { !$0.isEmpty })
+            ProductChangeSection(title: "結論", items: [report.conclusion].filter { !$0.isEmpty })
+            ProductChangeSection(title: "重要な発見", items: report.findings)
+            ProductChangeSection(title: "支持する根拠", items: report.supportingEvidence, tint: .green)
+            ProductChangeSection(title: "反例", items: report.contradictingEvidence, tint: .orange)
+            ProductChangeSection(title: "まだ分からないこと", items: report.unknowns)
+            ProductChangeSection(title: "次に確認すること", items: report.nextQuestions)
+
+            if !report.sources.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("情報源")
+                        .font(.subheadline.weight(.semibold))
+                    ForEach(Array(report.sources.enumerated()), id: \.offset) { _, source in
+                        if let url = researchSourceURL(source) {
+                            Link(destination: url) {
+                                Label(researchSourceLabel(source, url: url), systemImage: "arrow.up.right.square")
+                                    .font(.subheadline)
+                            }
+                        } else {
+                            Text(source)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                        }
+                    }
+                }
+            }
+
+            if let executionLog = report.executionLog {
+                DisclosureGroup("実行ログ") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        LabeledContent("確認件数", value: String(executionLog.checkedCount))
+                        LabeledContent("採用件数", value: String(executionLog.selectedCount))
+                        LabeledContent("除外件数", value: String(executionLog.excludedCount))
+                        ProductChangeSection(title: "検索語", items: executionLog.queries)
+                        ProductChangeSection(title: "制約・不足", items: executionLog.limitations)
+                    }
+                    .font(.caption)
+                    .padding(.top, 8)
+                }
+            }
+
+            if let rawResult = report.rawResult {
+                DisclosureGroup("Raw result") {
+                    Text(rawResult.prettyPrintedJSON)
+                        .font(.caption.monospaced())
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, 8)
+                }
+            }
+        }
+    }
+
+    private func researchSourceURL(_ source: String) -> URL? {
+        guard let url = URL(string: source),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "https" || scheme == "http" else {
+            return nil
+        }
+        return url
+    }
+
+    private func researchSourceLabel(_ source: String, url: URL) -> String {
+        guard let host = url.host else { return source }
+        let location = host + url.path
+        return location.isEmpty ? source : location
+    }
+}
+
+private struct ProductOpsRenderedMarkdown: View {
+    let markdown: String
+
+    var body: some View {
+        Text(renderedMarkdown)
+            .font(.body)
+            .fixedSize(horizontal: false, vertical: true)
+            .textSelection(.enabled)
+    }
+
+    private var renderedMarkdown: AttributedString {
+        (try? AttributedString(markdown: markdown)) ?? AttributedString(markdown)
     }
 }
 

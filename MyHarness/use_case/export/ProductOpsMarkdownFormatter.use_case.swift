@@ -130,8 +130,16 @@ enum ProductOpsMarkdownFormatter {
         let mission = detail.mission
         var document = ProductOpsMarkdownDocument(title: mission.primaryDeliverableSpec.title)
 
-        document.section("目的", text: detail.currentAttempt?.instructionSnapshot.objective ?? mission.primaryDeliverableSpec.description)
-        document.section("成果物", text: mission.primaryDeliverableSpec.description)
+        document.section("目的", text: detail.displayObjective)
+        if let approvedInstruction = detail.approvedInstruction {
+            document.section("承認済み依頼", text: approvedInstruction)
+        }
+        let description = mission.primaryDeliverableSpec.description.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !description.isEmpty,
+           description != detail.displayObjective,
+           description != detail.approvedInstruction {
+            document.section("成果物", text: description)
+        }
         document.listSection("必要なセクション", items: mission.primaryDeliverableSpec.requiredSections)
         document.listSection("合格条件", items: mission.primaryDeliverableSpec.acceptanceCriteria)
 
@@ -198,6 +206,15 @@ enum ProductOpsMarkdownFormatter {
             }
         }
 
+        if !detail.revisionReviews.isEmpty {
+            document.heading("修正指示", level: 2)
+            for review in detail.revisionReviews {
+                guard let feedback = review.feedback else { continue }
+                document.bullet("\(feedback)（\(dateText(review.reviewedAt))）")
+            }
+            document.blankLine()
+        }
+
         if !detail.attempts.isEmpty {
             document.heading("実行履歴", level: 2)
             for attempt in detail.attempts.sorted(by: { $0.attemptNumber < $1.attemptNumber }) {
@@ -205,7 +222,6 @@ enum ProductOpsMarkdownFormatter {
                 document.keyValues([
                     ("状態", attemptStatusLabel(attempt.status)),
                     ("Executor", attempt.executorType),
-                    ("目的", attempt.instructionSnapshot.objective),
                     ("Schema", "\(attempt.instructionSnapshot.schemaKey) v\(attempt.instructionSnapshot.schemaVersion)"),
                     ("Context Snapshot Hash", attempt.instructionSnapshot.contextSnapshotHash),
                     ("Agent Task ID", attempt.agentTaskId ?? "なし"),
@@ -225,7 +241,9 @@ enum ProductOpsMarkdownFormatter {
                 if !reviews.isEmpty {
                     document.heading("レビュー", level: 4)
                     for review in reviews {
-                        let feedback = review.feedback.map { ": \($0)" } ?? ""
+                        let feedback = review.decision == "revision_requested"
+                            ? "（内容は「修正指示」に記載）"
+                            : review.feedback.map { ": \($0)" } ?? ""
                         document.bullet("\(reviewDecisionLabel(review.decision))\(feedback)（\(dateText(review.reviewedAt))）")
                     }
                 }
@@ -299,6 +317,9 @@ enum ProductOpsMarkdownFormatter {
                 )
                 document.listSection("未解決事項", items: value.unresolvedIssues, level: 4)
             case .researchReport(let value):
+                if let artifactMarkdown = value.artifactMarkdown {
+                    document.section("成果物本文", text: artifactMarkdown, level: 4)
+                }
                 document.section("調査テーマ", text: value.researchQuestion, level: 4)
                 document.section("結論", text: value.conclusion, level: 4)
                 document.listSection("重要な発見", items: value.findings, level: 4)
@@ -307,6 +328,19 @@ enum ProductOpsMarkdownFormatter {
                 document.listSection("情報源", items: value.sources, level: 4)
                 document.listSection("まだ分からないこと", items: value.unknowns, level: 4)
                 document.listSection("次に確認すること", items: value.nextQuestions, level: 4)
+                if let executionLog = value.executionLog {
+                    document.heading("実行ログ", level: 4)
+                    document.keyValues([
+                        ("確認件数", String(executionLog.checkedCount)),
+                        ("採用件数", String(executionLog.selectedCount)),
+                        ("除外件数", String(executionLog.excludedCount)),
+                    ])
+                    document.listSection("検索語", items: executionLog.queries, level: 5)
+                    document.listSection("制約・不足", items: executionLog.limitations, level: 5)
+                }
+                if let rawResult = value.rawResult {
+                    document.codeSection("Raw result", code: rawResult.prettyPrintedJSON, language: "json", level: 4)
+                }
             case .message(let value):
                 document.keyValues([
                     ("チャネル", value.channel),
@@ -481,6 +515,22 @@ private struct ProductOpsMarkdownDocument {
         guard let first = parts.first else { return }
         lines.append("- \(first)")
         lines.append(contentsOf: parts.dropFirst().map { "  \($0)" })
+    }
+
+    mutating func blankLine() {
+        if lines.last != "" {
+            lines.append("")
+        }
+    }
+
+    mutating func codeSection(_ title: String, code: String, language: String, level: Int) {
+        let value = Self.cleaned(code)
+        guard !value.isEmpty else { return }
+        heading(title, level: level)
+        lines.append("```\(language)")
+        lines.append(value)
+        lines.append("```")
+        lines.append("")
     }
 
     var rendered: String {

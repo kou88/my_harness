@@ -184,6 +184,15 @@ struct VentureMissionInstructionSnapshot: Decodable, Hashable {
     var objective: String
     var referenceIds: [String]
     var payload: ProductOpsMetadataValue
+
+    var approvedInstruction: String? {
+        guard let value = payload.unwrappedObjectValue?["approvedInstruction"]?.stringValue?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else {
+            return nil
+        }
+        return value
+    }
 }
 
 struct VentureMissionAttempt: Identifiable, Decodable, Hashable {
@@ -230,6 +239,38 @@ struct VentureMissionDetail: Decodable, Hashable {
                 $0.attemptId == attemptId && $0.kind == mission.primaryDeliverableSpec.kind
             }
             .max { $0.createdAt < $1.createdAt }
+    }
+
+    var approvedInstruction: String? {
+        let orderedAttempts = attempts.sorted { $0.attemptNumber > $1.attemptNumber }
+        return ([currentAttempt].compactMap { $0 } + orderedAttempts)
+            .compactMap(\.instructionSnapshot.approvedInstruction)
+            .first
+    }
+
+    var displayObjective: String {
+        let title = mission.primaryDeliverableSpec.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let description = mission.primaryDeliverableSpec.description.trimmingCharacters(in: .whitespacesAndNewlines)
+        let attemptObjective = currentAttempt?.instructionSnapshot.objective
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let approved = approvedInstruction ?? ""
+
+        if !attemptObjective.isEmpty && attemptObjective != approved {
+            return attemptObjective
+        }
+        if !description.isEmpty && description != approved && description != title {
+            return description
+        }
+        return title
+    }
+
+    var revisionReviews: [VentureDeliverableReview] {
+        reviews
+            .filter {
+                $0.decision == "revision_requested"
+                    && !($0.feedback ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+            .sorted { $0.reviewedAt < $1.reviewedAt }
     }
 }
 
@@ -1083,7 +1124,16 @@ struct VentureProductChangeDeliverable: Hashable {
     }
 }
 
+struct VentureResearchExecutionLog: Hashable {
+    var queries: [String]
+    var checkedCount: Int
+    var selectedCount: Int
+    var excludedCount: Int
+    var limitations: [String]
+}
+
 struct VentureResearchReportDeliverable: Decodable, Hashable {
+    var artifactMarkdown: String?
     var researchQuestion: String
     var conclusion: String
     var findings: [String]
@@ -1092,6 +1142,8 @@ struct VentureResearchReportDeliverable: Decodable, Hashable {
     var sources: [String]
     var unknowns: [String]
     var nextQuestions: [String]
+    var executionLog: VentureResearchExecutionLog?
+    var rawResult: ProductOpsMetadataValue?
 
     init(
         researchQuestion: String,
@@ -1103,6 +1155,7 @@ struct VentureResearchReportDeliverable: Decodable, Hashable {
         unknowns: [String],
         nextQuestions: [String]
     ) {
+        artifactMarkdown = nil
         self.researchQuestion = researchQuestion
         self.conclusion = conclusion
         self.findings = findings
@@ -1111,18 +1164,81 @@ struct VentureResearchReportDeliverable: Decodable, Hashable {
         self.sources = sources
         self.unknowns = unknowns
         self.nextQuestions = nextQuestions
+        executionLog = nil
+        rawResult = nil
+    }
+
+    init(from decoder: Decoder) throws {
+        try self.init(payload: ProductOpsMetadataValue(from: decoder))
     }
 
     init(payload: ProductOpsMetadataValue) throws {
-        let reader = try VentureDeliverablePayloadReader(kind: "research_report", payload: payload)
-        researchQuestion = try reader.requiredString("researchQuestion", "research_question")
-        conclusion = try reader.requiredString("conclusion")
-        findings = try reader.requiredStringArray("findings")
-        supportingEvidence = try reader.requiredStringArray("supportingEvidence", "supporting_evidence")
-        contradictingEvidence = try reader.requiredStringArray("contradictingEvidence", "contradicting_evidence")
-        sources = try reader.requiredStringArray("sources")
-        unknowns = try reader.requiredStringArray("unknowns")
-        nextQuestions = try reader.requiredStringArray("nextQuestions", "next_questions")
+        let rootReader = try VentureDeliverablePayloadReader(kind: "research_report", payload: payload)
+        let reportReader: VentureDeliverablePayloadReader
+        if let reportObject = rootReader.object["report"]?.unwrappedObjectValue {
+            reportReader = VentureDeliverablePayloadReader(kind: "research_report.report", object: reportObject)
+        } else {
+            reportReader = rootReader
+        }
+
+        artifactMarkdown = Self.nonemptyString(
+            rootReader.object["artifactMarkdown"]
+                ?? rootReader.object["artifact_markdown"]
+                ?? reportReader.object["artifactMarkdown"]
+                ?? reportReader.object["artifact_markdown"]
+        )
+        researchQuestion = try reportReader.requiredString("researchQuestion", "research_question")
+        conclusion = try reportReader.requiredString("conclusion")
+        findings = try reportReader.requiredStringArray("findings")
+        supportingEvidence = try reportReader.requiredStringArray("supportingEvidence", "supporting_evidence")
+        contradictingEvidence = try reportReader.requiredStringArray("contradictingEvidence", "contradicting_evidence")
+        sources = Self.sourceStrings(
+            rootReader.object["sources"] ?? reportReader.object["sources"]
+        )
+        unknowns = try reportReader.requiredStringArray("unknowns")
+        nextQuestions = try reportReader.requiredStringArray("nextQuestions", "next_questions")
+        executionLog = Self.executionLog(
+            rootReader.object["executionLog"]
+                ?? rootReader.object["execution_log"]
+                ?? reportReader.object["executionLog"]
+                ?? reportReader.object["execution_log"]
+        )
+        rawResult = rootReader.object["rawResult"]
+            ?? rootReader.object["raw_result"]
+            ?? reportReader.object["rawResult"]
+            ?? reportReader.object["raw_result"]
+    }
+
+    private static func nonemptyString(_ value: ProductOpsMetadataValue?) -> String? {
+        guard let text = value?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !text.isEmpty else {
+            return nil
+        }
+        return text
+    }
+
+    private static func sourceStrings(_ value: ProductOpsMetadataValue?) -> [String] {
+        guard let values = value?.arrayValue else { return [] }
+        return values.compactMap { item in
+            if let source = nonemptyString(item) {
+                return source
+            }
+            guard let object = item.unwrappedObjectValue else { return nil }
+            return nonemptyString(object["url"])
+                ?? nonemptyString(object["sourceUrl"])
+                ?? nonemptyString(object["source_url"])
+        }
+    }
+
+    private static func executionLog(_ value: ProductOpsMetadataValue?) -> VentureResearchExecutionLog? {
+        guard let object = value?.unwrappedObjectValue else { return nil }
+        return VentureResearchExecutionLog(
+            queries: object["queries"]?.stringArrayValue ?? [],
+            checkedCount: object["checkedCount"]?.intValue ?? object["checked_count"]?.intValue ?? 0,
+            selectedCount: object["selectedCount"]?.intValue ?? object["selected_count"]?.intValue ?? 0,
+            excludedCount: object["excludedCount"]?.intValue ?? object["excluded_count"]?.intValue ?? 0,
+            limitations: object["limitations"]?.stringArrayValue ?? []
+        )
     }
 }
 
@@ -1583,6 +1699,17 @@ extension ProductOpsMetadataValue {
         return nil
     }
 
+    var intValue: Int? {
+        switch self {
+        case .number(let value):
+            return Int(exactly: value)
+        case .string(let value):
+            return Int(value)
+        default:
+            return nil
+        }
+    }
+
     var stringArrayValue: [String]? {
         guard let arrayValue else {
             return nil
@@ -1600,6 +1727,38 @@ extension ProductOpsMetadataValue {
             return nil
         }
         return decoded.objectValue
+    }
+
+    var prettyPrintedJSON: String {
+        if case .string(let value) = self {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if (trimmed.hasPrefix("{") || trimmed.hasPrefix("[")),
+               let data = trimmed.data(using: .utf8),
+               let decoded = try? JSONDecoder().decode(ProductOpsMetadataValue.self, from: data) {
+                return decoded.prettyPrintedJSON
+            }
+            return value
+        }
+        guard JSONSerialization.isValidJSONObject(foundationValue),
+              let data = try? JSONSerialization.data(
+                withJSONObject: foundationValue,
+                options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+              ),
+              let text = String(data: data, encoding: .utf8) else {
+            return String(describing: foundationValue)
+        }
+        return text
+    }
+
+    private var foundationValue: Any {
+        switch self {
+        case .string(let value): return value
+        case .number(let value): return value
+        case .bool(let value): return value
+        case .object(let value): return value.mapValues(\.foundationValue)
+        case .array(let value): return value.map(\.foundationValue)
+        case .null: return NSNull()
+        }
     }
 }
 
