@@ -330,6 +330,18 @@ enum ProductOpsMarkdownFormatter {
                 document.listSection("次に確認すること", items: value.nextQuestions, level: 4)
                 if let executionLog = value.executionLog {
                     document.heading("実行ログ", level: 4)
+                    if let grokExecution = value.grokExecution {
+                        document.keyValues([
+                            (
+                                "要求設定",
+                                "\(grokExecution.requested.surface) / \(grokExecution.requested.mode) / \(grokExecution.requested.model) / \(grokExecution.requested.reasoning)"
+                            ),
+                            (
+                                "適用設定",
+                                "\(grokExecution.applied.surface) / \(grokExecution.applied.modeLabel) / \(grokExecution.applied.modelLabel ?? "モデル表示なし") / \(grokExecution.applied.reasoningLabel ?? grokExecution.applied.reasoningAppliedBy)"
+                            ),
+                        ])
+                    }
                     document.keyValues([
                         ("確認件数", String(executionLog.checkedCount)),
                         ("採用件数", String(executionLog.selectedCount)),

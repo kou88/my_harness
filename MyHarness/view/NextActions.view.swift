@@ -2592,6 +2592,21 @@ private struct VentureResearchReportDetailView: View {
             if let executionLog = report.executionLog {
                 DisclosureGroup("実行ログ") {
                     VStack(alignment: .leading, spacing: 10) {
+                        if let grokExecution = report.grokExecution {
+                            LabeledContent(
+                                "要求設定",
+                                value: "\(grokExecution.requested.surface) / \(grokExecution.requested.mode) / \(grokExecution.requested.model) / \(grokExecution.requested.reasoning)"
+                            )
+                            LabeledContent(
+                                "適用設定",
+                                value: appliedGrokExecutionLabel(grokExecution.applied)
+                            )
+                            if let url = URL(string: grokExecution.applied.pageURL) {
+                                Link(destination: url) {
+                                    Label("Grok.comの会話を開く", systemImage: "arrow.up.right.square")
+                                }
+                            }
+                        }
                         LabeledContent("確認件数", value: String(executionLog.checkedCount))
                         LabeledContent("採用件数", value: String(executionLog.selectedCount))
                         LabeledContent("除外件数", value: String(executionLog.excludedCount))
@@ -2622,6 +2637,12 @@ private struct VentureResearchReportDetailView: View {
             return nil
         }
         return url
+    }
+
+    private func appliedGrokExecutionLabel(_ execution: VentureGrokExecution.Applied) -> String {
+        let model = execution.modelLabel ?? "モデル表示なし"
+        let reasoning = execution.reasoningLabel ?? execution.reasoningAppliedBy
+        return "\(execution.surface) / \(execution.modeLabel) / \(model) / \(reasoning)"
     }
 
     private func researchSourceLabel(_ source: String, url: URL) -> String {

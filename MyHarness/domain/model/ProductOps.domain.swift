@@ -1132,6 +1132,27 @@ struct VentureResearchExecutionLog: Hashable {
     var limitations: [String]
 }
 
+struct VentureGrokExecution: Hashable {
+    struct Requested: Hashable {
+        var surface: String
+        var mode: String
+        var model: String
+        var reasoning: String
+    }
+
+    struct Applied: Hashable {
+        var pageURL: String
+        var surface: String
+        var modeLabel: String
+        var modelLabel: String?
+        var reasoningLabel: String?
+        var reasoningAppliedBy: String
+    }
+
+    var requested: Requested
+    var applied: Applied
+}
+
 struct VentureResearchReportDeliverable: Decodable, Hashable {
     var artifactMarkdown: String?
     var researchQuestion: String
@@ -1143,6 +1164,7 @@ struct VentureResearchReportDeliverable: Decodable, Hashable {
     var unknowns: [String]
     var nextQuestions: [String]
     var executionLog: VentureResearchExecutionLog?
+    var grokExecution: VentureGrokExecution?
     var rawResult: ProductOpsMetadataValue?
 
     init(
@@ -1165,6 +1187,7 @@ struct VentureResearchReportDeliverable: Decodable, Hashable {
         self.unknowns = unknowns
         self.nextQuestions = nextQuestions
         executionLog = nil
+        grokExecution = nil
         rawResult = nil
     }
 
@@ -1203,6 +1226,12 @@ struct VentureResearchReportDeliverable: Decodable, Hashable {
                 ?? reportReader.object["executionLog"]
                 ?? reportReader.object["execution_log"]
         )
+        grokExecution = Self.grokExecution(
+            rootReader.object["grokExecution"]
+                ?? rootReader.object["grok_execution"]
+                ?? reportReader.object["grokExecution"]
+                ?? reportReader.object["grok_execution"]
+        )
         rawResult = rootReader.object["rawResult"]
             ?? rootReader.object["raw_result"]
             ?? reportReader.object["rawResult"]
@@ -1238,6 +1267,40 @@ struct VentureResearchReportDeliverable: Decodable, Hashable {
             selectedCount: object["selectedCount"]?.intValue ?? object["selected_count"]?.intValue ?? 0,
             excludedCount: object["excludedCount"]?.intValue ?? object["excluded_count"]?.intValue ?? 0,
             limitations: object["limitations"]?.stringArrayValue ?? []
+        )
+    }
+
+    private static func grokExecution(_ value: ProductOpsMetadataValue?) -> VentureGrokExecution? {
+        guard let object = value?.unwrappedObjectValue,
+              let requested = object["requested"]?.unwrappedObjectValue,
+              let applied = object["applied"]?.unwrappedObjectValue,
+              let requestedSurface = nonemptyString(requested["surface"]),
+              let requestedMode = nonemptyString(requested["mode"]),
+              let requestedModel = nonemptyString(requested["model"]),
+              let requestedReasoning = nonemptyString(requested["reasoning"]),
+              let pageURL = nonemptyString(applied["pageUrl"] ?? applied["page_url"]),
+              let appliedSurface = nonemptyString(applied["surface"]),
+              let modeLabel = nonemptyString(applied["modeLabel"] ?? applied["mode_label"]),
+              let reasoningAppliedBy = nonemptyString(
+                applied["reasoningAppliedBy"] ?? applied["reasoning_applied_by"]
+              ) else {
+            return nil
+        }
+        return VentureGrokExecution(
+            requested: .init(
+                surface: requestedSurface,
+                mode: requestedMode,
+                model: requestedModel,
+                reasoning: requestedReasoning
+            ),
+            applied: .init(
+                pageURL: pageURL,
+                surface: appliedSurface,
+                modeLabel: modeLabel,
+                modelLabel: nonemptyString(applied["modelLabel"] ?? applied["model_label"]),
+                reasoningLabel: nonemptyString(applied["reasoningLabel"] ?? applied["reasoning_label"]),
+                reasoningAppliedBy: reasoningAppliedBy
+            )
         )
     }
 }
