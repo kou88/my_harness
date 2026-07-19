@@ -65,7 +65,10 @@ struct VentureDecisionInboxPayload: Decodable, Hashable {
     var generatedAt: Date
     var recommendationStatus: String
     var lastGeneratedAt: Date?
+    var lastSynthesisAt: Date?
     var lastError: String?
+    var idleReason: String?
+    var agenda: VentureDecisionAgendaSummary?
     var items: [VentureDecisionInboxItem]
 
     var recommendationStatusMessage: String? {
@@ -81,12 +84,36 @@ struct VentureDecisionInboxPayload: Decodable, Hashable {
         }
     }
 
+    var idleStatusMessage: String {
+        switch idleReason {
+        case "agenda_in_progress":
+            return "現在の判断に必要な作業が進行中です。結果が採用されると再評価します。"
+        case "insufficient_grounding":
+            return "判断に使える根拠が不足しています。新しいLearningが採用されると再評価します。"
+        case "insufficient_substance":
+            return "品質基準を満たす次の一手がありません。新しい判断材料を待っています。"
+        case "no_open_decision":
+            return "今すぐ決めるべき論点はありません。事業認識が変わると再評価します。"
+        default:
+            return "前回から事業認識に変化はありません。調査結果や直接入力が採用されると再評価します。"
+        }
+    }
+
     private static func displayError(_ message: String) -> String {
         if message.contains("No online OS Agent host is tagged for Codex App Server") {
             return "MacのCodex実行環境がオフラインです。接続後に再試行してください。"
         }
         return message
     }
+}
+
+struct VentureDecisionAgendaSummary: Decodable, Hashable {
+    var id: String
+    var question: String
+    var currentPosition: String
+    var primaryUnknown: String
+    var costOfDelay: String
+    var status: String
 }
 
 struct VentureNextActionsPayload: Decodable, Hashable {
@@ -328,6 +355,11 @@ struct VentureDecisionInboxItem: Identifiable, Decodable, Hashable {
     var suggestedSuccessCriteria: [String]
     var suggestedStopConditions: [String]
     var availableDecisions: [String]
+    var decisionQuestion: String
+    var targetUnknown: String
+    var recommendedAction: String
+    var decisionRuleSummary: String
+    var groundingCount: Int
 
     var id: String { proposalId }
 
@@ -393,8 +425,8 @@ struct VentureProposalDetail: Decodable, Hashable {
     var proposal: VentureProposalDetailProposal
     var assessment: VentureProposalDetailAssessment
     var recommendation: VentureProposalDetailRecommendation
-    var opportunity: VentureProposalDetailOpportunity?
-    var hypothesis: VentureProposalDetailHypothesis?
+    var opportunity: VentureProposalDetailOpportunity
+    var hypothesis: VentureProposalDetailHypothesis
     var strategy: VentureProposalDetailStrategy
     var decisionFrame: VentureProposalDetailDecisionFrame
     var learnings: [VentureProposalDetailLearning]
@@ -420,6 +452,44 @@ struct VentureProposalDetailProposal: Decodable, Hashable {
     var suggestedSuccessCriteria: [String]
     var suggestedStopConditions: [String]
     var decisionFrameChange: VentureProposalDecisionFrameChange?
+    var decisionAgenda: VentureProposalDecisionAgenda
+    var groundingRefs: [VentureKnowledgeRef]
+    var actionSpec: VentureProposalActionSpec
+    var expectedObservation: String
+    var decisionRule: VentureProposalDecisionRule
+    var contextSpecificReason: String
+}
+
+struct VentureProposalDecisionAgenda: Decodable, Hashable {
+    var id: String
+    var question: String
+    var currentPosition: String
+    var primaryUnknown: String
+    var alternativeExplanation: String?
+    var costOfDelay: String
+    var status: String
+}
+
+struct VentureKnowledgeRef: Decodable, Hashable {
+    var kind: String
+    var id: String
+    var relation: String
+
+    var stableId: String { "\(kind):\(id):\(relation)" }
+}
+
+struct VentureProposalActionSpec: Decodable, Hashable {
+    var target: String
+    var method: String
+    var quantity: String
+    var timebox: String
+    var deliverableKind: String
+}
+
+struct VentureProposalDecisionRule: Decodable, Hashable {
+    var proceedWhen: String
+    var stopWhen: String
+    var reconsiderWhen: String
 }
 
 struct VentureProposalDecisionFrameChange: Decodable, Hashable {
@@ -448,6 +518,21 @@ struct VentureProposalDetailAssessment: Decodable, Hashable {
     var whyNow: String
     var algorithmKey: String
     var assessedAt: Date
+    var businessScore: Double
+    var substanceScore: Double
+    var substanceScores: VentureProposalSubstanceScores
+    var finalScore: Double
+}
+
+struct VentureProposalSubstanceScores: Decodable, Hashable {
+    var grounding: Double
+    var decisionLeverage: Double
+    var informationGain: Double
+    var specificity: Double
+    var novelty: Double
+    var executability: Double
+    var appliesToUnrelatedVenture: Bool
+    var reasons: [String]
 }
 
 struct VentureProposalDetailRecommendation: Decodable, Hashable {
@@ -457,14 +542,11 @@ struct VentureProposalDetailRecommendation: Decodable, Hashable {
 }
 
 struct VentureProposalDetailRecommendationMetadata: Decodable, Hashable {
-    var contextSnapshotHash: String
     var draftingPolicyKey: String
     var draftingPromptVersion: String
     var draftingModel: String
     var ratingPolicyKey: String
     var ratingAlgorithmVersion: String
-    var strategyVersionId: String
-    var decisionFrameVersionId: String
 }
 
 struct VentureProposalDetailOpportunity: Decodable, Hashable {

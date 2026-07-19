@@ -4,39 +4,54 @@ enum ProductOpsMarkdownFormatter {
     static func proposal(_ detail: VentureProposalDetail) -> String {
         var document = ProductOpsMarkdownDocument(title: detail.proposal.title)
 
-        document.section("なぜ今やるのか", text: detail.proposal.whyNow)
-        document.section("提案内容", text: detail.proposal.summary)
-        document.section("期待する結果", text: detail.proposal.expectedOutcome)
-        document.listSection("対象の未知", items: detail.proposal.targetUnknowns)
-        document.section("この結果で可能になる判断", text: detail.proposal.unblocksDecision)
-        document.listSection("根拠の参照", items: detail.proposal.evidenceRefs)
+        document.section("今決めること", text: detail.proposal.decisionAgenda.question)
+        document.section("現在の見立て", text: detail.proposal.decisionAgenda.currentPosition)
+        if let alternative = detail.proposal.decisionAgenda.alternativeExplanation {
+            document.section("反対の可能性", text: alternative)
+        }
+        document.section("判断を止めている未知", text: detail.proposal.decisionAgenda.primaryUnknown)
+        document.section("今回の行動", text: detail.proposal.summary)
+        document.keyValues([
+            ("対象", detail.proposal.actionSpec.target),
+            ("方法", detail.proposal.actionSpec.method),
+            ("量", detail.proposal.actionSpec.quantity),
+            ("期限", detail.proposal.actionSpec.timebox),
+            ("成果物", detail.proposal.actionSpec.deliverableKind),
+        ])
+        document.section("期待する観測", text: detail.proposal.expectedObservation)
+        document.heading("結果別の判断", level: 2)
+        document.keyValues([
+            ("進む", detail.proposal.decisionRule.proceedWhen),
+            ("止める", detail.proposal.decisionRule.stopWhen),
+            ("見直す", detail.proposal.decisionRule.reconsiderWhen),
+        ])
+        document.listSection(
+            "根拠の参照",
+            items: detail.proposal.groundingRefs.map { "\($0.kind):\($0.id) [\($0.relation)]" }
+        )
         document.listSection("推奨する成功条件", items: detail.proposal.suggestedSuccessCriteria)
         document.listSection("推奨する停止条件", items: detail.proposal.suggestedStopConditions)
 
-        if let opportunity = detail.opportunity {
-            document.heading("Opportunity", level: 2)
-            document.section("課題", text: opportunity.problemStatement, level: 3)
-            document.section("望ましい結果", text: opportunity.desiredOutcomeStatement, level: 3)
-            document.section("根拠の要約", text: opportunity.evidenceSummary, level: 3)
-            document.listSection("未確認事項", items: opportunity.unknowns, level: 3)
-            document.keyValues([
-                ("状態", opportunity.status),
-                ("確信度", opportunity.confidence),
-                ("Opportunity ID", opportunity.id),
-            ])
-        }
+        document.heading("Opportunity", level: 2)
+        document.section("課題", text: detail.opportunity.problemStatement, level: 3)
+        document.section("望ましい結果", text: detail.opportunity.desiredOutcomeStatement, level: 3)
+        document.section("根拠の要約", text: detail.opportunity.evidenceSummary, level: 3)
+        document.listSection("未確認事項", items: detail.opportunity.unknowns, level: 3)
+        document.keyValues([
+            ("状態", detail.opportunity.status),
+            ("確信度", detail.opportunity.confidence),
+            ("Opportunity ID", detail.opportunity.id),
+        ])
 
-        if let hypothesis = detail.hypothesis {
-            document.heading("検証する仮説", level: 2)
-            document.paragraph(hypothesis.statement)
-            document.listSection("仮説の未確認事項", items: hypothesis.unknowns, level: 3)
-            document.keyValues([
-                ("状態", hypothesis.status),
-                ("重要度", String(hypothesis.criticality)),
-                ("確信度", String(hypothesis.confidence)),
-                ("Hypothesis ID", hypothesis.id),
-            ])
-        }
+        document.heading("検証する仮説", level: 2)
+        document.paragraph(detail.hypothesis.statement)
+        document.listSection("仮説の未確認事項", items: detail.hypothesis.unknowns, level: 3)
+        document.keyValues([
+            ("状態", detail.hypothesis.status),
+            ("重要度", String(detail.hypothesis.criticality)),
+            ("確信度", String(detail.hypothesis.confidence)),
+            ("Hypothesis ID", detail.hypothesis.id),
+        ])
 
         if let change = detail.proposal.decisionFrameChange {
             document.heading("判断軸の変更", level: 2)
@@ -86,15 +101,18 @@ enum ProductOpsMarkdownFormatter {
         document.heading("評価", level: 2)
         document.keyValues([
             ("順位", String(detail.assessment.rank)),
-            ("総合評価", decimal(detail.assessment.totalScore)),
+            ("最終評価", decimal(detail.assessment.finalScore)),
+            ("事業評価", decimal(detail.assessment.businessScore)),
+            ("内容評価", decimal(detail.assessment.substanceScore)),
             ("評価理由", detail.assessment.whyNow),
             ("評価方式", detail.assessment.algorithmKey),
             ("評価日時", dateText(detail.assessment.assessedAt)),
         ])
         document.listSection(
             "評価軸",
-            items: detail.assessment.scores.keys.sorted().map { key in
-                "\(key): \(decimal(detail.assessment.scores[key] ?? 0))"
+            items: detail.assessment.scores.keys.sorted().compactMap { key in
+                guard let score = detail.assessment.scores[key] else { return nil }
+                return "\(key): \(decimal(score))"
             },
             level: 3
         )
@@ -108,7 +126,6 @@ enum ProductOpsMarkdownFormatter {
             ("生成モデル", detail.recommendation.metadata.draftingModel),
             ("Rating Policy", detail.recommendation.metadata.ratingPolicyKey),
             ("Rating Version", detail.recommendation.metadata.ratingAlgorithmVersion),
-            ("Context Snapshot Hash", detail.recommendation.metadata.contextSnapshotHash),
         ])
 
         document.heading("Proposal情報", level: 2)

@@ -180,13 +180,29 @@ struct NextActionsView: View {
             }
         }
 
-        Section("おすすめ  \(recommendations.count)") {
-            if recommendations.isEmpty {
-                emptyRow("おすすめはありません")
-            } else {
-                ForEach(recommendations) { item in
-                    proposalCompactRow(item)
+        if let recommendation = recommendations.first {
+            Section("今決めること") {
+                if let agenda = payload.agenda {
+                    decisionAgendaSummary(agenda, item: recommendation)
+                } else {
+                    ProductOpsMessageBar(
+                        text: "提案に判断論点がありません。データを再生成してください。",
+                        systemImage: "exclamationmark.triangle"
+                    )
                 }
+            }
+
+            Section("次の一手") {
+                proposalCompactRow(recommendation)
+            }
+        } else if payload.recommendationStatus == "idle" {
+            Section("今決めること") {
+                ContentUnavailableView {
+                    Label("新しい判断材料を待っています", systemImage: "hourglass")
+                } description: {
+                    Text(payload.idleStatusMessage)
+                }
+                .listRowSeparator(.hidden)
             }
         }
 
@@ -276,7 +292,7 @@ struct NextActionsView: View {
         let isWorking = productOpsState.isMutatingVentureProposal(id: item.id)
         return CompactNextActionRow(
             title: item.title,
-            contextLabel: "おすすめ",
+            contextLabel: "次の一手",
             isWorking: isWorking,
             onOpen: { presentedSheet = .proposalDetail(proposalId: item.proposalId, decisionItem: item) }
         )
@@ -333,6 +349,46 @@ struct NextActionsView: View {
             label: "却下",
             action: { decide(item, .rejected) }
         ))
+    }
+
+    @ViewBuilder
+    private func decisionAgendaSummary(
+        _ agenda: VentureDecisionAgendaSummary,
+        item: VentureDecisionInboxItem
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(agenda.question)
+                .font(.headline)
+                .fixedSize(horizontal: false, vertical: true)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("現在の見立て")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Text(agenda.currentPosition)
+                    .font(.subheadline)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("足りない事実")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Text(agenda.primaryUnknown)
+                    .font(.subheadline)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("判断基準")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Text(item.decisionRuleSummary)
+                    .font(.subheadline)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.vertical, 4)
     }
 
     private func missionCompactRow(_ item: VentureMissionSummaryItem) -> some View {
@@ -910,36 +966,60 @@ private struct VentureProposalDetailSheet: View {
 
     @ViewBuilder
     private func proposalContent(_ detail: VentureProposalDetail) -> some View {
-        Section {
-            Text(detail.proposal.title)
-                .font(.title3.weight(.semibold))
+        Section("今決めること") {
+            Text(detail.proposal.decisionAgenda.question)
+                .font(.headline)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(detail.proposal.decisionAgenda.currentPosition)
+                .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
 
-        detailSection("なぜ今やるのか", text: detail.proposal.whyNow)
-        detailSection("提案内容", text: detail.proposal.summary)
-        detailSection("期待する結果", text: detail.proposal.expectedOutcome)
+        if let alternative = detail.proposal.decisionAgenda.alternativeExplanation {
+            detailSection("反対の可能性", text: alternative)
+        }
 
-        if !detail.proposal.targetUnknowns.isEmpty {
-            listSection("対象の未知", items: detail.proposal.targetUnknowns)
+        detailSection("判断を止めている未知", text: detail.proposal.decisionAgenda.primaryUnknown)
+
+        Section("今回の行動") {
+            Text(detail.proposal.title)
+                .font(.headline)
+                .fixedSize(horizontal: false, vertical: true)
+            LabeledContent("対象", value: detail.proposal.actionSpec.target)
+            LabeledContent("方法", value: detail.proposal.actionSpec.method)
+            LabeledContent("量", value: detail.proposal.actionSpec.quantity)
+            LabeledContent("期限", value: detail.proposal.actionSpec.timebox)
+            Text(detail.proposal.contextSpecificReason)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        if !detail.proposal.unblocksDecision.isEmpty {
-            detailSection("この結果で可能になる判断", text: detail.proposal.unblocksDecision)
+
+        detailSection("期待する観測", text: detail.proposal.expectedObservation)
+
+        Section("結果別の判断") {
+            LabeledContent("進む", value: detail.proposal.decisionRule.proceedWhen)
+            LabeledContent("止める", value: detail.proposal.decisionRule.stopWhen)
+            LabeledContent("見直す", value: detail.proposal.decisionRule.reconsiderWhen)
         }
-        if let opportunity = detail.opportunity {
-            Section("Opportunity") {
-                Text(opportunity.problemStatement)
-                Text(opportunity.desiredOutcomeStatement)
+
+        Section("Opportunity") {
+            Text(detail.opportunity.problemStatement)
+            Text(detail.opportunity.desiredOutcomeStatement)
+                .foregroundStyle(.secondary)
+            if !detail.opportunity.evidenceSummary.isEmpty {
+                Text(detail.opportunity.evidenceSummary)
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
-                if !opportunity.evidenceSummary.isEmpty {
-                    Text(opportunity.evidenceSummary)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
             }
         }
-        if let hypothesis = detail.hypothesis {
-            detailSection("検証する仮説", text: hypothesis.statement)
+        detailSection("検証する仮説", text: detail.hypothesis.statement)
+
+        Section("根拠") {
+            ForEach(detail.proposal.groundingRefs, id: \.stableId) { reference in
+                LabeledContent(reference.kind, value: reference.relation)
+                    .accessibilityLabel("\(reference.kind)、\(reference.relation)、\(reference.id)")
+            }
         }
 
         if let change = detail.proposal.decisionFrameChange {
@@ -979,18 +1059,18 @@ private struct VentureProposalDetailSheet: View {
         Section {
             DisclosureGroup("詳細情報を表示") {
                 LabeledContent("順位", value: String(detail.assessment.rank))
-                LabeledContent("総合評価", value: String(format: "%.2f", detail.assessment.totalScore))
+                LabeledContent("最終評価", value: String(format: "%.2f", detail.assessment.finalScore))
+                LabeledContent("事業評価", value: String(format: "%.2f", detail.assessment.businessScore))
+                LabeledContent("内容評価", value: String(format: "%.2f", detail.assessment.substanceScore))
                 ForEach(detail.assessment.scores.keys.sorted(), id: \.self) { key in
-                    LabeledContent(key, value: String(format: "%.2f", detail.assessment.scores[key] ?? 0))
+                    if let score = detail.assessment.scores[key] {
+                        LabeledContent(key, value: String(format: "%.2f", score))
+                    }
                 }
                 LabeledContent("評価方式", value: detail.assessment.algorithmKey)
                 LabeledContent("生成モデル", value: detail.recommendation.metadata.draftingModel)
                 LabeledContent("Prompt", value: detail.recommendation.metadata.draftingPromptVersion)
                 LabeledContent("Rating", value: detail.recommendation.metadata.ratingAlgorithmVersion)
-                Text("Context: \(detail.recommendation.metadata.contextSnapshotHash)")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
             }
         }
     }
@@ -1237,6 +1317,10 @@ private struct VentureProposalFeedbackSheet: View {
     private var options: [(label: String, code: String)] {
         [
             ("根拠不足", "insufficient_evidence"),
+            ("当たり前すぎる", "too_obvious"),
+            ("判断に効かない", "not_decision_relevant"),
+            ("新しい情報がない", "no_new_information"),
+            ("判断基準がない", "missing_decision_rule"),
             ("今じゃない", "wrong_timing"),
             ("効果が弱い", "low_impact"),
             ("重複", "duplicate"),
