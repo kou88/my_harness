@@ -165,6 +165,10 @@ final class ActionInboxAPIClient {
         var data: PushDevice
     }
 
+    private struct NotificationPreferencesEnvelope: Decodable {
+        var data: PushNotificationPreferences
+    }
+
     private struct PushDevice: Decodable {
         var id: String
     }
@@ -678,6 +682,22 @@ final class ActionInboxAPIClient {
             throw ClientError.invalidResponse
         }
         return device.id
+    }
+
+    func fetchNotificationPreferences() async throws -> PushNotificationPreferences {
+        let data = try await request(path: "/api/v2/notification-preferences", method: "GET")
+        return try decoder.decode(NotificationPreferencesEnvelope.self, from: data).data
+    }
+
+    func updateNotificationPreferences(
+        _ preferences: PushNotificationPreferences
+    ) async throws -> PushNotificationPreferences {
+        let data = try await request(
+            path: "/api/v2/notification-preferences",
+            method: "PUT",
+            body: preferences
+        )
+        return try decoder.decode(NotificationPreferencesEnvelope.self, from: data).data
     }
 
     func deletePushDevice(id: String) async throws {

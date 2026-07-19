@@ -81,7 +81,7 @@ struct AppDependencies {
         )
         ActionPushNotificationCoordinator.shared.configure(
             apiClient: actionInboxDependencies.apiClient,
-            registerStoredToken: actionInboxDependencies.authSession?.isSignedIn == true
+            registerStoredToken: false
         )
 
         if seedPreviewData {

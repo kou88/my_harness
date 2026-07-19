@@ -552,6 +552,12 @@ struct NextActionsView: View {
 
             if actionInboxState.isSignedIn {
                 Button {
+                    router.presentedSheet = .settings
+                } label: {
+                    Label("通知設定", systemImage: "bell.badge")
+                }
+
+                Button {
                     Task { await actionInboxState.registerForPushNotifications() }
                 } label: {
                     Label("通知を有効化", systemImage: "bell.badge")
@@ -588,6 +594,7 @@ struct NextActionsView: View {
     }
 
     private func presentPendingDeepLink(refreshBeforePresentation: Bool) async {
+        guard actionInboxState.isSignedIn else { return }
         guard let destination = router.consumePendingProductOpsDeepLink() else { return }
         if refreshBeforePresentation {
             switch destination {
@@ -602,26 +609,45 @@ struct NextActionsView: View {
 
         switch destination {
         case .proposal(let proposalId):
-            let decisionItem = productOpsState.decisionItems.first { $0.proposalId == proposalId }
-            presentedSheet = .proposalDetail(proposalId: proposalId, decisionItem: decisionItem)
+            do {
+                _ = try await productOpsState.fetchProposalDetail(proposalId: proposalId)
+                let decisionItem = productOpsState.decisionItems.first { $0.proposalId == proposalId }
+                presentedSheet = .proposalDetail(proposalId: proposalId, decisionItem: decisionItem)
+            } catch {
+                fallBackToNextActions(message: "このおすすめは削除済みか、現在は表示できません。")
+            }
         case .mission(let missionId, let kind):
-            presentedSheet = .missionDetail(
-                missionId: missionId,
-                kindLabel: kind.label,
-                requestedAction: nil
-            )
+            do {
+                _ = try await productOpsState.fetchMissionDetail(missionId: missionId)
+                presentedSheet = .missionDetail(
+                    missionId: missionId,
+                    kindLabel: kind.label,
+                    requestedAction: nil
+                )
+            } catch {
+                fallBackToNextActions(message: "このMissionは削除済みか、現在は表示できません。")
+            }
         case .monitoringAlert(let alertId):
             guard let item = productOpsState.monitoringAlertItems.first(where: { $0.id == alertId }) else {
-                productOpsState.message = "監視アラートはすでに解決済みか、表示対象外です。"
+                fallBackToNextActions(message: "監視アラートはすでに解決済みか、表示対象外です。")
                 return
             }
             presentedSheet = .alertDetail(item)
         }
+        ActionPushNotificationCoordinator.shared.clearPendingDeepLink()
     }
 
     private func signIn() async {
         await actionInboxState.signIn()
         await productOpsState.loadNextActionsIfPossible()
+        await presentPendingDeepLink(refreshBeforePresentation: true)
+        ActionPushNotificationCoordinator.shared.clearPendingDeepLink()
+    }
+
+    private func fallBackToNextActions(message: String) {
+        router.handleDeepLink(PushNotificationRouting.nextActionsURL)
+        presentedSheet = nil
+        productOpsState.message = message
     }
 
     private func signOut() async {

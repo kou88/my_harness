@@ -16,7 +16,11 @@ struct AppRootView: View {
     init(dependencies: AppDependencies) {
         self.dependencies = dependencies
         _todayState = State(initialValue: TodayState(useCases: dependencies.useCases))
-        _settingsState = State(initialValue: SettingsState(useCases: dependencies.useCases))
+        _settingsState = State(initialValue: SettingsState(
+            useCases: dependencies.useCases,
+            authSession: dependencies.actionInbox.authSession,
+            apiClient: dependencies.actionInbox.apiClient
+        ))
         _actionInboxState = State(initialValue: ActionInboxState(
             authSession: dependencies.actionInbox.authSession,
             apiClient: dependencies.actionInbox.apiClient,
@@ -75,11 +79,11 @@ struct AppRootView: View {
         }
         .environment(router)
         .onOpenURL { url in
-            router.handleDeepLink(url)
+            handleDeepLink(url)
         }
         .onReceive(NotificationCenter.default.publisher(for: .actionInboxDeepLink)) { notification in
             guard let url = notification.object as? URL else { return }
-            router.handleDeepLink(url)
+            handleDeepLink(url)
         }
         .onReceive(NotificationCenter.default.publisher(for: .actionInboxShouldReload)) { _ in
             Task {
@@ -92,6 +96,9 @@ struct AppRootView: View {
             actionInboxState.reportPushRegistrationFailure(message)
             pushRegistrationErrorMessage = message
         }
+        .onReceive(NotificationCenter.default.publisher(for: .actionPushRegistrationStatusChanged)) { _ in
+            Task { await settingsState.refreshPushRegistrationState() }
+        }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active,
                   Date().timeIntervalSince(lastForegroundRefreshAt) >= 15 else {
@@ -100,6 +107,22 @@ struct AppRootView: View {
             lastForegroundRefreshAt = Date()
             Task {
                 await productOpsState.loadRecommendationsIfPossible()
+            }
+        }
+        .onChange(of: actionInboxState.isSignedIn) { _, isSignedIn in
+            guard isSignedIn,
+                  let pendingURL = ActionPushNotificationCoordinator.shared.pendingDeepLinkURL else {
+                return
+            }
+            router.handleDeepLink(pendingURL)
+            ActionPushNotificationCoordinator.shared.clearPendingDeepLink()
+        }
+        .task {
+            await actionInboxState.synchronizePushAfterSignIn()
+            guard let pendingURL = ActionPushNotificationCoordinator.shared.pendingDeepLinkURL else { return }
+            router.handleDeepLink(pendingURL)
+            if actionInboxState.isSignedIn {
+                ActionPushNotificationCoordinator.shared.clearPendingDeepLink()
             }
         }
         .alert(
@@ -122,6 +145,13 @@ struct AppRootView: View {
             ),
             content: sheetContent
         )
+    }
+
+    private func handleDeepLink(_ url: URL) {
+        router.handleDeepLink(url)
+        if actionInboxState.isSignedIn {
+            ActionPushNotificationCoordinator.shared.clearPendingDeepLink()
+        }
     }
 
     @ViewBuilder

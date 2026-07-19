@@ -591,6 +591,10 @@ struct ActionSuggestionDetailView: View {
                     Label("詳細を読み込めません", systemImage: "exclamationmark.triangle")
                 } description: {
                     Text(message)
+                } actions: {
+                    Button("次にやるへ戻る") {
+                        router.handleDeepLink(PushNotificationRouting.nextActionsURL)
+                    }
                 }
                 .listRowSeparator(.hidden)
             case .loaded(let suggestion):
