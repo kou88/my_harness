@@ -17,6 +17,7 @@ struct NextActionsView: View {
     @State private var presentedSheet: NextActionsSheet?
 
     private enum NextActionsSheet: Identifiable {
+        case directMissionRequest
         case needMemo
         case proposalFeedback(PendingVentureProposalFeedback)
         case proposalDetail(proposalId: String, decisionItem: VentureDecisionInboxItem?)
@@ -25,6 +26,8 @@ struct NextActionsView: View {
 
         var id: String {
             switch self {
+            case .directMissionRequest:
+                return "directMissionRequest"
             case .needMemo:
                 return "needMemo"
             case .proposalFeedback(let feedback):
@@ -74,6 +77,8 @@ struct NextActionsView: View {
         }
         .sheet(item: $presentedSheet) { sheet in
             switch sheet {
+            case .directMissionRequest:
+                DirectMissionRequestSheet(state: productOpsState)
             case .needMemo:
                 NavigationStack {
                     NextActionNeedMemoSheet(state: productOpsState)
@@ -487,6 +492,12 @@ struct NextActionsView: View {
 
     private var menu: some View {
         Menu {
+            Button {
+                presentedSheet = .directMissionRequest
+            } label: {
+                Label("エージェントに依頼", systemImage: "sparkles")
+            }
+
             Button {
                 presentedSheet = .needMemo
             } label: {
@@ -1480,6 +1491,9 @@ private struct VentureMissionDetailSheet: View {
                 HStack(spacing: 6) {
                     ProductOpsTokenView(statusLabel(detail.mission.status))
                     ProductOpsTokenView(detail.mission.primaryDeliverableSpec.kind)
+                    if detail.mission.origin.kind == "direct_request" {
+                        ProductOpsTokenView("直接依頼")
+                    }
                     if let attempt = detail.currentAttempt {
                         ProductOpsTokenView("Attempt \(attempt.attemptNumber)")
                     }

@@ -65,6 +65,10 @@ final class ActionInboxAPIClient {
         var data: VentureMissionDetail
     }
 
+    private struct VentureDirectMissionRequestEnvelope: Decodable {
+        var data: VentureDirectMissionRequestResult
+    }
+
     private struct VentureDevelopmentMissionListEnvelope: Decodable {
         var data: VentureDevelopmentMissionListPayload
     }
@@ -306,6 +310,28 @@ final class ActionInboxAPIClient {
     func fetchVentureMissionDetail(missionId: String) async throws -> VentureMissionDetail {
         let data = try await request(path: "/api/v2/missions/\(missionId)", method: "GET")
         return try decoder.decode(VentureMissionDetailEnvelope.self, from: data).data
+    }
+
+    func createDirectMission(
+        ventureId: String,
+        request directRequest: VentureDirectMissionRequest
+    ) async throws -> VentureDirectMissionRequestResult {
+        let data: Data
+        switch directRequest {
+        case .research(let requestBody):
+            data = try await request(
+                path: "/api/v2/ventures/\(ventureId)/mission-requests",
+                method: "POST",
+                body: requestBody
+            )
+        case .message(let requestBody):
+            data = try await request(
+                path: "/api/v2/ventures/\(ventureId)/mission-requests",
+                method: "POST",
+                body: requestBody
+            )
+        }
+        return try decoder.decode(VentureDirectMissionRequestEnvelope.self, from: data).data
     }
 
     func fetchVentureProposalDetail(proposalId: String) async throws -> VentureProposalDetail {

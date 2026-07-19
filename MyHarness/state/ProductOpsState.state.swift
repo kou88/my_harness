@@ -31,6 +31,7 @@ final class ProductOpsState {
     var isPostingVentureDecision = false
     var isRequestingRecommendationHeartbeat = false
     var isScanningMonitoringAlerts = false
+    var isCreatingDirectMission = false
     var isUpdatingMission = false
     var isLoadingMoreMissionItems = false
     var message: String?
@@ -513,6 +514,29 @@ final class ProductOpsState {
         } catch {
             message = "提案準備を開始できませんでした: \(error.localizedDescription)"
         }
+    }
+
+    @discardableResult
+    func createDirectMission(
+        _ request: VentureDirectMissionRequest
+    ) async throws -> VentureDirectMissionRequestResult {
+        guard let apiClient else {
+            throw ActionInboxConfigurationError.missingValue("ActionAPIBaseURL")
+        }
+        guard !isCreatingDirectMission else {
+            throw ActionInboxAPIClient.ClientError.invalidResponse
+        }
+        isCreatingDirectMission = true
+        defer { isCreatingDirectMission = false }
+        let result = try await apiClient.createDirectMission(
+            ventureId: ventureId,
+            request: request
+        )
+        await loadNextActions()
+        message = result.kind == "research"
+            ? "調査を依頼しました"
+            : "文案作成を依頼しました。外部送信はしていません"
+        return result
     }
 
     private func reconcileDecisionAfterFailure(item: VentureDecisionInboxItem, decision: VentureDecision, error: Error) async {

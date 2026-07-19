@@ -11,6 +11,56 @@ enum VentureDecision: String, Encodable, Hashable {
     case rejected
 }
 
+enum VentureDirectMissionRequest: Hashable {
+    case research(VentureDirectResearchMissionRequest)
+    case message(VentureDirectMessageMissionRequest)
+
+    var clientRequestId: String {
+        switch self {
+        case .research(let request): request.clientRequestId
+        case .message(let request): request.clientRequestId
+        }
+    }
+}
+
+struct VentureDirectResearchMissionRequest: Encodable, Hashable {
+    struct TargetSegment: Encodable, Hashable {
+        var kind: String
+    }
+
+    var clientRequestId: String
+    let kind = "research"
+    var instruction: String
+    var channel: String
+    var targetSegment: TargetSegment
+    var sampleTarget: Int
+    var inclusionCriteria: [String]
+    var exclusionCriteria: [String]
+    var relatedOpportunityId: String?
+    var relatedHypothesisId: String?
+}
+
+struct VentureDirectMessageMissionRequest: Encodable, Hashable {
+    var clientRequestId: String
+    let kind = "message"
+    var instruction: String
+    var channel: String
+    var purpose: String
+    var audience: String
+    var sourceUrl: String?
+    var sourceText: String?
+    var tone: String
+    var constraints: [String]
+}
+
+struct VentureDirectMissionRequestResult: Decodable, Hashable {
+    var requestId: String
+    var missionId: String
+    var kind: String
+    var status: String
+    var createdAt: Date
+}
+
 struct VentureDecisionInboxPayload: Decodable, Hashable {
     var generatedAt: Date
     var recommendationStatus: String
@@ -97,9 +147,22 @@ struct VentureDeliverableSpec: Decodable, Hashable {
     var acceptanceCriteria: [String]
 }
 
+struct VentureMissionOrigin: Decodable, Hashable {
+    var kind: String
+    var proposalId: String?
+    var betId: String?
+    var requestId: String?
+    var requestedByUserId: String?
+    var clientRequestId: String?
+    var requestHash: String?
+    var reason: String?
+    var sourceId: String?
+}
+
 struct VentureGenericMission: Identifiable, Decodable, Hashable {
     var id: String
     var ventureId: String
+    var origin: VentureMissionOrigin
     var sourceProposalId: String?
     var sourceBetId: String?
     var capability: String
@@ -619,8 +682,8 @@ struct VentureResearchMission: Identifiable, Decodable, Hashable {
     var ownerUserId: String
     var agentOwnerUserId: String
     var ventureId: String
-    var betId: String
-    var sourceProposalId: String
+    var betId: String?
+    var sourceProposalId: String?
     var channel: String
     var objective: String
     var researchQuestion: String
@@ -642,8 +705,8 @@ struct VentureMessageMission: Identifiable, Decodable, Hashable {
     var ownerUserId: String
     var agentOwnerUserId: String
     var ventureId: String
-    var betId: String
-    var sourceProposalId: String
+    var betId: String?
+    var sourceProposalId: String?
     var channel: String
     var purpose: String
     var objective: String
