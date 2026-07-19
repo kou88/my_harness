@@ -1133,6 +1133,28 @@ private struct ProductOpsMarkdownCopyButton: View {
     }
 }
 
+private struct ProductOpsExternalLinkButton<Label: View>: View {
+    @Environment(\.openURL) private var openURL
+    let destination: URL
+    let label: Label
+
+    init(destination: URL, @ViewBuilder label: () -> Label) {
+        self.destination = destination
+        self.label = label()
+    }
+
+    var body: some View {
+        Button {
+            openURL(destination)
+        } label: {
+            label
+        }
+        // A List row can otherwise combine multiple automatic button actions.
+        .buttonStyle(.borderless)
+        .accessibilityHint("外部アプリで開きます")
+    }
+}
+
 private struct VentureMonitoringAlertDetailSheet: View {
     @Environment(\.dismiss) private var dismiss
     let state: ProductOpsState
@@ -2179,7 +2201,7 @@ private struct VentureDevelopmentMissionRow: View {
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                     if let pullRequest = result.pullRequests.first, let url = URL(string: pullRequest.url) {
-                        Link(destination: url) {
+                        ProductOpsExternalLinkButton(destination: url) {
                             Label("Draft PR", systemImage: "arrow.up.right.square")
                                 .font(.caption.weight(.semibold))
                         }
@@ -2518,7 +2540,7 @@ private struct VentureResearchReportSummaryView: View {
                 HStack(spacing: 8) {
                     ForEach(Array(report.sources.prefix(2)), id: \.self) { source in
                         if let url = URL(string: source), url.scheme != nil {
-                            Link(destination: url) {
+                            ProductOpsExternalLinkButton(destination: url) {
                                 Label("Source", systemImage: "arrow.up.right.square")
                                     .font(.caption.weight(.semibold))
                             }
@@ -2575,7 +2597,7 @@ private struct VentureResearchReportDetailView: View {
                         .font(.subheadline.weight(.semibold))
                     ForEach(Array(report.sources.enumerated()), id: \.offset) { _, source in
                         if let url = researchSourceURL(source) {
-                            Link(destination: url) {
+                            ProductOpsExternalLinkButton(destination: url) {
                                 Label(researchSourceLabel(source, url: url), systemImage: "arrow.up.right.square")
                                     .font(.subheadline)
                             }
@@ -2602,7 +2624,7 @@ private struct VentureResearchReportDetailView: View {
                                 value: appliedGrokExecutionLabel(grokExecution.applied)
                             )
                             if let url = URL(string: grokExecution.applied.pageURL) {
-                                Link(destination: url) {
+                                ProductOpsExternalLinkButton(destination: url) {
                                     Label("Grok.comの会話を開く", systemImage: "arrow.up.right.square")
                                 }
                             }
@@ -3217,7 +3239,7 @@ private struct VentureProductChangeSummaryView: View {
                 HStack(spacing: 8) {
                     ForEach(Array(pullRequestURLs.prefix(2)), id: \.self) { urlString in
                         if let url = URL(string: urlString) {
-                            Link(destination: url) {
+                            ProductOpsExternalLinkButton(destination: url) {
                                 Label("Draft PR", systemImage: "arrow.up.right.square")
                                     .font(.caption.weight(.semibold))
                             }
