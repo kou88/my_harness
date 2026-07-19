@@ -218,9 +218,17 @@ struct NextActionsView: View {
                     CompactNextActionRow(
                         title: item.alert.detectedIssue,
                         contextLabel: "確認待ち",
-                        isWorking: false,
+                        isWorking: productOpsState.isMutatingMission(id: item.alert.missionId),
                         onOpen: { presentedSheet = .alertDetail(item) }
                     )
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button(role: .destructive) {
+                            Task { await productOpsState.dismissMonitoringAlert(item) }
+                        } label: {
+                            Label("削除", systemImage: "trash")
+                        }
+                        .disabled(productOpsState.isMutatingMission(id: item.alert.missionId))
+                    }
                 }
                 ForEach(reviewMissions) { item in
                     missionCompactRow(item)
@@ -365,6 +373,14 @@ struct NextActionsView: View {
             }
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            if item.availableActions.contains("dismiss") {
+                Button(role: .destructive) {
+                    Task { await productOpsState.dismissMissionFromList(item) }
+                } label: {
+                    Label("削除", systemImage: "trash")
+                }
+                .disabled(isWorking)
+            }
             if item.availableActions.contains("cancel") {
                 Button(role: .destructive) {
                     Task { await productOpsState.cancelMissionFromList(item) }
@@ -1099,6 +1115,9 @@ private struct VentureMonitoringAlertDetailSheet: View {
     @Environment(\.dismiss) private var dismiss
     let state: ProductOpsState
     let item: VentureMonitoringAlertItem
+    @State private var isDismissing = false
+    @State private var confirmsDismissal = false
+    @State private var errorMessage: String?
 
     var body: some View {
         NavigationStack {
@@ -1120,11 +1139,43 @@ private struct VentureMonitoringAlertDetailSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button(role: .destructive) {
+                        confirmsDismissal = true
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .disabled(isDismissing)
+                    .accessibilityLabel("監視アラートを削除")
                     ProductOpsMarkdownCopyButton {
                         state.copyMarkdown(ProductOpsMarkdownFormatter.monitoringAlert(item))
                     }
                     Button("閉じる") { dismiss() }
                 }
+            }
+            .confirmationDialog("この確認待ちを削除しますか？", isPresented: $confirmsDismissal) {
+                Button("削除", role: .destructive) {
+                    isDismissing = true
+                    Task {
+                        do {
+                            try await state.dismissMission(missionId: item.alert.missionId)
+                            dismiss()
+                        } catch {
+                            errorMessage = error.localizedDescription
+                            isDismissing = false
+                        }
+                    }
+                }
+                Button("キャンセル", role: .cancel) {}
+            } message: {
+                Text("履歴は保持したまま、次にやる画面から非表示にします。")
+            }
+            .alert("削除できませんでした", isPresented: Binding(
+                get: { errorMessage != nil },
+                set: { if !$0 { errorMessage = nil } }
+            )) {
+                Button("閉じる", role: .cancel) {}
+            } message: {
+                Text(errorMessage ?? "")
             }
         }
     }
@@ -1447,6 +1498,7 @@ private struct VentureMissionDetailSheet: View {
     @State private var feedbackText = ""
     @State private var isSubmitting = false
     @State private var didHandleRequestedAction = false
+    @State private var confirmsDismissal = false
 
     var body: some View {
         NavigationStack {
@@ -1480,12 +1532,29 @@ private struct VentureMissionDetailSheet: View {
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     if let detail {
+                        if detail.availableActions.contains("dismiss") {
+                            Button(role: .destructive) {
+                                confirmsDismissal = true
+                            } label: {
+                                Image(systemName: "trash")
+                            }
+                            .disabled(isSubmitting)
+                            .accessibilityLabel("確認待ちから削除")
+                        }
                         ProductOpsMarkdownCopyButton {
                             state.copyMarkdown(ProductOpsMarkdownFormatter.mission(detail))
                         }
                     }
                     Button("閉じる") { dismiss() }
                 }
+            }
+            .confirmationDialog("この確認待ちを削除しますか？", isPresented: $confirmsDismissal) {
+                Button("削除", role: .destructive) {
+                    startSubmission { await dismissMission() }
+                }
+                Button("キャンセル", role: .cancel) {}
+            } message: {
+                Text("履歴は保持したまま、次にやる画面から非表示にします。")
             }
             .task {
                 await load()
@@ -1885,6 +1954,16 @@ private struct VentureMissionDetailSheet: View {
         defer { isSubmitting = false }
         do {
             self.detail = try await state.cancelMission(detail: detail)
+        } catch {
+            operationErrorMessage = error.localizedDescription
+        }
+    }
+
+    private func dismissMission() async {
+        defer { isSubmitting = false }
+        do {
+            try await state.dismissMission(missionId: missionId)
+            dismiss()
         } catch {
             operationErrorMessage = error.localizedDescription
         }

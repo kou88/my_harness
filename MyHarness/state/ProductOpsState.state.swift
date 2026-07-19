@@ -503,6 +503,51 @@ final class ProductOpsState {
         }
     }
 
+    func dismissMissionFromList(_ item: VentureMissionSummaryItem) async {
+        guard let apiClient, !mutatingMissionIds.contains(item.id) else { return }
+        let previousPage = missionItemsState
+        mutatingMissionIds.insert(item.id)
+        removeMissionFromList(id: item.id)
+        defer { mutatingMissionIds.remove(item.id) }
+        do {
+            try await apiClient.dismissVentureMission(missionId: item.id)
+            await loadNextActions()
+            message = "確認待ちから削除しました"
+        } catch {
+            missionItemsState = previousPage
+            message = "削除できませんでした: \(error.localizedDescription)"
+        }
+    }
+
+    func dismissMission(missionId: String) async throws {
+        guard let apiClient else { throw ActionInboxConfigurationError.missingValue("ActionAPIBaseURL") }
+        guard !mutatingMissionIds.contains(missionId) else { return }
+        mutatingMissionIds.insert(missionId)
+        defer { mutatingMissionIds.remove(missionId) }
+        try await apiClient.dismissVentureMission(missionId: missionId)
+        removeMissionFromList(id: missionId)
+        removeMonitoringAlertForMission(id: missionId)
+        await loadNextActions()
+        message = "確認待ちから削除しました"
+    }
+
+    func dismissMonitoringAlert(_ item: VentureMonitoringAlertItem) async {
+        guard let apiClient, !mutatingMissionIds.contains(item.alert.missionId) else { return }
+        let previousAlerts = monitoringAlertsState
+        mutatingMissionIds.insert(item.alert.missionId)
+        removeMonitoringAlertFromList(id: item.id)
+        defer { mutatingMissionIds.remove(item.alert.missionId) }
+        do {
+            try await apiClient.dismissVentureMission(missionId: item.alert.missionId)
+            removeMissionFromList(id: item.alert.missionId)
+            await loadNextActions()
+            message = "監視アラートを削除しました"
+        } catch {
+            monitoringAlertsState = previousAlerts
+            message = "監視アラートを削除できませんでした: \(error.localizedDescription)"
+        }
+    }
+
     func requestRecommendationHeartbeat() async {
         guard let apiClient else { return }
         isRequestingRecommendationHeartbeat = true
@@ -862,6 +907,18 @@ final class ProductOpsState {
         guard case .loaded(var page) = missionItemsState else { return }
         page.items.removeAll { $0.id == id }
         missionItemsState = .loaded(page)
+    }
+
+    private func removeMonitoringAlertFromList(id: String) {
+        guard case .loaded(var items) = monitoringAlertsState else { return }
+        items.removeAll { $0.id == id }
+        monitoringAlertsState = .loaded(items)
+    }
+
+    private func removeMonitoringAlertForMission(id: String) {
+        guard case .loaded(var items) = monitoringAlertsState else { return }
+        items.removeAll { $0.alert.missionId == id }
+        monitoringAlertsState = .loaded(items)
     }
 
     func updatePolicy(fields: ProjectPolicyEditableFields) async -> ProjectPolicy? {

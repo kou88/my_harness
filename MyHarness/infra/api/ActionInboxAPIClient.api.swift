@@ -384,6 +384,13 @@ final class ActionInboxAPIClient {
         )
     }
 
+    func dismissVentureMission(missionId: String) async throws {
+        try await request(
+            path: "/api/v2/missions/\(missionId)/dismiss",
+            method: "POST"
+        )
+    }
+
     func fetchVentureDevelopmentMissions(ventureId: String) async throws -> VentureDevelopmentMissionListPayload {
         let data = try await request(path: "/api/v2/ventures/\(ventureId)/development-missions", method: "GET")
         return try decoder.decode(VentureDevelopmentMissionListEnvelope.self, from: data).data
