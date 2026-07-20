@@ -153,6 +153,14 @@ final class ActionInboxAPIClient {
         var data: VenturePolicy
     }
 
+    private struct VenturePolicyRevisionContextEnvelope: Decodable {
+        var data: VenturePolicyRevisionContext
+    }
+
+    private struct VenturePolicyRevisionEnvelope: Decodable {
+        var data: VenturePolicyRevisionDetail
+    }
+
     private struct DevelopmentTasksEnvelope: Decodable {
         var data: [DevelopmentTask]
     }
@@ -242,6 +250,7 @@ final class ActionInboxAPIClient {
 
     private struct VentureDeliverableReviewRequest: Encodable {
         var expectedMissionVersion: Int
+        var expectedRevisionHash: String?
         var decision: String
         var feedback: String
     }
@@ -354,6 +363,7 @@ final class ActionInboxAPIClient {
     func reviewVentureDeliverable(
         deliverableId: String,
         expectedMissionVersion: Int,
+        expectedRevisionHash: String?,
         decision: String,
         feedback: String
     ) async throws {
@@ -362,6 +372,7 @@ final class ActionInboxAPIClient {
             method: "POST",
             body: VentureDeliverableReviewRequest(
                 expectedMissionVersion: expectedMissionVersion,
+                expectedRevisionHash: expectedRevisionHash,
                 decision: decision,
                 feedback: feedback
             )
@@ -550,25 +561,26 @@ final class ActionInboxAPIClient {
         return try decoder.decode(VenturePolicyEnvelope.self, from: data).data
     }
 
-    func updateVenturePolicyText(ventureId: String, request payload: VenturePolicyTextUpdateRequest) async throws -> VenturePolicy {
-        let data = try await request(
-            path: "/api/v2/ventures/\(ventureId)/policy/text",
-            method: "PATCH",
-            body: payload
-        )
-        return try decoder.decode(VenturePolicyEnvelope.self, from: data).data
+    func fetchVenturePolicyRevisionContext(ventureId: String) async throws -> VenturePolicyRevisionContext {
+        let data = try await request(path: "/api/v2/ventures/\(ventureId)/policy-context", method: "GET")
+        return try decoder.decode(VenturePolicyRevisionContextEnvelope.self, from: data).data
     }
 
-    func updateVentureRecommendationSettings(
+    func createVenturePolicyRevision(
         ventureId: String,
-        request payload: VenturePolicyRecommendationSettingsUpdateRequest
-    ) async throws -> VenturePolicy {
+        request payload: VenturePolicyRevisionDraft
+    ) async throws -> VenturePolicyRevisionDetail {
         let data = try await request(
-            path: "/api/v2/ventures/\(ventureId)/policy/recommendation-settings",
-            method: "PATCH",
+            path: "/api/v2/ventures/\(ventureId)/policy-revisions",
+            method: "POST",
             body: payload
         )
-        return try decoder.decode(VenturePolicyEnvelope.self, from: data).data
+        return try decoder.decode(VenturePolicyRevisionEnvelope.self, from: data).data
+    }
+
+    func fetchVenturePolicyRevision(missionId: String) async throws -> VenturePolicyRevisionDetail {
+        let data = try await request(path: "/api/v2/policy-revisions/\(missionId)", method: "GET")
+        return try decoder.decode(VenturePolicyRevisionEnvelope.self, from: data).data
     }
 
     func fetchDevelopmentTasks(projectId: String) async throws -> [DevelopmentTask] {

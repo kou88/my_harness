@@ -23,6 +23,7 @@ struct NextActionsView: View {
         case proposalFeedback(PendingVentureProposalFeedback)
         case proposalDetail(proposalId: String, decisionItem: VentureDecisionInboxItem?)
         case missionDetail(missionId: String, kindLabel: String, requestedAction: String?)
+        case policyRevision(missionId: String)
         case alertDetail(VentureMonitoringAlertItem)
 
         var id: String {
@@ -37,6 +38,8 @@ struct NextActionsView: View {
                 return "proposal-\(proposalId)"
             case .missionDetail(let missionId, _, let requestedAction):
                 return "mission-\(missionId)-\(requestedAction ?? "detail")"
+            case .policyRevision(let missionId):
+                return "policy-revision-\(missionId)"
             case .alertDetail(let item):
                 return "alert-\(item.id)"
             }
@@ -105,6 +108,8 @@ struct NextActionsView: View {
                     kindLabel: kindLabel,
                     requestedAction: requestedAction
                 )
+            case .policyRevision(let missionId):
+                VenturePolicyRevisionLoaderView(state: productOpsState, missionId: missionId)
             case .alertDetail(let item):
                 VentureMonitoringAlertDetailSheet(
                     state: productOpsState,
@@ -398,15 +403,17 @@ struct NextActionsView: View {
             contextLabel: missionSectionLabel(item.status),
             isWorking: isWorking,
             onOpen: {
-                presentedSheet = .missionDetail(
-                    missionId: item.id,
-                    kindLabel: item.kindLabel,
-                    requestedAction: nil
-                )
+                presentedSheet = item.deliverableKind == "knowledge_change"
+                    ? .policyRevision(missionId: item.id)
+                    : .missionDetail(
+                        missionId: item.id,
+                        kindLabel: item.kindLabel,
+                        requestedAction: nil
+                    )
             }
         )
         .swipeActions(edge: .leading, allowsFullSwipe: false) {
-            if item.availableActions.contains("adopt") {
+            if item.availableActions.contains("adopt") && item.deliverableKind != "knowledge_change" {
                 Button {
                     Task { await productOpsState.adoptMissionFromList(item) }
                 } label: {
@@ -448,11 +455,13 @@ struct NextActionsView: View {
             }
             if item.availableActions.contains("reject") {
                 Button(role: .destructive) {
-                    presentedSheet = .missionDetail(
-                        missionId: item.id,
-                        kindLabel: item.kindLabel,
-                        requestedAction: "reject"
-                    )
+                    presentedSheet = item.deliverableKind == "knowledge_change"
+                        ? .policyRevision(missionId: item.id)
+                        : .missionDetail(
+                            missionId: item.id,
+                            kindLabel: item.kindLabel,
+                            requestedAction: "reject"
+                        )
                 } label: {
                     Label("却下", systemImage: "xmark")
                 }
@@ -460,11 +469,13 @@ struct NextActionsView: View {
             }
             if item.availableActions.contains("request_revision") {
                 Button {
-                    presentedSheet = .missionDetail(
-                        missionId: item.id,
-                        kindLabel: item.kindLabel,
-                        requestedAction: "request_revision"
-                    )
+                    presentedSheet = item.deliverableKind == "knowledge_change"
+                        ? .policyRevision(missionId: item.id)
+                        : .missionDetail(
+                            missionId: item.id,
+                            kindLabel: item.kindLabel,
+                            requestedAction: "request_revision"
+                        )
                 } label: {
                     Label("修正", systemImage: "arrow.triangle.2.circlepath")
                 }
@@ -478,6 +489,7 @@ struct NextActionsView: View {
         switch status {
         case "queued": return "やること"
         case "dispatching", "running": return "進行中"
+        case "awaiting_external_input": return "やること"
         default: return "確認待ち"
         }
     }
@@ -691,12 +703,14 @@ struct NextActionsView: View {
             }
         case .mission(let missionId, let kind):
             do {
-                _ = try await productOpsState.fetchMissionDetail(missionId: missionId)
-                presentedSheet = .missionDetail(
-                    missionId: missionId,
-                    kindLabel: kind.label,
-                    requestedAction: nil
-                )
+                let detail = try await productOpsState.fetchMissionDetail(missionId: missionId)
+                presentedSheet = detail.currentDeliverable?.kind == "knowledge_change"
+                    ? .policyRevision(missionId: missionId)
+                    : .missionDetail(
+                        missionId: missionId,
+                        kindLabel: kind.label,
+                        requestedAction: nil
+                    )
             } catch {
                 fallBackToNextActions(message: "このMissionは削除済みか、現在は表示できません。")
             }
@@ -1586,6 +1600,7 @@ private struct VentureMissionSummaryRow: View {
         case "queued": return "待機中"
         case "dispatching": return "配送中"
         case "running": return "実行中"
+        case "awaiting_external_input": return "Mac Codexの修正版待ち"
         case "awaiting_review": return "結果確認"
         case "failed": return "失敗"
         default: return item.status
@@ -2123,6 +2138,7 @@ private struct VentureMissionDetailSheet: View {
         case "queued": return "待機中"
         case "dispatching": return "依頼中"
         case "running": return "実行中"
+        case "awaiting_external_input": return "Mac Codexの修正版待ち"
         case "awaiting_review": return "結果確認"
         case "completed": return "採用済み"
         case "failed": return "失敗"
@@ -2163,6 +2179,7 @@ private struct VentureMissionDetailSheet: View {
         case "queued": return "待機中"
         case "dispatching": return "依頼中"
         case "running": return "実行中"
+        case "awaiting_external_input": return "修正版待ち"
         case "succeeded": return "実行成功"
         case "failed": return "失敗"
         case "canceled": return "中断"
@@ -3313,14 +3330,11 @@ private struct VentureKnowledgeChangeSummaryView: View {
             appendChange("目的", currentPolicy.map { [$0.mission] }, [next.mission], to: &changes)
             appendChange("対象顧客", currentPolicy.map { segmentLines($0.targetSegments) }, segmentLines(next.targetSegments), to: &changes)
             appendChange("期待する成果", currentPolicy?.desiredOutcomes, next.desiredOutcomes, to: &changes)
+            appendChange("商業仮説", currentPolicy?.commercialHypotheses, next.commercialHypotheses, to: &changes)
             appendChange("Focus", currentPolicy?.focusAreas, next.focusAreas, to: &changes)
             appendChange("除外事項", currentPolicy?.exclusions, next.exclusions, to: &changes)
             appendChange("研究制約", currentPolicy?.researchGuardrails, next.researchGuardrails, to: &changes)
             appendChange("実装・提供制約", currentPolicy?.deliveryGuardrails, next.deliveryGuardrails, to: &changes)
-        }
-
-        if let nextCommercialHypotheses = knowledgeChange.nextCommercialHypotheses {
-            appendChange("商業仮説", currentPolicy?.commercialHypotheses, nextCommercialHypotheses, to: &changes)
         }
 
         if let next = knowledgeChange.nextDecisionFrame {

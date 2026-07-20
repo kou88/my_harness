@@ -27,10 +27,10 @@ struct VenturePolicyContractTests {
 
         let deliverable = try VentureKnowledgeChangeDeliverable(payload: metadata)
 
-        #expect(deliverable.schemaVersion == 2)
+        #expect(deliverable.schemaVersion == 3)
         #expect(deliverable.nextStrategy?.focusAreas == ["入金の対象月割当"])
         #expect(deliverable.nextDecisionFrame?.stage == "validation")
-        #expect(deliverable.nextCommercialHypotheses == ["月額3,000円の支払意思を検証する"])
+        #expect(deliverable.nextStrategy?.commercialHypotheses == ["月額3,000円の支払意思を検証する"])
         #expect(deliverable.sourceRefs.first?.kind == "learning")
     }
 
@@ -48,6 +48,7 @@ struct VenturePolicyContractTests {
     {
       "ventureId": "landlord-saas",
       "policyText": "# 自由な事業方針",
+      "policyTextVersionId": "policy-text-v2",
       "policyTextVersion": 2,
       "policyTextUpdatedAt": "2026-07-20T00:00:00Z",
       "strategyVersionId": "strategy-v2",
@@ -90,16 +91,19 @@ struct VenturePolicyContractTests {
 
     private let policyRevisionJSON = #"""
     {
-      "schemaVersion": 2,
+      "schemaVersion": 3,
       "kind": "policy_revision",
+      "basePolicyTextVersionId": "policy-text-v1",
       "baseStrategyVersionId": "strategy-v2",
       "baseDecisionFrameVersionId": "frame-v3",
+      "nextPolicyText": null,
       "nextStrategy": {
         "mission": "小規模大家の日常事務を減らす",
         "targetSegments": [
           {"key":"small-landlord","label":"小規模大家","description":"1〜10室を自己管理"}
         ],
         "desiredOutcomes": ["入金確認の負担を減らす"],
+        "commercialHypotheses": ["月額3,000円の支払意思を検証する"],
         "focusAreas": ["入金の対象月割当"],
         "exclusions": ["一般的なExcel操作支援"],
         "researchGuardrails": ["個人情報を収集しない"],
@@ -116,14 +120,14 @@ struct VenturePolicyContractTests {
         ],
         "maxRecommendations": 1
       },
-      "nextCommercialHypotheses": ["月額3,000円の支払意思を検証する"],
       "rationale": "対象月判定の事例が名義違いより多かった",
       "expectedImpact": "次回の推薦は入金割当を中心にする",
       "contraryEvidence": ["調査件数はまだ5件"],
       "sourceRefs": [
         {"kind":"learning","id":"learning-1","relation":"supports"}
       ],
-      "risk": "high"
+      "risk": "high",
+      "consultationSummary": null
     }
     """#
 }

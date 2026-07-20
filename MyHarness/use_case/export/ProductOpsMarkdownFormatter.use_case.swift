@@ -396,13 +396,11 @@ enum ProductOpsMarkdownFormatter {
                         level: 4
                     )
                     document.listSection("変更後の期待成果", items: strategy.desiredOutcomes, level: 4)
+                    document.listSection("変更後の商業仮説", items: strategy.commercialHypotheses, level: 4)
                     document.listSection("変更後のFocus", items: strategy.focusAreas, level: 4)
                     document.listSection("変更後の除外事項", items: strategy.exclusions, level: 4)
                     document.listSection("変更後の研究制約", items: strategy.researchGuardrails, level: 4)
                     document.listSection("変更後の実装・提供制約", items: strategy.deliveryGuardrails, level: 4)
-                }
-                if let hypotheses = value.nextCommercialHypotheses {
-                    document.listSection("変更後の商業仮説", items: hypotheses, level: 4)
                 }
                 if let frame = value.nextDecisionFrame {
                     document.keyValues([

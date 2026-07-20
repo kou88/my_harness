@@ -371,7 +371,8 @@ final class ProductOpsState {
     func reviewMissionDeliverable(
         detail: VentureMissionDetail,
         decision: String,
-        feedback: String
+        feedback: String,
+        expectedRevisionHash: String? = nil
     ) async throws -> VentureMissionDetail {
         guard let apiClient, let deliverable = detail.currentDeliverable else {
             throw ActionInboxAPIClient.ClientError.invalidResponse
@@ -381,6 +382,7 @@ final class ProductOpsState {
         try await apiClient.reviewVentureDeliverable(
             deliverableId: deliverable.id,
             expectedMissionVersion: detail.mission.version,
+            expectedRevisionHash: expectedRevisionHash,
             decision: decision,
             feedback: feedback
         )
@@ -405,6 +407,7 @@ final class ProductOpsState {
         try await apiClient.reviewVentureDeliverable(
             deliverableId: deliverable.id,
             expectedMissionVersion: detail.mission.version,
+            expectedRevisionHash: nil,
             decision: "rejected",
             feedback: feedback
         )
@@ -494,6 +497,7 @@ final class ProductOpsState {
             try await apiClient.reviewVentureDeliverable(
                 deliverableId: deliverableId,
                 expectedMissionVersion: item.missionVersion,
+                expectedRevisionHash: nil,
                 decision: "adopted",
                 feedback: "成果物を確認し採用"
             )
@@ -942,62 +946,138 @@ final class ProductOpsState {
         monitoringAlertsState = .loaded(items)
     }
 
-    func updatePolicyText(policyText: String, reason: String) async -> VenturePolicy? {
+    func createPolicyTextRevision(
+        policyText: String,
+        reason: String
+    ) async -> VenturePolicyRevisionDetail? {
         guard let apiClient, let currentPolicy = policy else { return nil }
         isSavingPolicy = true
-        message = "事業方針を保存しています"
+        message = "事業方針の変更内容を準備しています"
         defer { isSavingPolicy = false }
 
-        let updatedPolicy: VenturePolicy
         do {
-            updatedPolicy = try await apiClient.updateVenturePolicyText(
+            let context = try await apiClient.fetchVenturePolicyRevisionContext(ventureId: ventureId)
+            let revision = try await apiClient.createVenturePolicyRevision(
                 ventureId: ventureId,
-                request: VenturePolicyTextUpdateRequest(
-                    expectedVersion: currentPolicy.policyTextVersion,
-                    policyText: policyText,
-                    reason: reason
+                request: VenturePolicyRevisionDraft(
+                    clientRequestId: UUID().uuidString.lowercased(),
+                    contextHash: context.contextHash,
+                    basePolicyTextVersionId: currentPolicy.policyTextVersionId,
+                    baseStrategyVersionId: currentPolicy.strategyVersionId,
+                    baseDecisionFrameVersionId: currentPolicy.decisionFrameVersionId,
+                    nextPolicyText: policyText,
+                    nextStrategy: nil,
+                    nextDecisionFrame: nil,
+                    rationale: reason,
+                    expectedImpact: "AIが参照する事業方針の文脈を更新する",
+                    contraryEvidence: [],
+                    sourceRefs: [],
+                    risk: "medium",
+                    consultationSummary: "iPhoneで事業方針本文を編集",
+                    executorSessionId: nil,
+                    executorTurnId: nil
                 )
             )
+            await loadNextActions()
+            await loadPolicy()
+            message = "変更内容を確認してください"
+            return revision
         } catch {
-            message = "事業方針を保存できませんでした: \(error.localizedDescription)"
+            message = "事業方針の変更案を作成できませんでした: \(error.localizedDescription)"
             return nil
         }
-
-        policyState = .loaded(updatedPolicy)
-        message = "事業方針を更新しました。推薦設定は変更されていません"
-        return updatedPolicy
     }
 
-    func updateRecommendationSettings(
+    func createRecommendationSettingsRevision(
         strategy: VenturePolicyStrategySettingsRequest,
         decisionFrame: VenturePolicyDecisionFrameSettingsRequest,
-        commercialHypotheses: [String],
         reason: String
-    ) async -> VenturePolicy? {
+    ) async -> VenturePolicyRevisionDetail? {
         guard let apiClient, let currentPolicy = policy else { return nil }
         isSavingPolicy = true
-        message = "推薦設定を保存しています"
+        message = "推薦設定の変更内容を準備しています"
         defer { isSavingPolicy = false }
 
         do {
-            let updatedPolicy = try await apiClient.updateVentureRecommendationSettings(
+            let context = try await apiClient.fetchVenturePolicyRevisionContext(ventureId: ventureId)
+            let revision = try await apiClient.createVenturePolicyRevision(
                 ventureId: ventureId,
-                request: VenturePolicyRecommendationSettingsUpdateRequest(
-                    expectedStrategyVersionId: currentPolicy.strategyVersionId,
-                    expectedDecisionFrameVersionId: currentPolicy.decisionFrameVersionId,
-                    strategyPatch: strategy,
-                    decisionFramePatch: decisionFrame,
-                    commercialHypotheses: commercialHypotheses,
-                    reason: reason
+                request: VenturePolicyRevisionDraft(
+                    clientRequestId: UUID().uuidString.lowercased(),
+                    contextHash: context.contextHash,
+                    basePolicyTextVersionId: currentPolicy.policyTextVersionId,
+                    baseStrategyVersionId: currentPolicy.strategyVersionId,
+                    baseDecisionFrameVersionId: currentPolicy.decisionFrameVersionId,
+                    nextPolicyText: nil,
+                    nextStrategy: VenturePolicyStrategySettingsRequest(
+                        mission: strategy.mission,
+                        targetSegments: strategy.targetSegments,
+                        desiredOutcomes: strategy.desiredOutcomes,
+                        commercialHypotheses: strategy.commercialHypotheses,
+                        focusAreas: strategy.focusAreas,
+                        exclusions: strategy.exclusions,
+                        researchGuardrails: strategy.researchGuardrails,
+                        deliveryGuardrails: strategy.deliveryGuardrails
+                    ),
+                    nextDecisionFrame: decisionFrame,
+                    rationale: reason,
+                    expectedImpact: "提案の対象、除外条件、採点、推薦順位を更新する",
+                    contraryEvidence: [],
+                    sourceRefs: [],
+                    risk: "high",
+                    consultationSummary: "iPhoneで推薦設定を編集",
+                    executorSessionId: nil,
+                    executorTurnId: nil
                 )
             )
-            policyState = .loaded(updatedPolicy)
-            message = "推薦設定を更新しました"
-            return updatedPolicy
+            await loadNextActions()
+            await loadPolicy()
+            message = "変更内容を確認してください"
+            return revision
         } catch {
-            message = "推薦設定を保存できませんでした: \(error.localizedDescription)"
+            message = "推薦設定の変更案を作成できませんでした: \(error.localizedDescription)"
             return nil
         }
+    }
+
+    func fetchPolicyRevision(missionId: String) async throws -> VenturePolicyRevisionDetail {
+        guard let apiClient else {
+            throw ActionInboxConfigurationError.missingValue("ActionAPIBaseURL")
+        }
+        return try await apiClient.fetchVenturePolicyRevision(missionId: missionId)
+    }
+
+    func reviewPolicyRevision(
+        detail: VenturePolicyRevisionDetail,
+        decision: String,
+        feedback: String
+    ) async throws -> VenturePolicyRevisionDetail {
+        guard let apiClient else {
+            throw ActionInboxConfigurationError.missingValue("ActionAPIBaseURL")
+        }
+        isUpdatingMission = true
+        defer { isUpdatingMission = false }
+        try await apiClient.reviewVentureDeliverable(
+            deliverableId: detail.deliverableId,
+            expectedMissionVersion: detail.missionVersion,
+            expectedRevisionHash: detail.revisionHash,
+            decision: decision,
+            feedback: feedback
+        )
+        await loadNextActions()
+        await loadPolicy()
+        let refreshed = try await apiClient.fetchVenturePolicyRevision(missionId: detail.missionId)
+        switch decision {
+        case "adopted":
+            message = refreshed.applicationStatus == "applied"
+                ? "方針変更を反映しました"
+                : "方針変更の採用を受け付けました"
+        case "revision_requested":
+            message = "修正を依頼しました"
+        default:
+            message = "方針変更案を却下しました"
+        }
+        return refreshed
     }
 
     private func runNeedOperation<Result>(

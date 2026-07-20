@@ -1607,17 +1607,18 @@ struct VenturePolicyHardGateDefinition: Decodable, Hashable, Identifiable {
     var id: String { key }
 }
 
-struct VenturePolicyStrategyDefinition: Decodable, Hashable {
+struct VenturePolicyStrategyDefinition: Codable, Hashable {
     var mission: String
     var targetSegments: [VenturePolicyTargetSegment]
     var desiredOutcomes: [String]
+    var commercialHypotheses: [String]
     var focusAreas: [String]
     var exclusions: [String]
     var researchGuardrails: [String]
     var deliveryGuardrails: [String]
 }
 
-struct VenturePolicyDecisionFrameDefinition: Decodable, Hashable {
+struct VenturePolicyDecisionFrameDefinition: Codable, Hashable {
     var stage: String
     var objectiveIds: [String]
     var lenses: [VenturePolicyDecisionLens]
@@ -1628,43 +1629,44 @@ struct VenturePolicyDecisionFrameDefinition: Decodable, Hashable {
 struct VentureKnowledgeChangeDeliverable: Decodable, Hashable {
     var schemaVersion: Int
     var kind: String
+    var basePolicyTextVersionId: String
     var baseStrategyVersionId: String
     var baseDecisionFrameVersionId: String
+    var nextPolicyText: String?
     var nextStrategy: VenturePolicyStrategyDefinition?
     var nextDecisionFrame: VenturePolicyDecisionFrameDefinition?
-    var nextCommercialHypotheses: [String]?
     var rationale: String
     var expectedImpact: String
     var contraryEvidence: [String]
     var sourceRefs: [VentureKnowledgeReference]
     var risk: String
+    var consultationSummary: String?
 
     init(payload: ProductOpsMetadataValue) throws {
         let reader = try VentureDeliverablePayloadReader(kind: "knowledge_change", payload: payload)
         schemaVersion = try reader.requiredInt("schemaVersion")
         kind = try reader.requiredString("kind")
+        basePolicyTextVersionId = try reader.requiredString("basePolicyTextVersionId")
         baseStrategyVersionId = try reader.requiredString("baseStrategyVersionId")
         baseDecisionFrameVersionId = try reader.requiredString("baseDecisionFrameVersionId")
+        nextPolicyText = try reader.requiredNullableString("nextPolicyText")
         nextStrategy = try reader.requiredNullableObject("nextStrategy").map(Self.strategyDefinition)
         nextDecisionFrame = try reader.requiredNullableObject("nextDecisionFrame").map(Self.decisionFrameDefinition)
-        nextCommercialHypotheses = try reader.requiredNullableStringArray("nextCommercialHypotheses")
         rationale = try reader.requiredString("rationale")
         expectedImpact = try reader.requiredString("expectedImpact")
         contraryEvidence = try reader.requiredStringArray("contraryEvidence")
         sourceRefs = try reader.requiredObjectArray("sourceRefs").map(Self.knowledgeReference)
         risk = try reader.requiredString("risk")
+        consultationSummary = try reader.requiredNullableString("consultationSummary")
 
-        guard schemaVersion == 2 else {
-            throw VentureDeliverablePayloadDecodingError(kind: "knowledge_change", reason: "schemaVersionは2である必要があります。")
+        guard schemaVersion == 3 else {
+            throw VentureDeliverablePayloadDecodingError(kind: "knowledge_change", reason: "schemaVersionは3である必要があります。")
         }
         guard kind == "policy_revision" else {
             throw VentureDeliverablePayloadDecodingError(kind: "knowledge_change", reason: "kindはpolicy_revisionである必要があります。")
         }
-        guard nextStrategy != nil || nextDecisionFrame != nil || nextCommercialHypotheses != nil else {
+        guard nextPolicyText != nil || nextStrategy != nil || nextDecisionFrame != nil else {
             throw VentureDeliverablePayloadDecodingError(kind: "knowledge_change", reason: "方針変更内容がありません。")
-        }
-        guard !sourceRefs.isEmpty else {
-            throw VentureDeliverablePayloadDecodingError(kind: "knowledge_change", reason: "方針変更の根拠がありません。")
         }
         guard ["medium", "high", "critical"].contains(risk) else {
             throw VentureDeliverablePayloadDecodingError(kind: "knowledge_change", reason: "riskが許可値ではありません。")
@@ -1677,6 +1679,7 @@ struct VentureKnowledgeChangeDeliverable: Decodable, Hashable {
             mission: try reader.requiredString("mission"),
             targetSegments: try reader.requiredObjectArray("targetSegments").map(targetSegment),
             desiredOutcomes: try reader.requiredStringArray("desiredOutcomes"),
+            commercialHypotheses: try reader.requiredStringArray("commercialHypotheses"),
             focusAreas: try reader.requiredStringArray("focusAreas"),
             exclusions: try reader.requiredStringArray("exclusions"),
             researchGuardrails: try reader.requiredStringArray("researchGuardrails"),
@@ -1966,6 +1969,7 @@ struct NextActionCommand: Decodable, Hashable {
 struct VenturePolicy: Identifiable, Decodable, Hashable {
     var ventureId: String
     var policyText: String
+    var policyTextVersionId: String
     var policyTextVersion: Int
     var policyTextUpdatedAt: Date
     var strategyVersionId: String
@@ -1995,37 +1999,113 @@ struct VenturePolicy: Identifiable, Decodable, Hashable {
     var id: String { ventureId }
 }
 
-struct VenturePolicyTextUpdateRequest: Encodable, Hashable {
-    var expectedVersion: Int
-    var policyText: String
-    var reason: String
-}
-
-struct VenturePolicyRecommendationSettingsUpdateRequest: Encodable, Hashable {
-    var expectedStrategyVersionId: String
-    var expectedDecisionFrameVersionId: String
-    var strategyPatch: VenturePolicyStrategySettingsRequest
-    var decisionFramePatch: VenturePolicyDecisionFrameSettingsRequest
-    var commercialHypotheses: [String]
-    var reason: String
-}
-
-struct VenturePolicyStrategySettingsRequest: Encodable, Hashable {
+struct VenturePolicyStrategySettingsRequest: Codable, Hashable {
     var mission: String
     var targetSegments: [VenturePolicyTargetSegment]
     var desiredOutcomes: [String]
+    var commercialHypotheses: [String]
     var focusAreas: [String]
     var exclusions: [String]
     var researchGuardrails: [String]
     var deliveryGuardrails: [String]
 }
 
-struct VenturePolicyDecisionFrameSettingsRequest: Encodable, Hashable {
+struct VenturePolicyDecisionFrameSettingsRequest: Codable, Hashable {
     var stage: String
     var objectiveIds: [String]
     var lenses: [VenturePolicyDecisionLens]
     var hardGates: [VenturePolicyHardGate]
     var maxRecommendations: Int
+}
+
+struct VenturePolicyRevisionContext: Decodable, Hashable {
+    var contextHash: String
+}
+
+struct VenturePolicyRevisionDraft: Encodable, Hashable {
+    var clientRequestId: String
+    var contextHash: String
+    var basePolicyTextVersionId: String
+    var baseStrategyVersionId: String
+    var baseDecisionFrameVersionId: String
+    var nextPolicyText: String?
+    var nextStrategy: VenturePolicyStrategySettingsRequest?
+    var nextDecisionFrame: VenturePolicyDecisionFrameSettingsRequest?
+    var rationale: String
+    var expectedImpact: String
+    var contraryEvidence: [String]
+    var sourceRefs: [VenturePolicyRevisionSourceReference]
+    var risk: String
+    var consultationSummary: String
+    var executorSessionId: String?
+    var executorTurnId: String?
+}
+
+struct VenturePolicyRevisionSourceReference: Codable, Hashable {
+    var kind: String
+    var id: String
+    var relation: String
+}
+
+struct VenturePolicyDiffLine: Decodable, Hashable, Identifiable {
+    var kind: String
+    var oldLineNumber: Int?
+    var newLineNumber: Int?
+    var text: String
+
+    var id: String { "\(kind)-\(oldLineNumber ?? 0)-\(newLineNumber ?? 0)-\(text)" }
+}
+
+struct VenturePolicyTextDiff: Decodable, Hashable {
+    var before: String
+    var after: String
+    var lines: [VenturePolicyDiffLine]
+}
+
+struct VenturePolicyStructuredChange: Decodable, Hashable, Identifiable {
+    var path: String
+    var label: String
+    var before: ProductOpsMetadataValue
+    var after: ProductOpsMetadataValue
+
+    var id: String { path }
+}
+
+struct VenturePolicyRevisionVersions: Decodable, Hashable {
+    var policyTextVersionId: String
+    var strategyVersionId: String
+    var decisionFrameVersionId: String
+}
+
+struct VenturePolicyRevisionDetail: Decodable, Hashable, Identifiable {
+    var missionId: String
+    var missionVersion: Int
+    var currentAttempt: VentureMissionAttempt?
+    var reviews: [VentureDeliverableReview]
+    var deliverableId: String
+    var revisionHash: String
+    var origin: String
+    var status: String
+    var applicationStatus: String
+    var applicationError: String?
+    var baseVersions: VenturePolicyRevisionVersions
+    var currentVersions: VenturePolicyRevisionVersions
+    var isStale: Bool
+    var staleReasons: [String]
+    var summary: String
+    var rationale: String
+    var expectedImpact: String
+    var contraryEvidence: [String]
+    var sourceRefs: [VenturePolicyRevisionSourceReference]
+    var risk: String
+    var consultationSummary: String?
+    var policyTextDiff: VenturePolicyTextDiff
+    var structuredChanges: [VenturePolicyStructuredChange]
+    var canAdopt: Bool
+    var canRequestRevision: Bool
+    var canReject: Bool
+
+    var id: String { missionId }
 }
 
 struct DevelopmentTask: Identifiable, Decodable, Hashable {

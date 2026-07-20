@@ -35,19 +35,26 @@ struct VenturePolicyView: View {
         }
         .task {
             await state.loadPolicyIfPossible()
+            await state.loadNextActions()
         }
         .safeAreaInset(edge: .bottom) {
             if let message = state.message {
                 ProductOpsMessageBar(text: message, systemImage: "info.circle")
             }
         }
-        .sheet(item: $editor) { editor in
+        .sheet(item: $editor) { selectedEditor in
             NavigationStack {
-                switch editor {
+                switch selectedEditor {
                 case .policyText(let policy):
-                    VenturePolicyTextEditSheet(state: state, policy: policy)
+                    VenturePolicyTextEditSheet(state: state, policy: policy) { revision in
+                        editor = .revision(revision)
+                    }
                 case .recommendationSettings(let policy):
-                    VentureRecommendationSettingsEditSheet(state: state, policy: policy)
+                    VentureRecommendationSettingsEditSheet(state: state, policy: policy) { revision in
+                        editor = .revision(revision)
+                    }
+                case .revision(let revision):
+                    VenturePolicyRevisionReviewView(state: state, revision: revision)
                 }
             }
         }
@@ -154,10 +161,20 @@ struct VenturePolicyView: View {
 
                 if policy.pendingPolicyChangeCount > 0 {
                     Section {
-                        LabeledContent("確認待ちの変更") {
-                            Text("\(policy.pendingPolicyChangeCount)件")
-                                .monospacedDigit()
-                                .foregroundStyle(.orange)
+                        Button {
+                            Task { await openPendingPolicyRevision() }
+                        } label: {
+                            HStack {
+                                Text("確認待ちの変更")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                Text("\(policy.pendingPolicyChangeCount)件")
+                                    .monospacedDigit()
+                                    .foregroundStyle(.orange)
+                                Image(systemName: "chevron.right")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.tertiary)
+                            }
                         }
                     }
                 }
@@ -212,16 +229,32 @@ struct VenturePolicyView: View {
     private func directionLabel(_ direction: String) -> String {
         direction == "higher_is_better" ? "高いほど優先" : "低いほど優先"
     }
+
+    private func openPendingPolicyRevision() async {
+        guard let item = state.missionSummaryItems.first(where: {
+            $0.deliverableKind == "knowledge_change" && $0.status == "awaiting_review"
+        }) else {
+            state.message = "確認待ちの方針変更を取得できませんでした"
+            return
+        }
+        do {
+            editor = .revision(try await state.fetchPolicyRevision(missionId: item.id))
+        } catch {
+            state.message = "方針変更を読み込めませんでした: \(error.localizedDescription)"
+        }
+    }
 }
 
 private enum VenturePolicyEditor: Identifiable {
     case policyText(VenturePolicy)
     case recommendationSettings(VenturePolicy)
+    case revision(VenturePolicyRevisionDetail)
 
     var id: String {
         switch self {
         case .policyText(let policy): "text-\(policy.policyTextVersion)"
         case .recommendationSettings(let policy): "settings-\(policy.strategyVersionId)-\(policy.decisionFrameVersionId)"
+        case .revision(let revision): "revision-\(revision.missionId)-\(revision.revisionHash)"
         }
     }
 }
@@ -229,12 +262,18 @@ private enum VenturePolicyEditor: Identifiable {
 private struct VenturePolicyTextEditSheet: View {
     @Environment(\.dismiss) private var dismiss
     let state: ProductOpsState
+    let onCreated: (VenturePolicyRevisionDetail) -> Void
     @State private var policyText: String
     @State private var reason = ""
     private let originalText: String
 
-    init(state: ProductOpsState, policy: VenturePolicy) {
+    init(
+        state: ProductOpsState,
+        policy: VenturePolicy,
+        onCreated: @escaping (VenturePolicyRevisionDetail) -> Void
+    ) {
         self.state = state
+        self.onCreated = onCreated
         originalText = policy.policyText
         _policyText = State(initialValue: policy.policyText)
     }
@@ -268,12 +307,15 @@ private struct VenturePolicyTextEditSheet: View {
             ToolbarItem(placement: .confirmationAction) {
                 Button {
                     Task {
-                        if await state.updatePolicyText(policyText: policyText, reason: normalizedReason) != nil {
-                            dismiss()
+                        if let revision = await state.createPolicyTextRevision(
+                            policyText: policyText,
+                            reason: normalizedReason
+                        ) {
+                            onCreated(revision)
                         }
                     }
                 } label: {
-                    state.isSavingPolicy ? AnyView(ProgressView()) : AnyView(Text("保存"))
+                    state.isSavingPolicy ? AnyView(ProgressView()) : AnyView(Text("変更内容を確認"))
                 }
                 .disabled(state.isSavingPolicy || policyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || normalizedReason.isEmpty || policyText == originalText)
             }
@@ -289,6 +331,7 @@ private struct VentureRecommendationSettingsEditSheet: View {
     @Environment(\.dismiss) private var dismiss
     let state: ProductOpsState
     let policy: VenturePolicy
+    let onCreated: (VenturePolicyRevisionDetail) -> Void
 
     @State private var mission: String
     @State private var targetSegments: [VenturePolicyTargetSegment]
@@ -304,9 +347,14 @@ private struct VentureRecommendationSettingsEditSheet: View {
     @State private var hardGates: [VenturePolicyHardGate]
     @State private var reason = ""
 
-    init(state: ProductOpsState, policy: VenturePolicy) {
+    init(
+        state: ProductOpsState,
+        policy: VenturePolicy,
+        onCreated: @escaping (VenturePolicyRevisionDetail) -> Void
+    ) {
         self.state = state
         self.policy = policy
+        self.onCreated = onCreated
         _mission = State(initialValue: policy.mission)
         _targetSegments = State(initialValue: policy.targetSegments)
         _desiredOutcomes = State(initialValue: policy.desiredOutcomes)
@@ -451,6 +499,7 @@ private struct VentureRecommendationSettingsEditSheet: View {
                             mission: mission.trimmingCharacters(in: .whitespacesAndNewlines),
                             targetSegments: normalizedSegments,
                             desiredOutcomes: normalized(desiredOutcomes),
+                            commercialHypotheses: normalized(commercialHypotheses),
                             focusAreas: normalized(focusAreas),
                             exclusions: normalized(exclusions),
                             researchGuardrails: normalized(researchGuardrails),
@@ -463,17 +512,16 @@ private struct VentureRecommendationSettingsEditSheet: View {
                             hardGates: hardGates,
                             maxRecommendations: 1
                         )
-                        if await state.updateRecommendationSettings(
+                        if let revision = await state.createRecommendationSettingsRevision(
                             strategy: strategy,
                             decisionFrame: frame,
-                            commercialHypotheses: normalized(commercialHypotheses),
                             reason: normalizedReason
-                        ) != nil {
-                            dismiss()
+                        ) {
+                            onCreated(revision)
                         }
                     }
                 } label: {
-                    state.isSavingPolicy ? AnyView(ProgressView()) : AnyView(Text("保存"))
+                    state.isSavingPolicy ? AnyView(ProgressView()) : AnyView(Text("変更内容を確認"))
                 }
                 .disabled(!canSave)
             }
@@ -569,6 +617,432 @@ private struct VentureRecommendationSettingsEditSheet: View {
 
     private func normalized(_ values: [String]) -> [String] {
         values.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+    }
+}
+
+struct VenturePolicyRevisionReviewView: View {
+    @Environment(\.dismiss) private var dismiss
+    let state: ProductOpsState
+    @State private var revision: VenturePolicyRevisionDetail
+    @State private var feedbackAction: VenturePolicyRevisionFeedbackAction?
+    @State private var feedback = ""
+    @State private var isConfirmingAdoption = false
+    @State private var errorMessage: String?
+
+    init(state: ProductOpsState, revision: VenturePolicyRevisionDetail) {
+        self.state = state
+        _revision = State(initialValue: revision)
+    }
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 24) {
+                statusSection
+
+                if revision.policyTextDiff.before != revision.policyTextDiff.after {
+                    policyTextDiffSection
+                }
+
+                if !revision.structuredChanges.isEmpty {
+                    structuredChangesSection
+                }
+
+                reviewContextSection
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+            .padding(.bottom, 120)
+        }
+        .navigationTitle("方針変更を確認")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("閉じる") { dismiss() }
+            }
+        }
+        .safeAreaInset(edge: .bottom) {
+            actionBar
+        }
+        .confirmationDialog(
+            "方針変更を反映しますか？",
+            isPresented: $isConfirmingAdoption,
+            titleVisibility: .visible
+        ) {
+            Button("採用して反映") {
+                submit(decision: "adopted", feedback: "差分を確認して採用")
+            }
+            Button("キャンセル", role: .cancel) {}
+        } message: {
+            Text("現在の方針に基づく提案と事業認識は失効し、新しい方針で再評価されます。")
+        }
+        .sheet(item: $feedbackAction) { action in
+            NavigationStack {
+                Form {
+                    Section(action.prompt) {
+                        TextEditor(text: $feedback)
+                            .frame(minHeight: 180)
+                    }
+                }
+                .navigationTitle(action.title)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("閉じる") {
+                            feedback = ""
+                            feedbackAction = nil
+                        }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button(action.submitLabel) {
+                            let normalized = feedback.trimmingCharacters(in: .whitespacesAndNewlines)
+                            feedbackAction = nil
+                            submit(decision: action.decision, feedback: normalized)
+                        }
+                        .disabled(feedback.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                }
+            }
+        }
+        .alert("操作できませんでした", isPresented: Binding(
+            get: { errorMessage != nil },
+            set: { if !$0 { errorMessage = nil } }
+        )) {
+            Button("閉じる", role: .cancel) {}
+        } message: {
+            Text(errorMessage ?? "")
+        }
+    }
+
+    private var statusSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Label(applicationLabel, systemImage: applicationIcon)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(applicationTint)
+                Spacer()
+                Text(riskLabel)
+                    .font(.caption.weight(.semibold))
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 5)
+                    .background(.thinMaterial, in: Capsule())
+            }
+
+            Text(revision.summary)
+                .font(.title3.weight(.semibold))
+
+            if revision.isStale {
+                Label("基準の方針が更新されたため、この候補は採用できません。", systemImage: "exclamationmark.triangle.fill")
+                    .font(.subheadline)
+                    .foregroundStyle(.orange)
+                ForEach(revision.staleReasons, id: \.self) { reason in
+                    Text(reason)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private var policyTextDiffSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("事業方針本文")
+                .font(.headline)
+            VStack(spacing: 0) {
+                ForEach(revision.policyTextDiff.lines) { line in
+                    HStack(alignment: .top, spacing: 8) {
+                        Text(diffLineNumber(line))
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .frame(width: 52, alignment: .trailing)
+                        Text(diffPrefix(line.kind))
+                            .font(.body.monospaced())
+                            .foregroundStyle(diffTint(line.kind))
+                        Text(line.text.isEmpty ? " " : line.text)
+                            .font(.body.monospaced())
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(diffBackground(line.kind))
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(.quaternary, lineWidth: 1)
+            }
+        }
+    }
+
+    private var structuredChangesSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("推薦設定")
+                .font(.headline)
+            ForEach(revision.structuredChanges) { change in
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(change.label)
+                        .font(.subheadline.weight(.semibold))
+                    comparisonBlock(label: "変更前", value: change.before, tint: .red)
+                    comparisonBlock(label: "変更後", value: change.after, tint: .green)
+                }
+                .padding(.vertical, 4)
+            }
+        }
+    }
+
+    private var reviewContextSection: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            detailText("変更理由", revision.rationale)
+            detailText("期待する影響", revision.expectedImpact)
+            if !revision.contraryEvidence.isEmpty {
+                textSection("反対材料", values: revision.contraryEvidence)
+            }
+            if let summary = revision.consultationSummary, !summary.isEmpty {
+                detailText("相談の要約", summary)
+            }
+            if !revision.sourceRefs.isEmpty {
+                textSection(
+                    "根拠",
+                    values: revision.sourceRefs.map { "\($0.kind) / \($0.relation) / \($0.id)" }
+                )
+            }
+        }
+    }
+
+    private var actionBar: some View {
+        HStack(spacing: 10) {
+            if revision.canReject {
+                actionButton("却下", systemImage: "xmark", tint: .red) {
+                    feedback = ""
+                    feedbackAction = .reject
+                }
+            }
+            if revision.canRequestRevision && !revision.isStale {
+                actionButton("修正", systemImage: "arrow.uturn.backward", tint: .orange) {
+                    feedback = ""
+                    feedbackAction = .revise
+                }
+            }
+            if revision.canAdopt && !revision.isStale {
+                actionButton("採用", systemImage: "checkmark", tint: .green) {
+                    isConfirmingAdoption = true
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(.ultraThinMaterial)
+    }
+
+    private func actionButton(
+        _ title: String,
+        systemImage: String,
+        tint: Color,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(.headline)
+                .frame(maxWidth: .infinity, minHeight: 52)
+        }
+        .buttonStyle(VenturePolicyTranslucentButtonStyle(tint: tint))
+        .disabled(state.isUpdatingMission)
+    }
+
+    private func comparisonBlock(label: String, value: ProductOpsMetadataValue, tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(tint)
+            Text(metadataText(value))
+                .font(.subheadline)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+        }
+        .padding(10)
+        .background(tint.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func detailText(_ title: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(title)
+                .font(.headline)
+            Text(value)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func textSection(_ title: String, values: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text(title)
+                .font(.headline)
+            ForEach(values, id: \.self) { value in
+                HStack(alignment: .top, spacing: 7) {
+                    Text("•")
+                    Text(value)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
+    private func submit(decision: String, feedback: String) {
+        Task {
+            do {
+                revision = try await state.reviewPolicyRevision(
+                    detail: revision,
+                    decision: decision,
+                    feedback: feedback
+                )
+                if decision != "revision_requested" || revision.status == "awaiting_external_input" {
+                    dismiss()
+                }
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private var applicationLabel: String {
+        switch revision.applicationStatus {
+        case "pending_apply": "反映待ち"
+        case "applied": "反映済み"
+        case "apply_failed": "反映失敗"
+        case "stale": "古い候補"
+        default: "確認待ち"
+        }
+    }
+
+    private var applicationIcon: String {
+        switch revision.applicationStatus {
+        case "applied": "checkmark.circle.fill"
+        case "apply_failed", "stale": "exclamationmark.triangle.fill"
+        case "pending_apply": "clock.fill"
+        default: "doc.text.magnifyingglass"
+        }
+    }
+
+    private var applicationTint: Color {
+        switch revision.applicationStatus {
+        case "applied": .green
+        case "apply_failed", "stale": .red
+        case "pending_apply": .orange
+        default: .secondary
+        }
+    }
+
+    private var riskLabel: String {
+        switch revision.risk {
+        case "critical": "重大"
+        case "high": "高リスク"
+        default: "中リスク"
+        }
+    }
+
+    private func diffPrefix(_ kind: String) -> String {
+        switch kind {
+        case "added": "+"
+        case "removed": "−"
+        default: " "
+        }
+    }
+
+    private func diffLineNumber(_ line: VenturePolicyDiffLine) -> String {
+        "\(line.oldLineNumber.map(String.init) ?? " ")  \(line.newLineNumber.map(String.init) ?? " ")"
+    }
+
+    private func diffTint(_ kind: String) -> Color {
+        switch kind {
+        case "added": .green
+        case "removed": .red
+        default: .secondary
+        }
+    }
+
+    private func diffBackground(_ kind: String) -> Color {
+        switch kind {
+        case "added": Color.green.opacity(0.09)
+        case "removed": Color.red.opacity(0.09)
+        default: Color.clear
+        }
+    }
+
+    private func metadataText(_ value: ProductOpsMetadataValue, indent: String = "") -> String {
+        switch value {
+        case .string(let value): value
+        case .number(let value): value.formatted()
+        case .bool(let value): value ? "有効" : "無効"
+        case .null: "なし"
+        case .array(let values):
+            values.map { "• \(metadataText($0, indent: indent + "  "))" }.joined(separator: "\n")
+        case .object(let values):
+            values.keys.sorted().map { key in
+                "\(key): \(metadataText(values[key] ?? .null, indent: indent + "  "))"
+            }.joined(separator: "\n")
+        }
+    }
+}
+
+struct VenturePolicyRevisionLoaderView: View {
+    let state: ProductOpsState
+    let missionId: String
+    @State private var revision: VenturePolicyRevisionDetail?
+    @State private var errorMessage: String?
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if let revision {
+                    VenturePolicyRevisionReviewView(state: state, revision: revision)
+                } else if let errorMessage {
+                    ContentUnavailableView {
+                        Label("方針変更を読み込めません", systemImage: "exclamationmark.triangle")
+                    } description: {
+                        Text(errorMessage)
+                    } actions: {
+                        Button("再試行") { Task { await load() } }
+                    }
+                } else {
+                    ProgressView("差分を読み込んでいます")
+                }
+            }
+        }
+        .task { await load() }
+    }
+
+    private func load() async {
+        errorMessage = nil
+        do {
+            revision = try await state.fetchPolicyRevision(missionId: missionId)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+}
+
+private enum VenturePolicyRevisionFeedbackAction: String, Identifiable {
+    case revise
+    case reject
+
+    var id: String { rawValue }
+    var decision: String { self == .revise ? "revision_requested" : "rejected" }
+    var title: String { self == .revise ? "修正を依頼" : "方針変更案を却下" }
+    var prompt: String { self == .revise ? "直してほしい内容" : "却下する理由" }
+    var submitLabel: String { self == .revise ? "修正を依頼" : "却下する" }
+}
+
+private struct VenturePolicyTranslucentButtonStyle: ButtonStyle {
+    let tint: Color
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(tint)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(tint.opacity(configuration.isPressed ? 0.55 : 0.25), lineWidth: 1)
+            }
+            .opacity(configuration.isPressed ? 0.72 : 1)
     }
 }
 
