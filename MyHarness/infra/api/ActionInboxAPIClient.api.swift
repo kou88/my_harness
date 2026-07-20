@@ -126,8 +126,24 @@ final class ActionInboxAPIClient {
         var data: VentureMissionProgressPayload
     }
 
-    private struct VentureLearningAdoptionEnvelope: Decodable {
-        var data: VentureLearningAdoptionResult
+    private struct VentureResearchClipCandidateEnvelope: Decodable {
+        var data: VentureResearchClipCandidatePayload
+    }
+
+    private struct VentureResearchClipSaveEnvelope: Decodable {
+        var data: VentureResearchClipSaveResult
+    }
+
+    private struct VentureResearchClipPageEnvelope: Decodable {
+        var data: VentureResearchClipPage
+    }
+
+    private struct VentureResearchClipEnvelope: Decodable {
+        var data: VentureResearchClip
+    }
+
+    private struct VentureResearchClipAssociationOptionsEnvelope: Decodable {
+        var data: VentureResearchClipAssociationOptions
     }
 
     private struct NeedsEnvelope: Decodable {
@@ -237,8 +253,26 @@ final class ActionInboxAPIClient {
         }
     }
 
-    private struct VentureLearningAdoptionRequest: Encodable {
-        var decisionNote: String
+    private struct VentureResearchClipSaveRequest: Encodable {
+        struct Item: Encodable {
+            var itemKey: String
+            var userNote: String
+            var opportunityId: String?
+            var hypothesisId: String?
+        }
+
+        var items: [Item]
+    }
+
+    private struct VentureResearchClipUpdateRequest: Encodable {
+        var expectedVersion: Int
+        var userNote: String
+        var opportunityId: String?
+        var hypothesisId: String?
+    }
+
+    private struct VentureResearchClipVersionRequest: Encodable {
+        var expectedVersion: Int
     }
 
     private struct VentureDeliverableReviewRequest: Encodable {
@@ -448,6 +482,87 @@ final class ActionInboxAPIClient {
         return try decoder.decode(VentureResearchMissionListEnvelope.self, from: data).data
     }
 
+    func fetchResearchClipCandidates(deliverableId: String) async throws -> VentureResearchClipCandidatePayload {
+        let data = try await request(
+            path: "/api/v2/deliverables/\(deliverableId)/research-clip-candidates",
+            method: "GET"
+        )
+        return try decoder.decode(VentureResearchClipCandidateEnvelope.self, from: data).data
+    }
+
+    func saveResearchClip(
+        deliverableId: String,
+        itemKey: String,
+        userNote: String = "",
+        opportunityId: String? = nil,
+        hypothesisId: String? = nil
+    ) async throws -> VentureResearchClipSaveResult.Item {
+        let data = try await request(
+            path: "/api/v2/deliverables/\(deliverableId)/research-clips",
+            method: "POST",
+            body: VentureResearchClipSaveRequest(items: [.init(
+                itemKey: itemKey,
+                userNote: userNote,
+                opportunityId: opportunityId,
+                hypothesisId: hypothesisId
+            )])
+        )
+        guard let item = try decoder.decode(VentureResearchClipSaveEnvelope.self, from: data).data.items.first else {
+            throw ClientError.invalidResponse
+        }
+        return item
+    }
+
+    func fetchResearchClips(ventureId: String, cursor: String? = nil) async throws -> VentureResearchClipPage {
+        var queryItems = [URLQueryItem(name: "limit", value: "50")]
+        if let cursor {
+            queryItems.append(URLQueryItem(name: "cursor", value: cursor))
+        }
+        let data = try await request(
+            path: "/api/v2/ventures/\(ventureId)/research-clips",
+            method: "GET",
+            queryItems: queryItems
+        )
+        return try decoder.decode(VentureResearchClipPageEnvelope.self, from: data).data
+    }
+
+    func fetchResearchClipAssociationOptions(ventureId: String) async throws -> VentureResearchClipAssociationOptions {
+        let data = try await request(
+            path: "/api/v2/ventures/\(ventureId)/research-clip-association-options",
+            method: "GET"
+        )
+        return try decoder.decode(VentureResearchClipAssociationOptionsEnvelope.self, from: data).data
+    }
+
+    func updateResearchClip(
+        clipId: String,
+        expectedVersion: Int,
+        userNote: String,
+        opportunityId: String?,
+        hypothesisId: String?
+    ) async throws -> VentureResearchClip {
+        let data = try await request(
+            path: "/api/v2/research-clips/\(clipId)",
+            method: "PATCH",
+            body: VentureResearchClipUpdateRequest(
+                expectedVersion: expectedVersion,
+                userNote: userNote,
+                opportunityId: opportunityId,
+                hypothesisId: hypothesisId
+            )
+        )
+        return try decoder.decode(VentureResearchClipEnvelope.self, from: data).data
+    }
+
+    func archiveResearchClip(clipId: String, expectedVersion: Int) async throws -> VentureResearchClip {
+        let data = try await request(
+            path: "/api/v2/research-clips/\(clipId)/archive",
+            method: "POST",
+            body: VentureResearchClipVersionRequest(expectedVersion: expectedVersion)
+        )
+        return try decoder.decode(VentureResearchClipEnvelope.self, from: data).data
+    }
+
     func fetchVentureMessageMissions(ventureId: String) async throws -> VentureMessageMissionListPayload {
         let data = try await request(path: "/api/v2/ventures/\(ventureId)/message-missions", method: "GET")
         return try decoder.decode(VentureMessageMissionListEnvelope.self, from: data).data
@@ -476,15 +591,6 @@ final class ActionInboxAPIClient {
     func fetchVentureMissionProgress(ventureId: String) async throws -> VentureMissionProgressPayload {
         let data = try await request(path: "/api/v2/ventures/\(ventureId)/mission-progress", method: "GET")
         return try decoder.decode(VentureMissionProgressEnvelope.self, from: data).data
-    }
-
-    func adoptResearchLearning(deliverableId: String, decisionNote: String) async throws -> VentureLearningAdoptionResult {
-        let data = try await request(
-            path: "/api/v2/deliverables/\(deliverableId)/adopt-learning",
-            method: "POST",
-            body: VentureLearningAdoptionRequest(decisionNote: decisionNote)
-        )
-        return try decoder.decode(VentureLearningAdoptionEnvelope.self, from: data).data
     }
 
     @discardableResult

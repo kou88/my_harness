@@ -16,6 +16,7 @@ final class ProductOpsState {
     var missionItemsState: LoadState<VentureMissionSummaryPage> = .idle
     var developmentMissionsState: LoadState<[VentureDevelopmentMissionItem]> = .idle
     var researchMissionsState: LoadState<[VentureResearchMissionItem]> = .idle
+    var researchClipsState: LoadState<VentureResearchClipPage> = .idle
     var messageMissionsState: LoadState<[VentureMessageMissionItem]> = .idle
     var verificationMissionsState: LoadState<[VentureVerificationMissionItem]> = .idle
     var monitoringAlertsState: LoadState<[VentureMonitoringAlertItem]> = .idle
@@ -47,6 +48,7 @@ final class ProductOpsState {
     private var startingCodexTaskIds: Set<String> = []
     private var mutatingVentureProposalIds: Set<String> = []
     private var mutatingMissionIds: Set<String> = []
+    private var mutatingResearchClipIds: Set<String> = []
 
     init(
         authSession: CognitoAuthSession?,
@@ -120,6 +122,11 @@ final class ProductOpsState {
         return items
     }
 
+    var researchClipItems: [VentureResearchClipListItem] {
+        guard case .loaded(let page) = researchClipsState else { return [] }
+        return page.items
+    }
+
     var messageMissionItems: [VentureMessageMissionItem] {
         guard case .loaded(let items) = messageMissionsState else {
             return []
@@ -189,6 +196,7 @@ final class ProductOpsState {
         missionItemsState = .idle
         developmentMissionsState = .idle
         researchMissionsState = .idle
+        researchClipsState = .idle
         messageMissionsState = .idle
         verificationMissionsState = .idle
         monitoringAlertsState = .idle
@@ -204,6 +212,7 @@ final class ProductOpsState {
         startingCodexTaskIds.removeAll()
         mutatingVentureProposalIds.removeAll()
         mutatingMissionIds.removeAll()
+        mutatingResearchClipIds.removeAll()
         isRequestingRecommendationHeartbeat = false
     }
 
@@ -336,6 +345,121 @@ final class ProductOpsState {
             throw ActionInboxConfigurationError.missingValue("ActionAPIBaseURL")
         }
         return try await apiClient.fetchVentureMissionDetail(missionId: missionId)
+    }
+
+    func fetchResearchClipCandidates(deliverableId: String) async throws -> VentureResearchClipCandidatePayload {
+        guard let apiClient else {
+            throw ActionInboxConfigurationError.missingValue("ActionAPIBaseURL")
+        }
+        return try await apiClient.fetchResearchClipCandidates(deliverableId: deliverableId)
+    }
+
+    func saveResearchClip(deliverableId: String, itemKey: String) async throws -> VentureResearchClip {
+        guard let apiClient else {
+            throw ActionInboxConfigurationError.missingValue("ActionAPIBaseURL")
+        }
+        mutatingResearchClipIds.insert(itemKey)
+        defer { mutatingResearchClipIds.remove(itemKey) }
+        let result = try await apiClient.saveResearchClip(deliverableId: deliverableId, itemKey: itemKey)
+        message = result.outcome == "existing" ? "保存済みの調査メモです" : "調査メモに保存しました"
+        return result.clip
+    }
+
+    func loadResearchClips() async {
+        guard let apiClient else { return }
+        researchClipsState = .loading
+        do {
+            researchClipsState = .loaded(try await apiClient.fetchResearchClips(ventureId: ventureId))
+        } catch {
+            researchClipsState = .failed("調査メモの読み込みに失敗しました: \(error.localizedDescription)")
+        }
+    }
+
+    func loadMoreResearchClips() async {
+        guard let apiClient,
+              case .loaded(let current) = researchClipsState,
+              let cursor = current.nextCursor else { return }
+        do {
+            let next = try await apiClient.fetchResearchClips(ventureId: ventureId, cursor: cursor)
+            let existingIds = Set(current.items.map(\.id))
+            researchClipsState = .loaded(VentureResearchClipPage(
+                items: current.items + next.items.filter { !existingIds.contains($0.id) },
+                nextCursor: next.nextCursor
+            ))
+        } catch {
+            message = "調査メモの続きを読み込めませんでした: \(error.localizedDescription)"
+        }
+    }
+
+    func fetchResearchClipAssociationOptions() async throws -> VentureResearchClipAssociationOptions {
+        guard let apiClient else {
+            throw ActionInboxConfigurationError.missingValue("ActionAPIBaseURL")
+        }
+        return try await apiClient.fetchResearchClipAssociationOptions(ventureId: ventureId)
+    }
+
+    func updateResearchClip(
+        _ clip: VentureResearchClip,
+        userNote: String,
+        opportunityId: String?,
+        hypothesisId: String?
+    ) async throws -> VentureResearchClip {
+        guard let apiClient else {
+            throw ActionInboxConfigurationError.missingValue("ActionAPIBaseURL")
+        }
+        mutatingResearchClipIds.insert(clip.id)
+        defer { mutatingResearchClipIds.remove(clip.id) }
+        let updated = try await apiClient.updateResearchClip(
+            clipId: clip.id,
+            expectedVersion: clip.version,
+            userNote: userNote,
+            opportunityId: opportunityId,
+            hypothesisId: hypothesisId
+        )
+        replaceResearchClip(updated)
+        message = "調査メモを更新しました"
+        return updated
+    }
+
+    func archiveResearchClip(_ clip: VentureResearchClip) async throws {
+        guard let apiClient else {
+            throw ActionInboxConfigurationError.missingValue("ActionAPIBaseURL")
+        }
+        mutatingResearchClipIds.insert(clip.id)
+        defer { mutatingResearchClipIds.remove(clip.id) }
+        _ = try await apiClient.archiveResearchClip(clipId: clip.id, expectedVersion: clip.version)
+        if case .loaded(let page) = researchClipsState {
+            researchClipsState = .loaded(VentureResearchClipPage(
+                items: page.items.filter { $0.clip.id != clip.id },
+                nextCursor: page.nextCursor
+            ))
+        }
+        message = "調査メモの保存を解除しました"
+    }
+
+    func archiveResearchClip(clipId: String, expectedVersion: Int) async throws {
+        guard let apiClient else {
+            throw ActionInboxConfigurationError.missingValue("ActionAPIBaseURL")
+        }
+        mutatingResearchClipIds.insert(clipId)
+        defer { mutatingResearchClipIds.remove(clipId) }
+        _ = try await apiClient.archiveResearchClip(clipId: clipId, expectedVersion: expectedVersion)
+        message = "調査メモの保存を解除しました"
+    }
+
+    func isMutatingResearchClip(id: String) -> Bool {
+        mutatingResearchClipIds.contains(id)
+    }
+
+    private func replaceResearchClip(_ clip: VentureResearchClip) {
+        guard case .loaded(let page) = researchClipsState else { return }
+        researchClipsState = .loaded(VentureResearchClipPage(
+            items: page.items.map { item in
+                guard item.clip.id == clip.id else { return item }
+                return VentureResearchClipListItem(clip: clip, sourceState: item.sourceState)
+            },
+            nextCursor: page.nextCursor
+        ))
     }
 
     func fetchProposalDetail(_ item: VentureDecisionInboxItem) async throws -> VentureProposalDetail {
@@ -872,20 +996,6 @@ final class ProductOpsState {
         } catch {
             message = "Codex実装を開始できませんでした: \(error.localizedDescription)"
             return nil
-        }
-    }
-
-    func adoptResearchLearning(deliverable: VentureDeliverable) async {
-        guard let apiClient else { return }
-        do {
-            _ = try await apiClient.adoptResearchLearning(
-                deliverableId: deliverable.id,
-                decisionNote: "調査結果をLearningとして採用"
-            )
-            message = "調査結果をLearningとして採用しました"
-            await loadNextActions()
-        } catch {
-            message = "Learningとして採用できませんでした: \(error.localizedDescription)"
         }
     }
 
