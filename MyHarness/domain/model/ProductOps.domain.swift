@@ -611,10 +611,6 @@ struct VentureVerificationMissionListPayload: Decodable, Hashable {
     var items: [VentureVerificationMissionItem]
 }
 
-struct VentureKnowledgeChangeMissionListPayload: Decodable, Hashable {
-    var items: [VentureKnowledgeChangeMissionItem]
-}
-
 struct VentureMonitoringAlertListPayload: Decodable, Hashable {
     var items: [VentureMonitoringAlertItem]
 }
@@ -745,22 +741,6 @@ struct VentureVerificationMissionItem: Identifiable, Decodable, Hashable {
     }
 }
 
-struct VentureKnowledgeChangeMissionItem: Identifiable, Decodable, Hashable {
-    var mission: VentureKnowledgeChangeMission
-    var result: VentureKnowledgeChangeMissionResult?
-    var deliverables: [VentureDeliverable]
-
-    var id: String { mission.id }
-
-    var knowledgeChangeDeliverable: VentureDeliverable? {
-        deliverables.first { $0.kind == "knowledge_change" }
-    }
-
-    var knowledgeChange: VentureKnowledgeChangeDeliverable? {
-        knowledgeChangeDeliverable?.knowledgeChangePayload ?? result?.knowledgeChange
-    }
-}
-
 struct VentureMonitoringAlertItem: Identifiable, Decodable, Hashable {
     var alert: VentureMonitoringAlert
     var deliverables: [VentureDeliverable]
@@ -863,23 +843,6 @@ struct VentureVerificationMission: Identifiable, Decodable, Hashable {
     var updatedAt: Date
 }
 
-struct VentureKnowledgeChangeMission: Identifiable, Decodable, Hashable {
-    var id: String
-    var ownerUserId: String
-    var agentOwnerUserId: String
-    var ventureId: String
-    var sourceSynthesisVersionId: String
-    var baseStrategyVersionId: String
-    var baseDecisionFrameVersionId: String
-    var objective: String
-    var status: String
-    var agentTaskId: String?
-    var resultId: String?
-    var error: String?
-    var createdAt: Date
-    var updatedAt: Date
-}
-
 struct VentureMonitoringAlert: Identifiable, Decodable, Hashable {
     var id: String
     var ownerUserId: String
@@ -946,16 +909,6 @@ struct VentureVerificationMissionResult: Decodable, Hashable {
     var agentTaskId: String
     var summary: String
     var report: VentureVerificationReportDeliverable
-    var rawResult: ProductOpsMetadataValue?
-    var submittedAt: Date
-}
-
-struct VentureKnowledgeChangeMissionResult: Decodable, Hashable {
-    var id: String
-    var missionId: String
-    var agentTaskId: String
-    var summary: String
-    var knowledgeChange: VentureKnowledgeChangeDeliverable
     var rawResult: ProductOpsMetadataValue?
     var submittedAt: Date
 }
@@ -1994,9 +1947,17 @@ struct VenturePolicy: Identifiable, Decodable, Hashable {
     var currentView: String?
     var synthesisVersionId: String?
     var pendingPolicyChangeCount: Int
+    var policyChangeStatusCounts: VenturePolicyChangeStatusCounts
     var generatedAt: Date
 
     var id: String { ventureId }
+}
+
+struct VenturePolicyChangeStatusCounts: Decodable, Hashable {
+    var awaitingReview: Int
+    var awaitingExternalInput: Int
+    var pendingApply: Int
+    var applyFailed: Int
 }
 
 struct VenturePolicyStrategySettingsRequest: Codable, Hashable {
@@ -2108,6 +2069,7 @@ struct VenturePolicyRevisionDetail: Decodable, Hashable, Identifiable {
     var reviewDeepLink: String
     var origin: String
     var status: String
+    var reviewStatus: String
     var applicationStatus: String
     var applicationError: String?
     var baseVersions: VenturePolicyRevisionVersions

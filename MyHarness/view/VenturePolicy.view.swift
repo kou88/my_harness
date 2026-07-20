@@ -163,22 +163,41 @@ struct VenturePolicyView: View {
                     }
                 }
 
-                if policy.pendingPolicyChangeCount > 0 {
+                let statusCounts = policy.policyChangeStatusCounts
+                if statusCounts.awaitingReview
+                    + statusCounts.awaitingExternalInput
+                    + statusCounts.pendingApply
+                    + statusCounts.applyFailed > 0 {
                     Section {
-                        Button {
-                            Task { await openPendingPolicyRevision() }
-                        } label: {
-                            HStack {
-                                Text("確認待ちの変更")
-                                    .foregroundStyle(.primary)
-                                Spacer()
-                                Text("\(policy.pendingPolicyChangeCount)件")
-                                    .monospacedDigit()
-                                    .foregroundStyle(.orange)
-                                Image(systemName: "chevron.right")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(.tertiary)
-                            }
+                        policyRevisionStatusRow(
+                            "確認待ち",
+                            count: statusCounts.awaitingReview,
+                            statuses: ["awaiting_review"],
+                            tint: .orange
+                        )
+                        policyRevisionStatusRow(
+                            "Codex修正待ち",
+                            count: statusCounts.awaitingExternalInput,
+                            statuses: ["awaiting_external_input"],
+                            tint: .blue
+                        )
+                        policyRevisionStatusRow(
+                            "反映待ち",
+                            count: statusCounts.pendingApply,
+                            statuses: ["pending_apply"],
+                            tint: .orange
+                        )
+                        policyRevisionStatusRow(
+                            "反映失敗",
+                            count: statusCounts.applyFailed,
+                            statuses: ["apply_failed"],
+                            tint: .red
+                        )
+                    } header: {
+                        Text("方針変更")
+                    } footer: {
+                        if statusCounts.applyFailed > 0 {
+                            Text("反映失敗はバックエンドで再試行されます。詳細から失敗理由を確認できます。")
                         }
                     }
                 }
@@ -234,12 +253,38 @@ struct VenturePolicyView: View {
         direction == "higher_is_better" ? "高いほど優先" : "低いほど優先"
     }
 
-    private func openPendingPolicyRevision() async {
+    @ViewBuilder
+    private func policyRevisionStatusRow(
+        _ label: String,
+        count: Int,
+        statuses: Set<String>,
+        tint: Color
+    ) -> some View {
+        if count > 0 {
+            Button {
+                Task { await openPolicyRevisions(statuses: statuses) }
+            } label: {
+                HStack {
+                    Text(label)
+                        .foregroundStyle(.primary)
+                    Spacer()
+                    Text("\(count)件")
+                        .monospacedDigit()
+                        .foregroundStyle(tint)
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+        }
+    }
+
+    private func openPolicyRevisions(statuses: Set<String>) async {
         let items = state.missionSummaryItems.filter {
-            $0.deliverableKind == "knowledge_change" && $0.status == "awaiting_review"
+            $0.deliverableKind == "knowledge_change" && statuses.contains($0.status)
         }
         guard !items.isEmpty else {
-            state.message = "確認待ちの方針変更を取得できませんでした"
+            state.message = "方針変更の詳細を取得できませんでした"
             return
         }
         guard items.count == 1, let item = items.first else {
@@ -288,9 +333,12 @@ private struct VenturePolicyRevisionListView: View {
                         Text(item.title)
                             .foregroundStyle(.primary)
                             .lineLimit(2)
-                        Text(item.updatedAt, format: .dateTime.year().month().day().hour().minute())
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        HStack(spacing: 8) {
+                            Text(statusLabel(item.status))
+                            Text(item.updatedAt, format: .dateTime.year().month().day().hour().minute())
+                        }
+                        .font(.caption)
+                        .foregroundStyle(item.status == "apply_failed" ? .red : .secondary)
                     }
                     Spacer()
                     if loadingMissionId == item.id {
@@ -306,7 +354,7 @@ private struct VenturePolicyRevisionListView: View {
             .disabled(loadingMissionId != nil)
             .accessibilityLabel("\(item.title)、方針変更の差分を確認")
         }
-        .navigationTitle("確認待ちの方針変更")
+        .navigationTitle("方針変更")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
@@ -330,6 +378,16 @@ private struct VenturePolicyRevisionListView: View {
             onSelect(try await state.fetchPolicyRevision(missionId: item.id))
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    private func statusLabel(_ status: String) -> String {
+        switch status {
+        case "awaiting_review": "確認待ち"
+        case "awaiting_external_input": "Codex修正待ち"
+        case "pending_apply": "反映待ち"
+        case "apply_failed": "反映失敗"
+        default: status
         }
     }
 }
@@ -900,6 +958,14 @@ struct VenturePolicyRevisionReviewView: View {
 
     private var reviewContextSection: some View {
         VStack(alignment: .leading, spacing: 18) {
+            if revision.origin == "manual_edit" && revision.reviewStatus == "awaiting_review" {
+                Label(
+                    "内容を直す場合は、この案を却下して編集画面から作り直してください。",
+                    systemImage: "pencil.and.list.clipboard"
+                )
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            }
             detailText("変更理由", revision.rationale)
             detailText("期待する影響", revision.expectedImpact)
             if !revision.contraryEvidence.isEmpty {
@@ -1049,7 +1115,14 @@ struct VenturePolicyRevisionReviewView: View {
         case "applied": "反映済み"
         case "apply_failed": "反映失敗"
         case "stale": "古い候補"
-        default: "確認待ち"
+        case "not_requested":
+            switch revision.reviewStatus {
+            case "revision_requested": "Codex修正待ち"
+            case "adopted": "採用済み"
+            case "rejected": "却下済み"
+            default: "確認待ち"
+            }
+        default: revision.applicationStatus
         }
     }
 
@@ -1058,6 +1131,8 @@ struct VenturePolicyRevisionReviewView: View {
         case "applied": "checkmark.circle.fill"
         case "apply_failed", "stale": "exclamationmark.triangle.fill"
         case "pending_apply": "clock.fill"
+        case "not_requested" where revision.reviewStatus == "revision_requested": "arrow.triangle.2.circlepath"
+        case "not_requested" where revision.reviewStatus == "rejected": "xmark.circle.fill"
         default: "doc.text.magnifyingglass"
         }
     }
@@ -1067,6 +1142,8 @@ struct VenturePolicyRevisionReviewView: View {
         case "applied": .green
         case "apply_failed", "stale": .red
         case "pending_apply": .orange
+        case "not_requested" where revision.reviewStatus == "revision_requested": .blue
+        case "not_requested" where revision.reviewStatus == "rejected": .secondary
         default: .secondary
         }
     }
