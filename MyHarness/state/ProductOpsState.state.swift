@@ -945,10 +945,12 @@ final class ProductOpsState {
     func updatePolicy(bodyMarkdown: String, reason: String) async -> VenturePolicy? {
         guard let apiClient, let currentPolicy = policy else { return nil }
         isSavingPolicy = true
+        message = "方針を保存しています"
         defer { isSavingPolicy = false }
 
+        let updatedPolicy: VenturePolicy
         do {
-            let policy = try await apiClient.updateVenturePolicy(
+            updatedPolicy = try await apiClient.updateVenturePolicy(
                 ventureId: ventureId,
                 request: VenturePolicyUpdateRequest(
                     expectedStrategyVersionId: currentPolicy.strategyVersionId,
@@ -957,12 +959,20 @@ final class ProductOpsState {
                     reason: reason
                 )
             )
+        } catch {
+            message = "方針を保存できませんでした: \(error.localizedDescription)"
+            return nil
+        }
+
+        policyState = .loaded(updatedPolicy)
+        do {
+            let policy = try await apiClient.fetchVenturePolicy(ventureId: ventureId)
             policyState = .loaded(policy)
             message = "方針を保存しました"
             return policy
         } catch {
-            message = "方針を保存できませんでした: \(error.localizedDescription)"
-            return nil
+            message = "方針は保存されましたが、再読み込みに失敗しました: \(error.localizedDescription)"
+            return updatedPolicy
         }
     }
 

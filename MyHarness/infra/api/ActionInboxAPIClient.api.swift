@@ -750,7 +750,10 @@ final class ActionInboxAPIClient {
         queryItems: [URLQueryItem],
         bodyData: Data?
     ) async throws -> Data {
-        var request = URLRequest(url: endpoint(path: path, queryItems: queryItems))
+        var request = URLRequest(
+            url: endpoint(path: path, queryItems: queryItems),
+            cachePolicy: .reloadIgnoringLocalCacheData
+        )
         request.httpMethod = method
         request.setValue("Bearer \(try await authSession.accessToken())", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Accept")

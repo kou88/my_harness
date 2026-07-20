@@ -135,7 +135,12 @@ private struct VenturePolicyEditSheet: View {
             }
             ToolbarItem(placement: .confirmationAction) {
                 Button {
-                    Task { await save() }
+                    let markdown = normalizedMarkdown
+                    let saveReason = normalizedReason
+                    dismiss()
+                    Task {
+                        await state.updatePolicy(bodyMarkdown: markdown, reason: saveReason)
+                    }
                 } label: {
                     if state.isSavingPolicy {
                         ProgressView()
@@ -167,10 +172,21 @@ private struct VenturePolicyEditSheet: View {
 
     private static func editableMarkdown(from markdown: String) -> String {
         let immutableSection = "\n## システム安全制約"
-        guard let range = markdown.range(of: immutableSection) else {
-            return markdown
+        let editable: String
+        if let range = markdown.range(of: immutableSection) {
+            editable = String(markdown[..<range.lowerBound])
+        } else {
+            editable = markdown
         }
-        return String(markdown[..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+
+        var lines = editable
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
+        if lines.first?.trimmingCharacters(in: .whitespacesAndNewlines) == "# 事業方針" {
+            lines.removeFirst()
+        }
+        return lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private static func normalized(_ markdown: String) -> String {
@@ -182,9 +198,4 @@ private struct VenturePolicyEditSheet: View {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func save() async {
-        if await state.updatePolicy(bodyMarkdown: normalizedMarkdown, reason: normalizedReason) != nil {
-            dismiss()
-        }
-    }
 }
