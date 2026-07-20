@@ -25,7 +25,7 @@ jobs:
         github.event.pull_request.head.repo.full_name == github.repository &&
         github.event.pull_request.head.ref == 'develop'
       )
-    runs-on: [self-hosted, macOS, ARM64]
+    runs-on: macos-26
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -55,6 +55,84 @@ jobs:
           set -euo pipefail
           echo "$ASC_KEY_P8_BASE64" | openssl base64 -d -A > "$RUNNER_TEMP/AuthKey.p8"
           echo "ASC_KEY_P8_PATH=$RUNNER_TEMP/AuthKey.p8" >> "$GITHUB_ENV"
+
+      - name: Resolve next TestFlight build number
+        env:
+          ASC_KEY_ID: ${{ vars.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ vars.ASC_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          ruby <<'RUBY'
+          require 'base64'
+          require 'json'
+          require 'net/http'
+          require 'openssl'
+          require 'uri'
+
+          key_id = ENV.fetch('ASC_KEY_ID')
+          issuer_id = ENV.fetch('ASC_ISSUER_ID')
+          key = OpenSSL::PKey::EC.new(File.read(ENV.fetch('ASC_KEY_P8_PATH')))
+
+          base64url = lambda do |value|
+            Base64.urlsafe_encode64(value).delete('=')
+          end
+          header = base64url.call(JSON.generate({ alg: 'ES256', kid: key_id, typ: 'JWT' }))
+          payload = base64url.call(JSON.generate({
+            iss: issuer_id,
+            exp: Time.now.to_i + 20 * 60,
+            aud: 'appstoreconnect-v1'
+          }))
+          signing_input = "#{header}.#{payload}"
+          signature_der = key.dsa_sign_asn1(OpenSSL::Digest::SHA256.digest(signing_input))
+          signature_asn1 = OpenSSL::ASN1.decode(signature_der)
+          raw_signature = signature_asn1.value.map do |integer|
+            integer.value.to_i.to_s(16).rjust(64, '0')
+          end.join
+          token = "#{signing_input}.#{base64url.call([raw_signature].pack('H*'))}"
+
+          get_json = lambda do |uri|
+            request = Net::HTTP::Get.new(uri)
+            request['Authorization'] = "Bearer #{token}"
+            response = Net::HTTP.start(uri.hostname, uri.port, use_ssl: true) do |http|
+              http.request(request)
+            end
+            unless response.is_a?(Net::HTTPSuccess)
+              warn "App Store Connect request failed: HTTP #{response.code}"
+              exit 1
+            end
+            JSON.parse(response.body)
+          end
+
+          apps_uri = URI('https://api.appstoreconnect.apple.com/v1/apps')
+          apps_uri.query = URI.encode_www_form(
+            'filter[bundleId]' => 'com.kou888.myharness',
+            'fields[apps]' => 'bundleId',
+            'limit' => '2'
+          )
+          app = get_json.call(apps_uri).fetch('data').find do |entry|
+            entry.dig('attributes', 'bundleId') == 'com.kou888.myharness'
+          end
+          abort 'App Store Connect app not found for com.kou888.myharness' unless app
+
+          builds_uri = URI('https://api.appstoreconnect.apple.com/v1/builds')
+          builds_uri.query = URI.encode_www_form(
+            'filter[app]' => app.fetch('id'),
+            'fields[builds]' => 'version,uploadedDate',
+            'sort' => '-uploadedDate',
+            'limit' => '200'
+          )
+          builds = get_json.call(builds_uri).fetch('data')
+          abort 'No existing TestFlight build found' if builds.empty?
+
+          highest_number = builds.map do |build|
+            Integer(build.dig('attributes', 'version'), 10)
+          end.max
+          next_number = highest_number + 1
+          File.open(ENV.fetch('GITHUB_ENV'), 'a') do |file|
+            file.puts "TESTFLIGHT_BUILD_NUMBER=#{next_number}"
+          end
+          puts "Next TestFlight build number: #{next_number}"
+          RUBY
 
       - name: Install signing assets
         env:
@@ -156,7 +234,7 @@ jobs:
           RUBY
           }
 
-          download_profile "my-harness-app-store" "$APP_PROFILE_PATH"
+          download_profile "my-harness-app-store-push-v2" "$APP_PROFILE_PATH"
           download_profile "my-harness-widget-app-store" "$WIDGET_PROFILE_PATH"
 
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
@@ -294,7 +372,7 @@ jobs:
             -configuration Release \
             -destination 'generic/platform=iOS' \
             -archivePath "$RUNNER_TEMP/MyHarness.xcarchive" \
-            CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
+            CURRENT_PROJECT_VERSION="$TESTFLIGHT_BUILD_NUMBER" \
             CODE_SIGN_IDENTITY="Apple Distribution" \
             archive
 

@@ -44,7 +44,7 @@ final class LocalNotificationScheduler: NotificationScheduler {
     }
 }
 
-private extension NotificationPermissionState {
+extension NotificationPermissionState {
     init(status: UNAuthorizationStatus) {
         switch status {
         case .notDetermined:

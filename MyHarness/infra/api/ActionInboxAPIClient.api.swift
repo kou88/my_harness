@@ -10,10 +10,18 @@ final class ActionInboxAPIClient {
             switch self {
             case .invalidResponse:
                 return "APIレスポンスを解釈できません。"
-            case .requestFailed(let status, let body):
-                return "API request failed: \(status) \(body)"
+            case .requestFailed(let status, let message):
+                return "APIエラー（\(status)）: \(message)"
             }
         }
+    }
+
+    private struct ErrorEnvelope: Decodable {
+        struct APIError: Decodable {
+            var message: String
+        }
+
+        var error: APIError
     }
 
     enum PushEnvironment: String, Codable {
@@ -37,6 +45,98 @@ final class ActionInboxAPIClient {
         var data: NextActionsPayload
     }
 
+    private struct VentureDecisionInboxEnvelope: Decodable {
+        var data: VentureDecisionInboxPayload
+    }
+
+    private struct VentureNextActionsEnvelope: Decodable {
+        var data: VentureNextActionsPayload
+    }
+
+    private struct VentureProposalGenerateEnvelope: Decodable {
+        var data: VentureProposalGenerateResult
+    }
+
+    private struct VentureRecommendationHeartbeatEnvelope: Decodable {
+        var data: VentureRecommendationHeartbeatResult
+    }
+
+    private struct VentureProposalDecisionEnvelope: Decodable {
+        var data: VentureProposalDecisionResult
+    }
+
+    private struct VentureProposalDetailEnvelope: Decodable {
+        var data: VentureProposalDetail
+    }
+
+    private struct VentureMissionDetailEnvelope: Decodable {
+        var data: VentureMissionDetail
+    }
+
+    private struct VentureDirectMissionRequestEnvelope: Decodable {
+        var data: VentureDirectMissionRequestResult
+    }
+
+    private struct VentureDevelopmentMissionListEnvelope: Decodable {
+        var data: VentureDevelopmentMissionListPayload
+    }
+
+    private struct VentureDevelopmentMissionEnvelope: Decodable {
+        var data: VentureDevelopmentMissionItem
+    }
+
+    private struct VentureResearchMissionListEnvelope: Decodable {
+        var data: VentureResearchMissionListPayload
+    }
+
+    private struct VentureResearchMissionEnvelope: Decodable {
+        var data: VentureResearchMissionItem
+    }
+
+    private struct VentureMessageMissionListEnvelope: Decodable {
+        var data: VentureMessageMissionListPayload
+    }
+
+    private struct VentureMessageMissionEnvelope: Decodable {
+        var data: VentureMessageMissionItem
+    }
+
+    private struct VentureVerificationMissionListEnvelope: Decodable {
+        var data: VentureVerificationMissionListPayload
+    }
+
+    private struct VentureVerificationMissionEnvelope: Decodable {
+        var data: VentureVerificationMissionItem
+    }
+
+    private struct VentureKnowledgeChangeMissionListEnvelope: Decodable {
+        var data: VentureKnowledgeChangeMissionListPayload
+    }
+
+    private struct VentureKnowledgeChangeMissionEnvelope: Decodable {
+        var data: VentureKnowledgeChangeMissionItem
+    }
+
+    private struct VentureMonitoringAlertListEnvelope: Decodable {
+        var data: VentureMonitoringAlertListPayload
+    }
+
+    private struct VentureMonitoringScanEnvelope: Decodable {
+        var data: VentureMonitoringScanResult
+    }
+
+    private struct VentureMissionCatalogEnvelope: Decodable {
+        var data: VentureMissionCatalogPayload
+    }
+
+    private struct VentureMissionProgressEnvelope: Decodable {
+        var data: VentureMissionProgressPayload
+    }
+
+    private struct VentureLearningAdoptionEnvelope: Decodable {
+        var data: VentureLearningAdoptionResult
+    }
+
     private struct NeedsEnvelope: Decodable {
         var data: [Need]
     }
@@ -49,8 +149,16 @@ final class ActionInboxAPIClient {
         var data: NeedPursueResult
     }
 
-    private struct ProjectPolicyEnvelope: Decodable {
-        var data: ProjectPolicy
+    private struct VenturePolicyEnvelope: Decodable {
+        var data: VenturePolicy
+    }
+
+    private struct VenturePolicyRevisionContextEnvelope: Decodable {
+        var data: VenturePolicyRevisionContext
+    }
+
+    private struct VenturePolicyRevisionEnvelope: Decodable {
+        var data: VenturePolicyRevisionDetail
     }
 
     private struct DevelopmentTasksEnvelope: Decodable {
@@ -62,11 +170,15 @@ final class ActionInboxAPIClient {
     }
 
     private struct PushDeviceEnvelope: Decodable {
-        var data: PushDevice?
+        var data: PushDevice
+    }
+
+    private struct NotificationPreferencesEnvelope: Decodable {
+        var data: PushNotificationPreferences
     }
 
     private struct PushDevice: Decodable {
-        var id: String?
+        var id: String
     }
 
     private struct DecisionRequest: Encodable {
@@ -105,6 +217,51 @@ final class ActionInboxAPIClient {
     private struct DevelopmentTasksReorderRequest: Encodable {
         var projectId: String
         var orderedIds: [String]
+    }
+
+    private struct VentureProposalGenerateResult: Decodable {
+        var recommendationSetId: String
+        var generatedAt: Date
+        var count: Int
+    }
+
+    private struct VentureProposalDecisionRequest: Encodable {
+        struct BetCommitment: Encodable {
+            var successCriteria: [String]
+            var stopConditions: [String]
+        }
+
+        var expectedVersion: Int
+        var decision: VentureDecision
+        var reason: String
+        var feedback: DecisionFeedback?
+        var betCommitment: BetCommitment?
+
+        struct DecisionFeedback: Encodable {
+            var reasonCodes: [String]
+            var note: String?
+            var preferredProposalId: String?
+        }
+    }
+
+    private struct VentureLearningAdoptionRequest: Encodable {
+        var decisionNote: String
+    }
+
+    private struct VentureDeliverableReviewRequest: Encodable {
+        var expectedMissionVersion: Int
+        var expectedRevisionHash: String?
+        var decision: String
+        var feedback: String
+    }
+
+    private struct VentureMissionRetryRequest: Encodable {
+        var expectedMissionVersion: Int
+        var feedback: String
+    }
+
+    private struct VentureMissionCancelRequest: Encodable {
+        var expectedMissionVersion: Int
     }
 
     private struct EmptyRequest: Encodable {}
@@ -151,6 +308,197 @@ final class ActionInboxAPIClient {
             queryItems: [URLQueryItem(name: "projectId", value: projectId)]
         )
         return try decoder.decode(NextActionsEnvelope.self, from: data).data
+    }
+
+    func fetchVentureDecisionInbox(ventureId: String) async throws -> VentureDecisionInboxPayload {
+        let data = try await request(path: "/api/v2/ventures/\(ventureId)/decision-inbox", method: "GET")
+        return try decoder.decode(VentureDecisionInboxEnvelope.self, from: data).data
+    }
+
+    func fetchVentureNextActions(ventureId: String, limit: Int = 10, cursor: String? = nil) async throws -> VentureNextActionsPayload {
+        var queryItems = [URLQueryItem(name: "limit", value: String(limit))]
+        if let cursor {
+            queryItems.append(URLQueryItem(name: "cursor", value: cursor))
+        }
+        let data = try await request(
+            path: "/api/v2/ventures/\(ventureId)/next-actions",
+            method: "GET",
+            queryItems: queryItems
+        )
+        return try decoder.decode(VentureNextActionsEnvelope.self, from: data).data
+    }
+
+    func fetchVentureMissionDetail(missionId: String) async throws -> VentureMissionDetail {
+        let data = try await request(path: "/api/v2/missions/\(missionId)", method: "GET")
+        return try decoder.decode(VentureMissionDetailEnvelope.self, from: data).data
+    }
+
+    func createDirectMission(
+        ventureId: String,
+        request directRequest: VentureDirectMissionRequest
+    ) async throws -> VentureDirectMissionRequestResult {
+        let data: Data
+        switch directRequest {
+        case .research(let requestBody):
+            data = try await request(
+                path: "/api/v2/ventures/\(ventureId)/mission-requests",
+                method: "POST",
+                body: requestBody
+            )
+        case .message(let requestBody):
+            data = try await request(
+                path: "/api/v2/ventures/\(ventureId)/mission-requests",
+                method: "POST",
+                body: requestBody
+            )
+        }
+        return try decoder.decode(VentureDirectMissionRequestEnvelope.self, from: data).data
+    }
+
+    func fetchVentureProposalDetail(proposalId: String) async throws -> VentureProposalDetail {
+        let data = try await request(path: "/api/v2/proposals/\(proposalId)", method: "GET")
+        return try decoder.decode(VentureProposalDetailEnvelope.self, from: data).data
+    }
+
+    func reviewVentureDeliverable(
+        deliverableId: String,
+        expectedMissionVersion: Int,
+        expectedRevisionHash: String?,
+        decision: String,
+        feedback: String
+    ) async throws {
+        try await request(
+            path: "/api/v2/deliverables/\(deliverableId)/reviews",
+            method: "POST",
+            body: VentureDeliverableReviewRequest(
+                expectedMissionVersion: expectedMissionVersion,
+                expectedRevisionHash: expectedRevisionHash,
+                decision: decision,
+                feedback: feedback
+            )
+        )
+    }
+
+    func retryVentureMission(missionId: String, expectedMissionVersion: Int, feedback: String) async throws {
+        try await request(
+            path: "/api/v2/missions/\(missionId)/retry",
+            method: "POST",
+            body: VentureMissionRetryRequest(expectedMissionVersion: expectedMissionVersion, feedback: feedback)
+        )
+    }
+
+    func cancelVentureMission(missionId: String, expectedMissionVersion: Int) async throws {
+        try await request(
+            path: "/api/v2/missions/\(missionId)/cancel",
+            method: "POST",
+            body: VentureMissionCancelRequest(expectedMissionVersion: expectedMissionVersion)
+        )
+    }
+
+    func dismissVentureMission(missionId: String) async throws {
+        try await request(
+            path: "/api/v2/missions/\(missionId)/dismiss",
+            method: "POST"
+        )
+    }
+
+    func fetchVentureDevelopmentMissions(ventureId: String) async throws -> VentureDevelopmentMissionListPayload {
+        let data = try await request(path: "/api/v2/ventures/\(ventureId)/development-missions", method: "GET")
+        return try decoder.decode(VentureDevelopmentMissionListEnvelope.self, from: data).data
+    }
+
+    func fetchVentureResearchMissions(ventureId: String) async throws -> VentureResearchMissionListPayload {
+        let data = try await request(path: "/api/v2/ventures/\(ventureId)/research-missions", method: "GET")
+        return try decoder.decode(VentureResearchMissionListEnvelope.self, from: data).data
+    }
+
+    func fetchVentureMessageMissions(ventureId: String) async throws -> VentureMessageMissionListPayload {
+        let data = try await request(path: "/api/v2/ventures/\(ventureId)/message-missions", method: "GET")
+        return try decoder.decode(VentureMessageMissionListEnvelope.self, from: data).data
+    }
+
+    func fetchVentureVerificationMissions(ventureId: String) async throws -> VentureVerificationMissionListPayload {
+        let data = try await request(path: "/api/v2/ventures/\(ventureId)/verification-missions", method: "GET")
+        return try decoder.decode(VentureVerificationMissionListEnvelope.self, from: data).data
+    }
+
+    func fetchVentureKnowledgeChangeMissions(ventureId: String) async throws -> VentureKnowledgeChangeMissionListPayload {
+        let data = try await request(path: "/api/v2/ventures/\(ventureId)/knowledge-change-missions", method: "GET")
+        return try decoder.decode(VentureKnowledgeChangeMissionListEnvelope.self, from: data).data
+    }
+
+    func fetchVentureMonitoringAlerts(ventureId: String) async throws -> VentureMonitoringAlertListPayload {
+        let data = try await request(path: "/api/v2/ventures/\(ventureId)/monitoring-alerts", method: "GET")
+        return try decoder.decode(VentureMonitoringAlertListEnvelope.self, from: data).data
+    }
+
+    func scanVentureMonitoringAlerts(ventureId: String) async throws -> VentureMonitoringScanResult {
+        let data = try await request(path: "/api/v2/ventures/\(ventureId)/monitoring-alerts/scan", method: "POST", body: EmptyRequest())
+        return try decoder.decode(VentureMonitoringScanEnvelope.self, from: data).data
+    }
+
+    func fetchVentureMissionCatalog() async throws -> VentureMissionCatalogPayload {
+        let data = try await request(path: "/api/v2/mission-catalog", method: "GET")
+        return try decoder.decode(VentureMissionCatalogEnvelope.self, from: data).data
+    }
+
+    func fetchVentureMissionProgress(ventureId: String) async throws -> VentureMissionProgressPayload {
+        let data = try await request(path: "/api/v2/ventures/\(ventureId)/mission-progress", method: "GET")
+        return try decoder.decode(VentureMissionProgressEnvelope.self, from: data).data
+    }
+
+    func adoptResearchLearning(deliverableId: String, decisionNote: String) async throws -> VentureLearningAdoptionResult {
+        let data = try await request(
+            path: "/api/v2/deliverables/\(deliverableId)/adopt-learning",
+            method: "POST",
+            body: VentureLearningAdoptionRequest(decisionNote: decisionNote)
+        )
+        return try decoder.decode(VentureLearningAdoptionEnvelope.self, from: data).data
+    }
+
+    @discardableResult
+    func generateVentureProposals(ventureId: String) async throws -> Int {
+        let data = try await request(path: "/api/v2/ventures/\(ventureId)/proposals/generate", method: "POST", body: EmptyRequest())
+        return try decoder.decode(VentureProposalGenerateEnvelope.self, from: data).data.count
+    }
+
+    @discardableResult
+    func runVentureRecommendationHeartbeat(ventureId: String) async throws -> VentureRecommendationHeartbeatResult {
+        let data = try await request(path: "/api/v2/ventures/\(ventureId)/recommendations/heartbeat", method: "POST", body: EmptyRequest())
+        return try decoder.decode(VentureRecommendationHeartbeatEnvelope.self, from: data).data
+    }
+
+    @discardableResult
+    func decideVentureProposal(
+        proposalId: String,
+        expectedVersion: Int,
+        decision: VentureDecision,
+        reason: String,
+        reasonCodes: [String],
+        feedbackNote: String?,
+        preferredProposalId: String?,
+        successCriteria: [String],
+        stopConditions: [String]
+    ) async throws -> VentureProposalDecisionResult {
+        let commitment = decision == .approved
+            ? VentureProposalDecisionRequest.BetCommitment(successCriteria: successCriteria, stopConditions: stopConditions)
+            : nil
+        let data = try await request(
+            path: "/api/v2/proposals/\(proposalId)/decisions",
+            method: "POST",
+            body: VentureProposalDecisionRequest(
+                expectedVersion: expectedVersion,
+                decision: decision,
+                reason: reason,
+                feedback: VentureProposalDecisionRequest.DecisionFeedback(
+                    reasonCodes: reasonCodes,
+                    note: feedbackNote,
+                    preferredProposalId: preferredProposalId
+                ),
+                betCommitment: commitment
+            )
+        )
+        return try decoder.decode(VentureProposalDecisionEnvelope.self, from: data).data
     }
 
     func fetchNeeds() async throws -> [Need] {
@@ -208,18 +556,31 @@ final class ActionInboxAPIClient {
         return try decoder.decode(NeedEnvelope.self, from: data).data
     }
 
-    func fetchProjectPolicy(projectId: String) async throws -> ProjectPolicy {
-        let data = try await request(path: "/api/project-policies/\(projectId)", method: "GET")
-        return try decoder.decode(ProjectPolicyEnvelope.self, from: data).data
+    func fetchVenturePolicy(ventureId: String) async throws -> VenturePolicy {
+        let data = try await request(path: "/api/v2/ventures/\(ventureId)/policy", method: "GET")
+        return try decoder.decode(VenturePolicyEnvelope.self, from: data).data
     }
 
-    func updateProjectPolicy(projectId: String, fields: ProjectPolicyEditableFields) async throws -> ProjectPolicy {
+    func fetchVenturePolicyRevisionContext(ventureId: String) async throws -> VenturePolicyRevisionContext {
+        let data = try await request(path: "/api/v2/ventures/\(ventureId)/policy-context", method: "GET")
+        return try decoder.decode(VenturePolicyRevisionContextEnvelope.self, from: data).data
+    }
+
+    func createVenturePolicyRevision(
+        ventureId: String,
+        request payload: VenturePolicyRevisionDraft
+    ) async throws -> VenturePolicyRevisionDetail {
         let data = try await request(
-            path: "/api/project-policies/\(projectId)",
-            method: "PATCH",
-            body: fields
+            path: "/api/v2/ventures/\(ventureId)/policy-revisions",
+            method: "POST",
+            body: payload
         )
-        return try decoder.decode(ProjectPolicyEnvelope.self, from: data).data
+        return try decoder.decode(VenturePolicyRevisionEnvelope.self, from: data).data
+    }
+
+    func fetchVenturePolicyRevision(missionId: String) async throws -> VenturePolicyRevisionDetail {
+        let data = try await request(path: "/api/v2/policy-revisions/\(missionId)", method: "GET")
+        return try decoder.decode(VenturePolicyRevisionEnvelope.self, from: data).data
     }
 
     func fetchDevelopmentTasks(projectId: String) async throws -> [DevelopmentTask] {
@@ -335,7 +696,7 @@ final class ActionInboxAPIClient {
         token: String,
         environment: PushEnvironment,
         appVersion: String
-    ) async throws -> String? {
+    ) async throws -> String {
         let data = try await request(
             path: "/api/push-devices",
             method: "POST",
@@ -346,8 +707,28 @@ final class ActionInboxAPIClient {
                 appVersion: appVersion
             )
         )
-        guard !data.isEmpty else { return nil }
-        return try? decoder.decode(PushDeviceEnvelope.self, from: data).data?.id
+        guard !data.isEmpty else { throw ClientError.invalidResponse }
+        let device = try decoder.decode(PushDeviceEnvelope.self, from: data).data
+        guard !device.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw ClientError.invalidResponse
+        }
+        return device.id
+    }
+
+    func fetchNotificationPreferences() async throws -> PushNotificationPreferences {
+        let data = try await request(path: "/api/v2/notification-preferences", method: "GET")
+        return try decoder.decode(NotificationPreferencesEnvelope.self, from: data).data
+    }
+
+    func updateNotificationPreferences(
+        _ preferences: PushNotificationPreferences
+    ) async throws -> PushNotificationPreferences {
+        let data = try await request(
+            path: "/api/v2/notification-preferences",
+            method: "PUT",
+            body: preferences
+        )
+        return try decoder.decode(NotificationPreferencesEnvelope.self, from: data).data
     }
 
     func deletePushDevice(id: String) async throws {
@@ -393,7 +774,10 @@ final class ActionInboxAPIClient {
         queryItems: [URLQueryItem],
         bodyData: Data?
     ) async throws -> Data {
-        var request = URLRequest(url: endpoint(path: path, queryItems: queryItems))
+        var request = URLRequest(
+            url: endpoint(path: path, queryItems: queryItems),
+            cachePolicy: .reloadIgnoringLocalCacheData
+        )
         request.httpMethod = method
         request.setValue("Bearer \(try await authSession.accessToken())", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -408,7 +792,8 @@ final class ActionInboxAPIClient {
         }
         guard (200..<300).contains(httpResponse.statusCode) else {
             let body = String(data: data, encoding: .utf8) ?? ""
-            throw ClientError.requestFailed(httpResponse.statusCode, body)
+            let message = (try? decoder.decode(ErrorEnvelope.self, from: data).error.message) ?? body
+            throw ClientError.requestFailed(httpResponse.statusCode, message)
         }
         return data
     }

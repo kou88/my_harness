@@ -12,34 +12,62 @@ final class ProductOpsState {
     }
 
     var nextActionsState: LoadState<NextActionsPayload> = .idle
+    var decisionInboxState: LoadState<VentureDecisionInboxPayload> = .idle
+    var missionItemsState: LoadState<VentureMissionSummaryPage> = .idle
+    var developmentMissionsState: LoadState<[VentureDevelopmentMissionItem]> = .idle
+    var researchMissionsState: LoadState<[VentureResearchMissionItem]> = .idle
+    var messageMissionsState: LoadState<[VentureMessageMissionItem]> = .idle
+    var verificationMissionsState: LoadState<[VentureVerificationMissionItem]> = .idle
+    var knowledgeChangeMissionsState: LoadState<[VentureKnowledgeChangeMissionItem]> = .idle
+    var monitoringAlertsState: LoadState<[VentureMonitoringAlertItem]> = .idle
+    var missionCatalogState: LoadState<VentureMissionCatalogPayload> = .idle
+    var missionProgressState: LoadState<VentureMissionProgressPayload> = .idle
     var needsState: LoadState<[Need]> = .idle
     var candidatesState: LoadState<[NeedCandidate]> = .idle
     var developmentTasksState: LoadState<[DevelopmentTask]> = .idle
-    var policyState: LoadState<ProjectPolicy> = .idle
+    var policyState: LoadState<VenturePolicy> = .idle
     var isPostingMemo = false
     var isSavingPolicy = false
+    var isPostingVentureDecision = false
+    var isRequestingRecommendationHeartbeat = false
+    var isScanningMonitoringAlerts = false
+    var isCreatingDirectMission = false
+    var isUpdatingMission = false
+    var isLoadingMoreMissionItems = false
     var message: String?
     var configurationErrorMessage: String?
 
     private let authSession: CognitoAuthSession?
     private let apiClient: ActionInboxAPIClient?
+    private let copyText: CopyTextUseCase
     private let projectId: String
+    private let ventureId: String
     private let nextActionOrderStorageKey: String
     private var mutatingNeedIds: Set<String> = []
     private var updatingDevelopmentTaskIds: Set<String> = []
     private var startingCodexTaskIds: Set<String> = []
+    private var mutatingVentureProposalIds: Set<String> = []
+    private var mutatingMissionIds: Set<String> = []
 
     init(
         authSession: CognitoAuthSession?,
         apiClient: ActionInboxAPIClient?,
+        copyText: CopyTextUseCase,
         projectId: String,
         configurationErrorMessage: String?
     ) {
         self.authSession = authSession
         self.apiClient = apiClient
+        self.copyText = copyText
         self.projectId = projectId
+        ventureId = ProductOpsProject.landlordSaaSVenture
         nextActionOrderStorageKey = "myHarness.nextActionTodoOrder.\(projectId)"
         self.configurationErrorMessage = configurationErrorMessage
+    }
+
+    func copyMarkdown(_ markdown: String) {
+        copyText.execute(markdown)
+        message = "Markdownをコピーしました"
     }
 
     var isConfigured: Bool {
@@ -68,6 +96,80 @@ final class ProductOpsState {
         nextActions.first { $0.status == "todo" || $0.status == "blocked" }
     }
 
+    var decisionItems: [VentureDecisionInboxItem] {
+        guard case .loaded(let payload) = decisionInboxState else {
+            return []
+        }
+        return payload.items
+    }
+
+    var recommendedDecisionItem: VentureDecisionInboxItem? {
+        decisionItems.first
+    }
+
+    var developmentMissionItems: [VentureDevelopmentMissionItem] {
+        guard case .loaded(let items) = developmentMissionsState else {
+            return []
+        }
+        return items
+    }
+
+    var researchMissionItems: [VentureResearchMissionItem] {
+        guard case .loaded(let items) = researchMissionsState else {
+            return []
+        }
+        return items
+    }
+
+    var messageMissionItems: [VentureMessageMissionItem] {
+        guard case .loaded(let items) = messageMissionsState else {
+            return []
+        }
+        return items
+    }
+
+    var verificationMissionItems: [VentureVerificationMissionItem] {
+        guard case .loaded(let items) = verificationMissionsState else {
+            return []
+        }
+        return items
+    }
+
+    var knowledgeChangeMissionItems: [VentureKnowledgeChangeMissionItem] {
+        guard case .loaded(let items) = knowledgeChangeMissionsState else {
+            return []
+        }
+        return items
+    }
+
+    var monitoringAlertItems: [VentureMonitoringAlertItem] {
+        guard case .loaded(let items) = monitoringAlertsState else {
+            return []
+        }
+        return items
+    }
+
+    var missionSummaryItems: [VentureMissionSummaryItem] {
+        guard case .loaded(let page) = missionItemsState else {
+            return []
+        }
+        return page.items
+    }
+
+    var nextMissionCursor: String? {
+        guard case .loaded(let page) = missionItemsState else {
+            return nil
+        }
+        return page.nextCursor
+    }
+
+    var missionProgress: VentureMissionProgressPayload? {
+        guard case .loaded(let payload) = missionProgressState else {
+            return nil
+        }
+        return payload
+    }
+
     var needs: [Need] {
         guard case .loaded(let items) = needsState else {
             return []
@@ -82,7 +184,7 @@ final class ProductOpsState {
         return items
     }
 
-    var policy: ProjectPolicy? {
+    var policy: VenturePolicy? {
         guard case .loaded(let policy) = policyState else {
             return nil
         }
@@ -91,6 +193,16 @@ final class ProductOpsState {
 
     func reset() {
         nextActionsState = .idle
+        decisionInboxState = .idle
+        missionItemsState = .idle
+        developmentMissionsState = .idle
+        researchMissionsState = .idle
+        messageMissionsState = .idle
+        verificationMissionsState = .idle
+        knowledgeChangeMissionsState = .idle
+        monitoringAlertsState = .idle
+        missionCatalogState = .idle
+        missionProgressState = .idle
         needsState = .idle
         candidatesState = .idle
         developmentTasksState = .idle
@@ -99,11 +211,14 @@ final class ProductOpsState {
         mutatingNeedIds.removeAll()
         updatingDevelopmentTaskIds.removeAll()
         startingCodexTaskIds.removeAll()
+        mutatingVentureProposalIds.removeAll()
+        mutatingMissionIds.removeAll()
+        isRequestingRecommendationHeartbeat = false
     }
 
     func loadRecommendationsIfPossible() async {
         guard isConfigured, isSignedIn else { return }
-        await loadNextActions()
+        await loadDecisionInbox()
     }
 
     func loadNextActionsIfPossible() async {
@@ -139,13 +254,397 @@ final class ProductOpsState {
 
     func loadNextActions() async {
         guard let apiClient else { return }
-        nextActionsState = .loading
+        let hasVisibleContent: Bool
+        if case .loaded = decisionInboxState {
+            hasVisibleContent = true
+        } else {
+            hasVisibleContent = false
+            decisionInboxState = .loading
+            missionItemsState = .loading
+            developmentMissionsState = .loading
+            researchMissionsState = .loading
+            messageMissionsState = .loading
+            verificationMissionsState = .loading
+            knowledgeChangeMissionsState = .loading
+            monitoringAlertsState = .loading
+            missionProgressState = .loading
+        }
         do {
-            let payload = try await apiClient.fetchNextActions(projectId: projectId)
-            nextActionsState = .loaded(applyingStoredTodoOrder(to: payload))
+            applyNextActionsPayload(try await apiClient.fetchVentureNextActions(ventureId: ventureId))
             message = nil
         } catch {
-            nextActionsState = .failed("次にやることの読み込みに失敗しました: \(error.localizedDescription)")
+            let errorMessage = "次にやることの読み込みに失敗しました: \(error.localizedDescription)"
+            if hasVisibleContent {
+                message = errorMessage
+            } else {
+                decisionInboxState = .failed(errorMessage)
+                missionItemsState = .idle
+                developmentMissionsState = .idle
+                researchMissionsState = .idle
+                messageMissionsState = .idle
+                verificationMissionsState = .idle
+                knowledgeChangeMissionsState = .idle
+                monitoringAlertsState = .idle
+                missionProgressState = .idle
+            }
+        }
+    }
+
+    func loadDecisionInbox() async {
+        guard let apiClient else { return }
+        let hadVisibleContent: Bool
+        if case .loaded = decisionInboxState {
+            hadVisibleContent = true
+        } else {
+            hadVisibleContent = false
+            decisionInboxState = .loading
+        }
+        do {
+            decisionInboxState = .loaded(
+                try await apiClient.fetchVentureDecisionInbox(ventureId: ventureId)
+            )
+        } catch {
+            let errorMessage = "おすすめの更新に失敗しました: \(error.localizedDescription)"
+            if hadVisibleContent {
+                message = errorMessage
+            } else {
+                decisionInboxState = .failed(errorMessage)
+            }
+        }
+    }
+
+    func loadMoreMissionItems() async {
+        guard let apiClient, let cursor = nextMissionCursor, !isLoadingMoreMissionItems else { return }
+        isLoadingMoreMissionItems = true
+        defer { isLoadingMoreMissionItems = false }
+        do {
+            let payload = try await apiClient.fetchVentureNextActions(
+                ventureId: ventureId,
+                limit: 10,
+                cursor: cursor
+            )
+            let existing = missionSummaryItems
+            let knownIds = Set(existing.map(\.id))
+            let additional = payload.missionItems.items.filter { !knownIds.contains($0.id) }
+            decisionInboxState = .loaded(payload.decisionInbox)
+            missionItemsState = .loaded(VentureMissionSummaryPage(
+                items: existing + additional,
+                nextCursor: payload.missionItems.nextCursor
+            ))
+            monitoringAlertsState = .loaded(payload.monitoringAlerts)
+            missionProgressState = .loaded(payload.missionProgress)
+        } catch {
+            message = "続きを読み込めませんでした: \(error.localizedDescription)"
+        }
+    }
+
+    func fetchMissionDetail(_ item: VentureMissionSummaryItem) async throws -> VentureMissionDetail {
+        try await fetchMissionDetail(missionId: item.id)
+    }
+
+    func fetchMissionDetail(missionId: String) async throws -> VentureMissionDetail {
+        guard let apiClient else {
+            throw ActionInboxConfigurationError.missingValue("ActionAPIBaseURL")
+        }
+        return try await apiClient.fetchVentureMissionDetail(missionId: missionId)
+    }
+
+    func fetchProposalDetail(_ item: VentureDecisionInboxItem) async throws -> VentureProposalDetail {
+        try await fetchProposalDetail(proposalId: item.proposalId)
+    }
+
+    func fetchProposalDetail(proposalId: String) async throws -> VentureProposalDetail {
+        guard let apiClient else {
+            throw ActionInboxConfigurationError.missingValue("ActionAPIBaseURL")
+        }
+        return try await apiClient.fetchVentureProposalDetail(proposalId: proposalId)
+    }
+
+    func isMutatingVentureProposal(id: String) -> Bool {
+        mutatingVentureProposalIds.contains(id)
+    }
+
+    func isMutatingMission(id: String) -> Bool {
+        mutatingMissionIds.contains(id)
+    }
+
+    func reviewMissionDeliverable(
+        detail: VentureMissionDetail,
+        decision: String,
+        feedback: String,
+        expectedRevisionHash: String? = nil
+    ) async throws -> VentureMissionDetail {
+        guard let apiClient, let deliverable = detail.currentDeliverable else {
+            throw ActionInboxAPIClient.ClientError.invalidResponse
+        }
+        isUpdatingMission = true
+        defer { isUpdatingMission = false }
+        try await apiClient.reviewVentureDeliverable(
+            deliverableId: deliverable.id,
+            expectedMissionVersion: detail.mission.version,
+            expectedRevisionHash: expectedRevisionHash,
+            decision: decision,
+            feedback: feedback
+        )
+        await loadNextActions()
+        message = decision == "adopted"
+            ? "成果物を採用しました"
+            : decision == "revision_requested"
+                ? "修正を依頼しました"
+                : "成果物を却下しました"
+        return try await apiClient.fetchVentureMissionDetail(missionId: detail.mission.id)
+    }
+
+    func rejectMissionDeliverable(
+        detail: VentureMissionDetail,
+        feedback: String
+    ) async throws {
+        guard let apiClient, let deliverable = detail.currentDeliverable else {
+            throw ActionInboxAPIClient.ClientError.invalidResponse
+        }
+        isUpdatingMission = true
+        defer { isUpdatingMission = false }
+        try await apiClient.reviewVentureDeliverable(
+            deliverableId: deliverable.id,
+            expectedMissionVersion: detail.mission.version,
+            expectedRevisionHash: nil,
+            decision: "rejected",
+            feedback: feedback
+        )
+        removeMissionFromList(id: detail.mission.id)
+        removeMonitoringAlertForMission(id: detail.mission.id)
+        await loadNextActions()
+        message = "成果物を却下しました"
+    }
+
+    func retryMission(detail: VentureMissionDetail, feedback: String) async throws -> VentureMissionDetail {
+        guard let apiClient else { throw ActionInboxConfigurationError.missingValue("ActionAPIBaseURL") }
+        isUpdatingMission = true
+        defer { isUpdatingMission = false }
+        try await apiClient.retryVentureMission(
+            missionId: detail.mission.id,
+            expectedMissionVersion: detail.mission.version,
+            feedback: feedback
+        )
+        await loadNextActions()
+        message = "Missionを再実行します"
+        return try await apiClient.fetchVentureMissionDetail(missionId: detail.mission.id)
+    }
+
+    func cancelMission(detail: VentureMissionDetail) async throws -> VentureMissionDetail {
+        guard let apiClient else { throw ActionInboxConfigurationError.missingValue("ActionAPIBaseURL") }
+        isUpdatingMission = true
+        defer { isUpdatingMission = false }
+        try await apiClient.cancelVentureMission(
+            missionId: detail.mission.id,
+            expectedMissionVersion: detail.mission.version
+        )
+        await loadNextActions()
+        message = "Missionをキャンセルしました"
+        return try await apiClient.fetchVentureMissionDetail(missionId: detail.mission.id)
+    }
+
+    func decideVentureProposal(
+        _ item: VentureDecisionInboxItem,
+        decision: VentureDecision,
+        reasonCodes: [String],
+        feedbackNote: String? = nil
+    ) async {
+        guard let apiClient, !mutatingVentureProposalIds.contains(item.proposalId) else { return }
+        let previousInbox = decisionInboxState
+        mutatingVentureProposalIds.insert(item.proposalId)
+        isPostingVentureDecision = true
+        removeVentureProposalFromInbox(id: item.proposalId)
+        defer {
+            mutatingVentureProposalIds.remove(item.proposalId)
+            isPostingVentureDecision = !mutatingVentureProposalIds.isEmpty
+        }
+        do {
+            let result = try await apiClient.decideVentureProposal(
+                proposalId: item.proposalId,
+                expectedVersion: item.version,
+                decision: decision,
+                reason: decisionReason(decision, item: item),
+                reasonCodes: reasonCodes,
+                feedbackNote: cleanedNote(feedbackNote),
+                preferredProposalId: nil,
+                successCriteria: item.suggestedSuccessCriteria,
+                stopConditions: item.suggestedStopConditions
+            )
+            message = decisionSuccessMessage(
+                decision,
+                item: item,
+                developmentMission: result.developmentMission,
+                researchMission: result.researchMission,
+                messageMission: result.messageMission
+            )
+            await loadNextActions()
+        } catch {
+            decisionInboxState = previousInbox
+            await reconcileDecisionAfterFailure(item: item, decision: decision, error: error)
+        }
+    }
+
+    func adoptMissionFromList(_ item: VentureMissionSummaryItem) async {
+        guard let apiClient,
+              let deliverableId = item.currentDeliverableId,
+              !mutatingMissionIds.contains(item.id) else { return }
+        let previousPage = missionItemsState
+        mutatingMissionIds.insert(item.id)
+        removeMissionFromList(id: item.id)
+        defer { mutatingMissionIds.remove(item.id) }
+        do {
+            try await apiClient.reviewVentureDeliverable(
+                deliverableId: deliverableId,
+                expectedMissionVersion: item.missionVersion,
+                expectedRevisionHash: nil,
+                decision: "adopted",
+                feedback: "成果物を確認し採用"
+            )
+            await loadNextActions()
+            message = "成果物を採用しました"
+        } catch {
+            missionItemsState = previousPage
+            message = "成果物を採用できませんでした: \(error.localizedDescription)"
+        }
+    }
+
+    func cancelMissionFromList(_ item: VentureMissionSummaryItem) async {
+        guard let apiClient, !mutatingMissionIds.contains(item.id) else { return }
+        let previousPage = missionItemsState
+        mutatingMissionIds.insert(item.id)
+        removeMissionFromList(id: item.id)
+        defer { mutatingMissionIds.remove(item.id) }
+        do {
+            try await apiClient.cancelVentureMission(
+                missionId: item.id,
+                expectedMissionVersion: item.missionVersion
+            )
+            await loadNextActions()
+            message = "Missionをキャンセルしました"
+        } catch {
+            missionItemsState = previousPage
+            message = "Missionをキャンセルできませんでした: \(error.localizedDescription)"
+        }
+    }
+
+    func dismissMissionFromList(_ item: VentureMissionSummaryItem) async {
+        guard let apiClient, !mutatingMissionIds.contains(item.id) else { return }
+        let previousPage = missionItemsState
+        mutatingMissionIds.insert(item.id)
+        removeMissionFromList(id: item.id)
+        defer { mutatingMissionIds.remove(item.id) }
+        do {
+            try await apiClient.dismissVentureMission(missionId: item.id)
+            await loadNextActions()
+            message = "確認待ちから削除しました"
+        } catch {
+            missionItemsState = previousPage
+            message = "削除できませんでした: \(error.localizedDescription)"
+        }
+    }
+
+    func dismissMission(missionId: String) async throws {
+        guard let apiClient else { throw ActionInboxConfigurationError.missingValue("ActionAPIBaseURL") }
+        guard !mutatingMissionIds.contains(missionId) else { return }
+        mutatingMissionIds.insert(missionId)
+        defer { mutatingMissionIds.remove(missionId) }
+        try await apiClient.dismissVentureMission(missionId: missionId)
+        removeMissionFromList(id: missionId)
+        removeMonitoringAlertForMission(id: missionId)
+        await loadNextActions()
+        message = "確認待ちから削除しました"
+    }
+
+    func dismissMonitoringAlert(_ item: VentureMonitoringAlertItem) async {
+        guard let apiClient, !mutatingMissionIds.contains(item.alert.missionId) else { return }
+        let previousAlerts = monitoringAlertsState
+        mutatingMissionIds.insert(item.alert.missionId)
+        removeMonitoringAlertFromList(id: item.id)
+        defer { mutatingMissionIds.remove(item.alert.missionId) }
+        do {
+            try await apiClient.dismissVentureMission(missionId: item.alert.missionId)
+            removeMissionFromList(id: item.alert.missionId)
+            await loadNextActions()
+            message = "監視アラートを削除しました"
+        } catch {
+            monitoringAlertsState = previousAlerts
+            message = "監視アラートを削除できませんでした: \(error.localizedDescription)"
+        }
+    }
+
+    func requestRecommendationHeartbeat() async {
+        guard let apiClient else { return }
+        isRequestingRecommendationHeartbeat = true
+        defer { isRequestingRecommendationHeartbeat = false }
+        do {
+            let result = try await apiClient.runVentureRecommendationHeartbeat(ventureId: ventureId)
+            await loadNextActions()
+            message = recommendationHeartbeatMessage(result)
+        } catch {
+            message = "提案準備を開始できませんでした: \(error.localizedDescription)"
+        }
+    }
+
+    @discardableResult
+    func createDirectMission(
+        _ request: VentureDirectMissionRequest
+    ) async throws -> VentureDirectMissionRequestResult {
+        guard let apiClient else {
+            throw ActionInboxConfigurationError.missingValue("ActionAPIBaseURL")
+        }
+        guard !isCreatingDirectMission else {
+            throw ActionInboxAPIClient.ClientError.invalidResponse
+        }
+        isCreatingDirectMission = true
+        defer { isCreatingDirectMission = false }
+        let result = try await apiClient.createDirectMission(
+            ventureId: ventureId,
+            request: request
+        )
+        await loadNextActions()
+        message = result.kind == "research"
+            ? "調査を依頼しました"
+            : "文案作成を依頼しました。外部送信はしていません"
+        return result
+    }
+
+    private func reconcileDecisionAfterFailure(item: VentureDecisionInboxItem, decision: VentureDecision, error: Error) async {
+        guard let apiClient else {
+            message = "判断を保存できませんでした: \(error.localizedDescription)"
+            return
+        }
+        do {
+            let payload = try await apiClient.fetchVentureNextActions(ventureId: ventureId)
+            applyNextActionsPayload(payload)
+            if payload.decisionInbox.items.contains(where: { $0.proposalId == item.proposalId }) {
+                message = "判断を保存できませんでした: \(error.localizedDescription)"
+            } else {
+                message = decisionSavedAfterLostConnectionMessage(decision, item: item)
+            }
+        } catch {
+            message = "判断を保存できませんでした: \(error.localizedDescription)"
+        }
+    }
+
+    private func recommendationHeartbeatMessage(_ result: VentureRecommendationHeartbeatResult) -> String {
+        switch result.reason {
+        case "queued":
+            return "提案生成を開始しました。完了すると通知されます。"
+        case "generated":
+            return result.generatedCount > 0
+                ? "次の提案を\(result.generatedCount)件準備しました。"
+                : "次の提案を準備しました。"
+        case "already_running":
+            return "提案生成はすでに実行中です。"
+        case "inbox_ready":
+            return "判断待ちの提案があるため、追加生成は行いませんでした。"
+        case "claim_conflict":
+            return "別の処理が提案生成を開始しました。"
+        case "generation_failed":
+            return result.lastError.map { "提案生成に失敗しました: \($0)" } ?? "提案生成に失敗しました。"
+        default:
+            return "提案準備の状態を更新しました。"
         }
     }
 
@@ -175,7 +674,7 @@ final class ProductOpsState {
         guard let apiClient else { return }
         policyState = .loading
         do {
-            policyState = .loaded(try await apiClient.fetchProjectPolicy(projectId: projectId))
+            policyState = .loaded(try await apiClient.fetchVenturePolicy(ventureId: ventureId))
             message = nil
         } catch {
             policyState = .failed("方針の読み込みに失敗しました: \(error.localizedDescription)")
@@ -387,20 +886,198 @@ final class ProductOpsState {
         }
     }
 
-    func updatePolicy(fields: ProjectPolicyEditableFields) async -> ProjectPolicy? {
-        guard let apiClient else { return nil }
+    func adoptResearchLearning(deliverable: VentureDeliverable) async {
+        guard let apiClient else { return }
+        do {
+            _ = try await apiClient.adoptResearchLearning(
+                deliverableId: deliverable.id,
+                decisionNote: "調査結果をLearningとして採用"
+            )
+            message = "調査結果をLearningとして採用しました"
+            await loadNextActions()
+        } catch {
+            message = "Learningとして採用できませんでした: \(error.localizedDescription)"
+        }
+    }
+
+    func scanMonitoringAlerts() async {
+        guard let apiClient else { return }
+        isScanningMonitoringAlerts = true
+        defer { isScanningMonitoringAlerts = false }
+        do {
+            let result = try await apiClient.scanVentureMonitoringAlerts(ventureId: ventureId)
+            await loadNextActions()
+            message = result.createdCount > 0
+                ? "監視アラートを\(result.createdCount)件作成しました"
+                : "新しい監視アラートはありません"
+        } catch {
+            message = "監視スキャンに失敗しました: \(error.localizedDescription)"
+        }
+    }
+
+    private func applyNextActionsPayload(_ payload: VentureNextActionsPayload) {
+        decisionInboxState = .loaded(payload.decisionInbox)
+        missionItemsState = .loaded(payload.missionItems)
+        monitoringAlertsState = .loaded(payload.monitoringAlerts)
+        missionProgressState = .loaded(payload.missionProgress)
+    }
+
+    private func removeVentureProposalFromInbox(id: String) {
+        guard case .loaded(var payload) = decisionInboxState else { return }
+        payload.items.removeAll { $0.proposalId == id }
+        decisionInboxState = .loaded(payload)
+    }
+
+    private func removeMissionFromList(id: String) {
+        guard case .loaded(var page) = missionItemsState else { return }
+        page.items.removeAll { $0.id == id }
+        missionItemsState = .loaded(page)
+    }
+
+    private func removeMonitoringAlertFromList(id: String) {
+        guard case .loaded(var items) = monitoringAlertsState else { return }
+        items.removeAll { $0.id == id }
+        monitoringAlertsState = .loaded(items)
+    }
+
+    private func removeMonitoringAlertForMission(id: String) {
+        guard case .loaded(var items) = monitoringAlertsState else { return }
+        items.removeAll { $0.alert.missionId == id }
+        monitoringAlertsState = .loaded(items)
+    }
+
+    func createPolicyTextRevision(
+        policyText: String,
+        reason: String
+    ) async -> VenturePolicyRevisionDetail? {
+        guard let apiClient, let currentPolicy = policy else { return nil }
         isSavingPolicy = true
+        message = "事業方針の変更内容を準備しています"
         defer { isSavingPolicy = false }
 
         do {
-            let policy = try await apiClient.updateProjectPolicy(projectId: projectId, fields: fields)
-            policyState = .loaded(policy)
-            message = "方針を保存しました"
-            return policy
+            let context = try await apiClient.fetchVenturePolicyRevisionContext(ventureId: ventureId)
+            let revision = try await apiClient.createVenturePolicyRevision(
+                ventureId: ventureId,
+                request: VenturePolicyRevisionDraft(
+                    clientRequestId: UUID().uuidString.lowercased(),
+                    contextHash: context.contextHash,
+                    basePolicyTextVersionId: currentPolicy.policyTextVersionId,
+                    baseStrategyVersionId: currentPolicy.strategyVersionId,
+                    baseDecisionFrameVersionId: currentPolicy.decisionFrameVersionId,
+                    nextPolicyText: policyText,
+                    nextStrategy: nil,
+                    nextDecisionFrame: nil,
+                    rationale: reason,
+                    expectedImpact: "AIが参照する事業方針の文脈を更新する",
+                    contraryEvidence: [],
+                    sourceRefs: [],
+                    risk: "medium",
+                    consultationSummary: "iPhoneで事業方針本文を編集",
+                    executorSessionId: nil,
+                    executorTurnId: nil
+                )
+            )
+            await loadNextActions()
+            await loadPolicy()
+            message = "変更内容を確認してください"
+            return revision
         } catch {
-            message = "方針を保存できませんでした: \(error.localizedDescription)"
+            message = "事業方針の変更案を作成できませんでした: \(error.localizedDescription)"
             return nil
         }
+    }
+
+    func createRecommendationSettingsRevision(
+        strategy: VenturePolicyStrategySettingsRequest,
+        decisionFrame: VenturePolicyDecisionFrameSettingsRequest,
+        reason: String
+    ) async -> VenturePolicyRevisionDetail? {
+        guard let apiClient, let currentPolicy = policy else { return nil }
+        isSavingPolicy = true
+        message = "推薦設定の変更内容を準備しています"
+        defer { isSavingPolicy = false }
+
+        do {
+            let context = try await apiClient.fetchVenturePolicyRevisionContext(ventureId: ventureId)
+            let revision = try await apiClient.createVenturePolicyRevision(
+                ventureId: ventureId,
+                request: VenturePolicyRevisionDraft(
+                    clientRequestId: UUID().uuidString.lowercased(),
+                    contextHash: context.contextHash,
+                    basePolicyTextVersionId: currentPolicy.policyTextVersionId,
+                    baseStrategyVersionId: currentPolicy.strategyVersionId,
+                    baseDecisionFrameVersionId: currentPolicy.decisionFrameVersionId,
+                    nextPolicyText: nil,
+                    nextStrategy: VenturePolicyStrategySettingsRequest(
+                        mission: strategy.mission,
+                        targetSegments: strategy.targetSegments,
+                        desiredOutcomes: strategy.desiredOutcomes,
+                        commercialHypotheses: strategy.commercialHypotheses,
+                        focusAreas: strategy.focusAreas,
+                        exclusions: strategy.exclusions,
+                        researchGuardrails: strategy.researchGuardrails,
+                        deliveryGuardrails: strategy.deliveryGuardrails
+                    ),
+                    nextDecisionFrame: decisionFrame,
+                    rationale: reason,
+                    expectedImpact: "提案の対象、除外条件、採点、推薦順位を更新する",
+                    contraryEvidence: [],
+                    sourceRefs: [],
+                    risk: "high",
+                    consultationSummary: "iPhoneで推薦設定を編集",
+                    executorSessionId: nil,
+                    executorTurnId: nil
+                )
+            )
+            await loadNextActions()
+            await loadPolicy()
+            message = "変更内容を確認してください"
+            return revision
+        } catch {
+            message = "推薦設定の変更案を作成できませんでした: \(error.localizedDescription)"
+            return nil
+        }
+    }
+
+    func fetchPolicyRevision(missionId: String) async throws -> VenturePolicyRevisionDetail {
+        guard let apiClient else {
+            throw ActionInboxConfigurationError.missingValue("ActionAPIBaseURL")
+        }
+        return try await apiClient.fetchVenturePolicyRevision(missionId: missionId)
+    }
+
+    func reviewPolicyRevision(
+        detail: VenturePolicyRevisionDetail,
+        decision: String,
+        feedback: String
+    ) async throws -> VenturePolicyRevisionDetail {
+        guard let apiClient else {
+            throw ActionInboxConfigurationError.missingValue("ActionAPIBaseURL")
+        }
+        isUpdatingMission = true
+        defer { isUpdatingMission = false }
+        try await apiClient.reviewVentureDeliverable(
+            deliverableId: detail.deliverableId,
+            expectedMissionVersion: detail.missionVersion,
+            expectedRevisionHash: detail.revisionHash,
+            decision: decision,
+            feedback: feedback
+        )
+        await loadNextActions()
+        await loadPolicy()
+        let refreshed = try await apiClient.fetchVenturePolicyRevision(missionId: detail.missionId)
+        switch decision {
+        case "adopted":
+            message = refreshed.applicationStatus == "applied"
+                ? "方針変更を反映しました"
+                : "方針変更の採用を受け付けました"
+        case "revision_requested":
+            message = "修正を依頼しました"
+        default:
+            message = "方針変更案を却下しました"
+        }
+        return refreshed
     }
 
     private func runNeedOperation<Result>(
@@ -473,6 +1150,63 @@ final class ProductOpsState {
     private func cleanedNote(_ note: String?) -> String? {
         let trimmed = note?.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed?.isEmpty == false ? trimmed : nil
+    }
+
+    private func decisionReason(_ decision: VentureDecision, item: VentureDecisionInboxItem) -> String {
+        switch decision {
+        case .approved:
+            return item.approvalReason
+        case .deferred:
+            return "今は優先しない"
+        case .rejected:
+            return "現時点では追わない"
+        }
+    }
+
+    private func decisionSuccessMessage(
+        _ decision: VentureDecision,
+        item: VentureDecisionInboxItem,
+        developmentMission: VentureDevelopmentMission?,
+        researchMission: VentureResearchMission?,
+        messageMission: VentureMessageMission?
+    ) -> String {
+        switch decision {
+        case .approved:
+            if developmentMission != nil {
+                return "Codexへ依頼しました"
+            }
+            if researchMission != nil {
+                return "調査を開始しました"
+            }
+            if messageMission != nil {
+                return "メッセージ下書きを作成します。送信はしていません"
+            }
+            if item.actionKind == "outreach" {
+                return "メッセージ下書きを作成します。送信はしていません"
+            }
+            if item.actionKind == "research" {
+                return "調査を進める判断を保存しました"
+            }
+            return "承認しました"
+        case .deferred:
+            return "あとでにしました"
+        case .rejected:
+            return "却下しました"
+        }
+    }
+
+    private func decisionSavedAfterLostConnectionMessage(_ decision: VentureDecision, item: VentureDecisionInboxItem) -> String {
+        switch decision {
+        case .approved:
+            if item.actionKind == "outreach" {
+                return "保存済みです。メッセージ送信はしていません"
+            }
+            return "保存済みです"
+        case .deferred:
+            return "あとでに保存済みです"
+        case .rejected:
+            return "却下済みです"
+        }
     }
 
     private static func moved(

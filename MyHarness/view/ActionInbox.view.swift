@@ -591,6 +591,10 @@ struct ActionSuggestionDetailView: View {
                     Label("詳細を読み込めません", systemImage: "exclamationmark.triangle")
                 } description: {
                     Text(message)
+                } actions: {
+                    Button("次にやるへ戻る") {
+                        router.handleDeepLink(PushNotificationRouting.nextActionsURL)
+                    }
                 }
                 .listRowSeparator(.hidden)
             case .loaded(let suggestion):
@@ -627,7 +631,7 @@ struct ActionSuggestionDetailView: View {
                 confirmingAction = nil
             }
         } message: {
-            Text("version \(state.currentSuggestion?.version ?? 0) を使って送信します。古い通知や古い画面からの誤操作はAPI側で拒否されます。")
+            Text("version \(state.currentSuggestion?.version ?? 0) を使って判断を保存します。古い通知や古い画面からの誤操作はAPI側で拒否されます。")
         }
     }
 
