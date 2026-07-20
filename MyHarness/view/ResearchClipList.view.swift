@@ -88,12 +88,15 @@ struct ResearchClipListView: View {
             NavigationStack {
                 ResearchClipEditView(
                     state: state,
-                    item: item,
+                    clip: item.clip,
+                    sourceState: item.sourceState,
                     associationOptions: associationOptions,
                     onOpenMission: {
                         selectedItem = nil
                         onOpenMission(item.sourceState.sourceMissionId)
-                    }
+                    },
+                    onUpdated: { _ in },
+                    onArchived: {}
                 )
             }
         }
@@ -202,11 +205,14 @@ struct ResearchClipListView: View {
     }()
 }
 
-private struct ResearchClipEditView: View {
+struct ResearchClipEditView: View {
     let state: ProductOpsState
-    let item: VentureResearchClipListItem
+    let clip: VentureResearchClip
+    let sourceState: VentureResearchClipListItem.SourceState?
     let associationOptions: VentureResearchClipAssociationOptions?
-    let onOpenMission: () -> Void
+    let onOpenMission: (() -> Void)?
+    let onUpdated: (VentureResearchClip) -> Void
+    let onArchived: () -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var note: String
@@ -217,28 +223,34 @@ private struct ResearchClipEditView: View {
 
     init(
         state: ProductOpsState,
-        item: VentureResearchClipListItem,
+        clip: VentureResearchClip,
+        sourceState: VentureResearchClipListItem.SourceState?,
         associationOptions: VentureResearchClipAssociationOptions?,
-        onOpenMission: @escaping () -> Void
+        onOpenMission: (() -> Void)?,
+        onUpdated: @escaping (VentureResearchClip) -> Void,
+        onArchived: @escaping () -> Void
     ) {
         self.state = state
-        self.item = item
+        self.clip = clip
+        self.sourceState = sourceState
         self.associationOptions = associationOptions
         self.onOpenMission = onOpenMission
-        _note = State(initialValue: item.clip.userNote)
-        _opportunityId = State(initialValue: item.clip.opportunityId ?? "")
-        _hypothesisId = State(initialValue: item.clip.hypothesisId ?? "")
+        self.onUpdated = onUpdated
+        self.onArchived = onArchived
+        _note = State(initialValue: clip.userNote)
+        _opportunityId = State(initialValue: clip.opportunityId ?? "")
+        _hypothesisId = State(initialValue: clip.hypothesisId ?? "")
     }
 
     var body: some View {
         Form {
             Section("調査メモ") {
-                Text(item.clip.textSnapshot)
+                Text(clip.textSnapshot)
                     .textSelection(.enabled)
-                if !item.clip.contextSnapshot.isEmpty {
-                    LabeledContent("採用理由", value: item.clip.contextSnapshot)
+                if !clip.contextSnapshot.isEmpty {
+                    LabeledContent("採用理由", value: clip.contextSnapshot)
                 }
-                if let url = item.clip.sourceUrl.flatMap(URL.init(string:)) {
+                if let url = clip.sourceUrl.flatMap(URL.init(string:)) {
                     Link(destination: url) {
                         Label("元の情報源を開く", systemImage: "arrow.up.right.square")
                     }
@@ -273,12 +285,20 @@ private struct ResearchClipEditView: View {
                 .disabled(opportunityId.isEmpty)
             }
 
-            Section("元レポート") {
-                LabeledContent("状態", value: item.sourceState.sourceMissionStatus)
-                if let verdict = item.sourceState.verificationVerdict {
-                    LabeledContent("AI検証", value: verdict)
+            if let sourceState {
+                Section("元レポート") {
+                    LabeledContent("状態", value: sourceState.sourceMissionStatus)
+                    if let verdict = sourceState.verificationVerdict {
+                        LabeledContent("AI検証", value: verdict)
+                    }
+                    if let onOpenMission {
+                        Button("元の調査結果を開く", action: onOpenMission)
+                    }
                 }
-                Button("元の調査結果を開く", action: onOpenMission)
+            } else if let onOpenMission {
+                Section("元レポート") {
+                    Button("元の調査結果へ戻る", action: onOpenMission)
+                }
             }
 
             Section {
@@ -311,12 +331,13 @@ private struct ResearchClipEditView: View {
         isSaving = true
         defer { isSaving = false }
         do {
-            _ = try await state.updateResearchClip(
-                item.clip,
+            let updated = try await state.updateResearchClip(
+                clip,
                 userNote: note,
                 opportunityId: opportunityId.isEmpty ? nil : opportunityId,
                 hypothesisId: hypothesisId.isEmpty ? nil : hypothesisId
             )
+            onUpdated(updated)
             dismiss()
         } catch {
             errorMessage = error.localizedDescription
@@ -327,7 +348,8 @@ private struct ResearchClipEditView: View {
         isSaving = true
         defer { isSaving = false }
         do {
-            try await state.archiveResearchClip(item.clip)
+            try await state.archiveResearchClip(clip)
+            onArchived()
             dismiss()
         } catch {
             errorMessage = error.localizedDescription

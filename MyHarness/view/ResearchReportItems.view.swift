@@ -11,6 +11,8 @@ struct ResearchReportItemsView: View {
     @State private var operationError: String?
     @State private var mutatingItemKeys: Set<String> = []
     @State private var showsSavedClips = false
+    @State private var editingClip: VentureResearchClip?
+    @State private var associationOptions: VentureResearchClipAssociationOptions?
 
     private let kindOrder = [
         "conclusion",
@@ -68,7 +70,30 @@ struct ResearchReportItemsView: View {
         .task(id: deliverableId) { await loadCandidates() }
         .sheet(isPresented: $showsSavedClips) {
             NavigationStack {
-                ResearchClipListView(state: state, onOpenMission: { _ in })
+                ResearchClipListView(state: state, onOpenMission: { _ in
+                    showsSavedClips = false
+                })
+            }
+        }
+        .sheet(item: $editingClip) { clip in
+            NavigationStack {
+                ResearchClipEditView(
+                    state: state,
+                    clip: clip,
+                    sourceState: nil,
+                    associationOptions: associationOptions,
+                    onOpenMission: nil,
+                    onUpdated: { updated in
+                        updateCandidate(updated.itemKey) { candidate in
+                            candidate.savedClip = updated
+                        }
+                    },
+                    onArchived: {
+                        updateCandidate(clip.itemKey) { candidate in
+                            candidate.savedClip = nil
+                        }
+                    }
+                )
             }
         }
     }
@@ -93,12 +118,17 @@ struct ResearchReportItemsView: View {
             if mutatingItemKeys.contains(item.itemKey) {
                 ProgressView()
                     .frame(width: 44, height: 44)
-            } else if item.savedClipId != nil {
+            } else if let savedClip = item.savedClip {
                 Menu {
                     Button {
-                        showsSavedClips = true
+                        editingClip = savedClip
                     } label: {
-                        Label("保存した調査メモを開く", systemImage: "square.and.pencil")
+                        Label("メモを編集", systemImage: "square.and.pencil")
+                    }
+                    Button {
+                        editingClip = savedClip
+                    } label: {
+                        Label("関連する仮説を変更", systemImage: "point.3.connected.trianglepath.dotted")
                     }
                     if let sourceUrl = item.sourceUrl, let url = URL(string: sourceUrl) {
                         Link(destination: url) {
@@ -117,7 +147,7 @@ struct ResearchReportItemsView: View {
                         .contentShape(Rectangle())
                 }
                 .accessibilityLabel("\(item.label)、保存済み")
-                .accessibilityHint("調査メモ一覧、情報源表示、保存解除の操作を開きます")
+                .accessibilityHint("メモ編集、関連付け、情報源表示、保存解除の操作を開きます")
             } else {
                 Button {
                     Task { await save(item) }
@@ -174,9 +204,13 @@ struct ResearchReportItemsView: View {
         isLoading = true
         loadingError = nil
         defer { isLoading = false }
+        async let loadedCandidates = state.fetchResearchClipCandidates(deliverableId: deliverableId)
+        async let loadedAssociations = try? state.fetchResearchClipAssociationOptions()
         do {
-            candidates = try await state.fetchResearchClipCandidates(deliverableId: deliverableId).items
+            candidates = try await loadedCandidates.items
+            associationOptions = await loadedAssociations
         } catch {
+            _ = await loadedAssociations
             loadingError = "調査メモ候補を読み込めませんでした: \(error.localizedDescription)"
         }
     }
@@ -188,8 +222,7 @@ struct ResearchReportItemsView: View {
         do {
             let clip = try await state.saveResearchClip(deliverableId: deliverableId, itemKey: item.itemKey)
             updateCandidate(item.itemKey) { candidate in
-                candidate.savedClipId = clip.id
-                candidate.savedClipVersion = clip.version
+                candidate.savedClip = clip
             }
         } catch {
             operationError = "保存できませんでした: \(error.localizedDescription)"
@@ -197,15 +230,14 @@ struct ResearchReportItemsView: View {
     }
 
     private func archive(_ item: VentureResearchClipCandidate) async {
-        guard let clipId = item.savedClipId, let version = item.savedClipVersion else { return }
+        guard let clip = item.savedClip else { return }
         mutatingItemKeys.insert(item.itemKey)
         operationError = nil
         defer { mutatingItemKeys.remove(item.itemKey) }
         do {
-            try await state.archiveResearchClip(clipId: clipId, expectedVersion: version)
+            try await state.archiveResearchClip(clipId: clip.id, expectedVersion: clip.version)
             updateCandidate(item.itemKey) { candidate in
-                candidate.savedClipId = nil
-                candidate.savedClipVersion = nil
+                candidate.savedClip = nil
             }
         } catch {
             operationError = "保存を解除できませんでした: \(error.localizedDescription)"
