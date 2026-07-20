@@ -278,6 +278,8 @@ final class ActionInboxAPIClient {
     private let urlSession: URLSession
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
+    private var isBootstrapped = false
+    private var bootstrapTask: Task<Void, Error>?
 
     init(
         config: ActionInboxConfig,
@@ -299,6 +301,47 @@ final class ActionInboxAPIClient {
     func fetchInbox() async throws -> ActionInboxPayload {
         let data = try await request(path: "/api/action-inbox", method: "GET")
         return try decoder.decode(InboxEnvelope.self, from: data).data
+    }
+
+    func bootstrapCurrentUser() async throws {
+        if isBootstrapped { return }
+        if let bootstrapTask {
+            return try await bootstrapTask.value
+        }
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            var request = URLRequest(url: endpoint(path: "/api/auth/bootstrap", queryItems: []))
+            request.httpMethod = "POST"
+            request.setValue("Bearer \(try await authSession.accessToken())", forHTTPHeaderField: "Authorization")
+            request.setValue(try await authSession.idToken(), forHTTPHeaderField: "X-ID-Token")
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = Data("{}".utf8)
+            let (data, response) = try await urlSession.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw ClientError.invalidResponse
+            }
+            guard (200..<300).contains(httpResponse.statusCode) else {
+                let body = String(data: data, encoding: .utf8) ?? ""
+                let message = (try? decoder.decode(ErrorEnvelope.self, from: data).error.message) ?? body
+                throw ClientError.requestFailed(httpResponse.statusCode, message)
+            }
+            isBootstrapped = true
+        }
+        bootstrapTask = task
+        do {
+            try await task.value
+            bootstrapTask = nil
+        } catch {
+            bootstrapTask = nil
+            throw error
+        }
+    }
+
+    func invalidateBootstrap() {
+        isBootstrapped = false
+        bootstrapTask?.cancel()
+        bootstrapTask = nil
     }
 
     func fetchNextActions(projectId: String) async throws -> NextActionsPayload {
@@ -774,6 +817,7 @@ final class ActionInboxAPIClient {
         queryItems: [URLQueryItem],
         bodyData: Data?
     ) async throws -> Data {
+        try await bootstrapCurrentUser()
         var request = URLRequest(
             url: endpoint(path: path, queryItems: queryItems),
             cachePolicy: .reloadIgnoringLocalCacheData
