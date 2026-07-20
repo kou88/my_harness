@@ -119,13 +119,15 @@ jobs:
             'filter[app]' => app.fetch('id'),
             'fields[builds]' => 'version,uploadedDate',
             'sort' => '-uploadedDate',
-            'limit' => '1'
+            'limit' => '200'
           )
-          latest_build = get_json.call(builds_uri).fetch('data').first
-          abort 'No existing TestFlight build found' unless latest_build
+          builds = get_json.call(builds_uri).fetch('data')
+          abort 'No existing TestFlight build found' if builds.empty?
 
-          latest_number = Integer(latest_build.dig('attributes', 'version'), 10)
-          next_number = latest_number + 1
+          highest_number = builds.map do |build|
+            Integer(build.dig('attributes', 'version'), 10)
+          end.max
+          next_number = highest_number + 1
           File.open(ENV.fetch('GITHUB_ENV'), 'a') do |file|
             file.puts "TESTFLIGHT_BUILD_NUMBER=#{next_number}"
           end
