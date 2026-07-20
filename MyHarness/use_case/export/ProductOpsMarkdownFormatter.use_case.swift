@@ -381,10 +381,52 @@ enum ProductOpsMarkdownFormatter {
             case .verificationReport(let value):
                 append(verificationReport: value, to: &document, headingLevel: 4)
             case .knowledgeChange(let value):
-                document.section("現在", text: value.currentState, level: 4)
-                document.section("変更候補", text: value.proposedState, level: 4)
-                document.section("理由", text: value.reason, level: 4)
-                document.listSection("生成元", items: value.sourceIds, level: 4)
+                document.keyValues([
+                    ("基準Strategy", value.baseStrategyVersionId),
+                    ("基準Decision Frame", value.baseDecisionFrameVersionId),
+                    ("リスク", value.risk),
+                ])
+                document.section("変更理由", text: value.rationale, level: 4)
+                document.section("今後の影響", text: value.expectedImpact, level: 4)
+                if let strategy = value.nextStrategy {
+                    document.section("変更後の目的", text: strategy.mission, level: 4)
+                    document.listSection(
+                        "変更後の対象顧客",
+                        items: strategy.targetSegments.map { "\($0.label): \($0.description)" },
+                        level: 4
+                    )
+                    document.listSection("変更後の期待成果", items: strategy.desiredOutcomes, level: 4)
+                    document.listSection("変更後のFocus", items: strategy.focusAreas, level: 4)
+                    document.listSection("変更後の除外事項", items: strategy.exclusions, level: 4)
+                    document.listSection("変更後の研究制約", items: strategy.researchGuardrails, level: 4)
+                    document.listSection("変更後の実装・提供制約", items: strategy.deliveryGuardrails, level: 4)
+                }
+                if let hypotheses = value.nextCommercialHypotheses {
+                    document.listSection("変更後の商業仮説", items: hypotheses, level: 4)
+                }
+                if let frame = value.nextDecisionFrame {
+                    document.keyValues([
+                        ("変更後の事業段階", frame.stage),
+                        ("最大推薦数", String(frame.maxRecommendations)),
+                    ])
+                    document.listSection("変更後の目的", items: frame.objectiveIds, level: 4)
+                    document.listSection(
+                        "変更後の評価基準",
+                        items: frame.lenses.map { "\($0.label)（\($0.weight.formatted())）: \($0.description)" },
+                        level: 4
+                    )
+                    document.listSection(
+                        "変更後のHard Gate",
+                        items: frame.hardGates.map { "\($0.label): \($0.description)" },
+                        level: 4
+                    )
+                }
+                document.listSection("反対材料", items: value.contraryEvidence, level: 4)
+                document.listSection(
+                    "根拠",
+                    items: value.sourceRefs.map { "\($0.kind) / \($0.id) / \($0.relation)" },
+                    level: 4
+                )
             case .alert(let value):
                 document.keyValues([("重要度", value.severity)])
                 document.section("検知した問題", text: value.detectedIssue, level: 4)
@@ -483,7 +525,7 @@ enum ProductOpsMarkdownFormatter {
         switch kind {
         case "message": return "採用しても外部へ送信しません。送信には別の承認が必要です。"
         case "product_change": return "採用してもPRマージや本番反映は行いません。"
-        case "knowledge_change": return "採用しても方針の正本は自動更新しません。"
+        case "knowledge_change": return "採用すると事業方針の新しいVersionを作成します。外部送信や本番変更は行いません。"
         default: return "採用後の副作用はMissionの承認境界に従います。"
         }
     }

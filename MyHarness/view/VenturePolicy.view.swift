@@ -1,9 +1,9 @@
 import SwiftUI
 
 @MainActor
-struct ProjectPolicyView: View {
+struct VenturePolicyView: View {
     let state: ProductOpsState
-    @State private var editingPolicy: ProjectPolicy?
+    @State private var editingPolicy: VenturePolicy?
 
     var body: some View {
         List {
@@ -11,7 +11,7 @@ struct ProjectPolicyView: View {
         }
         .listStyle(.insetGrouped)
         .environment(\.defaultMinListRowHeight, 48)
-        .navigationTitle("方針")
+        .navigationTitle("事業方針")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -21,7 +21,7 @@ struct ProjectPolicyView: View {
                     } label: {
                         Image(systemName: "pencil")
                     }
-                    .accessibilityLabel("方針を編集")
+                    .accessibilityLabel("事業方針を編集")
                 }
             }
         }
@@ -38,7 +38,7 @@ struct ProjectPolicyView: View {
         }
         .sheet(item: $editingPolicy) { policy in
             NavigationStack {
-                ProjectPolicyEditSheet(state: state, policy: policy)
+                VenturePolicyEditSheet(state: state, policy: policy)
             }
         }
     }
@@ -56,7 +56,7 @@ struct ProjectPolicyView: View {
             ProductOpsAccessPlaceholder(
                 title: "ログインが必要です",
                 systemImage: "person.crop.circle",
-                message: "おすすめタブのメニューからログインしてください。"
+                message: "次にやるタブのメニューからログインしてください。"
             )
             .listRowSeparator(.hidden)
         } else {
@@ -70,31 +70,23 @@ struct ProjectPolicyView: View {
                 .listRowSeparator(.hidden)
             case .failed(let message):
                 ContentUnavailableView {
-                    Label("方針を読み込めません", systemImage: "exclamationmark.triangle")
+                    Label("事業方針を読み込めません", systemImage: "exclamationmark.triangle")
                 } description: {
                     Text(message)
                 }
                 .listRowSeparator(.hidden)
             case .loaded(let policy):
                 Section {
-                    PolicyMarkdownBody(markdown: policy.bodyMarkdown)
+                    VenturePolicyMarkdownBody(markdown: policy.bodyMarkdown)
                 }
 
-                Section("更新") {
-                    HStack {
-                        Text("version")
-                        Spacer()
-                        Text("\(policy.version)")
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
-                    }
-                    HStack {
-                        Text("updated")
-                        Spacer()
-                        Text(ActionDateFormat.string(from: policy.updatedAt))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
+                if policy.pendingPolicyChangeCount > 0 {
+                    Section {
+                        LabeledContent("確認待ちの変更") {
+                            Text("\(policy.pendingPolicyChangeCount)件")
+                                .monospacedDigit()
+                                .foregroundStyle(.orange)
+                        }
                     }
                 }
             }
@@ -102,30 +94,36 @@ struct ProjectPolicyView: View {
     }
 }
 
-private struct PolicyMarkdownBody: View {
+private struct VenturePolicyMarkdownBody: View {
     let markdown: String
 
     var body: some View {
-        Text(renderedMarkdown)
-            .font(.body)
-            .textSelection(.enabled)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.vertical, 4)
-    }
-
-    private var renderedMarkdown: AttributedString {
-        (try? AttributedString(markdown: markdown)) ?? AttributedString(markdown)
+        switch Result(catching: { try AttributedString(markdown: markdown) }) {
+        case .success(let renderedMarkdown):
+            Text(renderedMarkdown)
+                .font(.body)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.vertical, 4)
+        case .failure:
+            ContentUnavailableView(
+                "方針を表示できません",
+                systemImage: "doc.badge.ellipsis",
+                description: Text("Markdownの形式を確認してください。")
+            )
+        }
     }
 }
 
-private struct ProjectPolicyEditSheet: View {
+private struct VenturePolicyEditSheet: View {
     @Environment(\.dismiss) private var dismiss
     let state: ProductOpsState
     @State private var bodyMarkdown: String
+    @State private var reason = ""
 
-    init(state: ProductOpsState, policy: ProjectPolicy) {
+    init(state: ProductOpsState, policy: VenturePolicy) {
         self.state = state
-        _bodyMarkdown = State(initialValue: policy.bodyMarkdown)
+        _bodyMarkdown = State(initialValue: Self.editableMarkdown(from: policy.bodyMarkdown))
     }
 
     var body: some View {
@@ -133,12 +131,18 @@ private struct ProjectPolicyEditSheet: View {
             Section("Markdown") {
                 TextEditor(text: $bodyMarkdown)
                     .font(.body.monospaced())
-                    .frame(minHeight: 460)
+                    .frame(minHeight: 440)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
+                    .accessibilityLabel("事業方針Markdown")
+            }
+
+            Section("変更理由") {
+                TextField("今回変更する理由", text: $reason, axis: .vertical)
+                    .lineLimit(2...5)
             }
         }
-        .navigationTitle("方針を編集")
+        .navigationTitle("事業方針を編集")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
@@ -156,16 +160,29 @@ private struct ProjectPolicyEditSheet: View {
                         Text("保存")
                     }
                 }
-                .disabled(state.isSavingPolicy || bodyMarkdown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(state.isSavingPolicy || normalizedMarkdown.isEmpty || normalizedReason.isEmpty)
             }
         }
     }
 
+    private var normalizedMarkdown: String {
+        bodyMarkdown.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var normalizedReason: String {
+        reason.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func editableMarkdown(from markdown: String) -> String {
+        let immutableSection = "\n## システム安全制約"
+        guard let range = markdown.range(of: immutableSection) else {
+            return markdown
+        }
+        return String(markdown[..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private func save() async {
-        let fields = ProjectPolicyEditableFields(
-            bodyMarkdown: bodyMarkdown.trimmingCharacters(in: .whitespacesAndNewlines)
-        )
-        if await state.updatePolicy(fields: fields) != nil {
+        if await state.updatePolicy(bodyMarkdown: normalizedMarkdown, reason: normalizedReason) != nil {
             dismiss()
         }
     }

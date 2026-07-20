@@ -171,8 +171,8 @@ struct AppRootView: View {
             ProductNeedListView(state: productOpsState)
         case .developmentBacklog:
             DevelopmentView(state: productOpsState, actionInboxState: actionInboxState)
-        case .projectPolicy:
-            ProjectPolicyView(state: productOpsState)
+        case .venturePolicy:
+            VenturePolicyView(state: productOpsState)
         case .actionHistory:
             ActionHistoryView(state: actionInboxState, mode: .history)
         case .completedActions:

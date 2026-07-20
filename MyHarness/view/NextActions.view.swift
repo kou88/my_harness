@@ -590,7 +590,7 @@ struct NextActionsView: View {
             }
 
             Button {
-                router.push(.projectPolicy)
+                router.push(.venturePolicy)
             } label: {
                 Label("プロダクト方針", systemImage: "scope")
             }
@@ -1922,7 +1922,11 @@ private struct VentureMissionDetailSheet: View {
                     isCompact: false
                 )
             case .knowledgeChange(let value):
-                VentureKnowledgeChangeSummaryView(summary: deliverable.displaySummary, knowledgeChange: value)
+                VentureKnowledgeChangeSummaryView(
+                    summary: deliverable.displaySummary,
+                    knowledgeChange: value,
+                    currentPolicy: state.policy
+                )
             case .alert(let value):
                 VStack(alignment: .leading, spacing: 6) {
                     Text(deliverable.displaySummary).font(.subheadline)
@@ -2009,7 +2013,11 @@ private struct VentureMissionDetailSheet: View {
     private func load() async {
         errorMessage = nil
         do {
-            detail = try await state.fetchMissionDetail(missionId: missionId)
+            let loadedDetail = try await state.fetchMissionDetail(missionId: missionId)
+            detail = loadedDetail
+            if loadedDetail.currentDeliverable?.kind == "knowledge_change" {
+                await state.loadPolicyIfPossible()
+            }
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -2171,7 +2179,7 @@ private struct VentureMissionDetailSheet: View {
         switch kind {
         case "message": return "採用しても外部へ送信しません。送信には別の承認が必要です。"
         case "product_change": return "採用してもPRマージや本番反映は行いません。"
-        case "knowledge_change": return "採用しても方針の正本は自動更新しません。"
+        case "knowledge_change": return "採用すると事業方針の新しいVersionを作成します。外部送信や本番変更は行いません。"
         default: return "採用後の副作用はMissionの承認境界に従います。"
         }
     }
@@ -3176,7 +3184,7 @@ private struct VentureKnowledgeChangeMissionRow: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {
                     ProductOpsTokenView(statusLabel)
-                    ProductOpsTokenView("方針v\(item.mission.projectPolicyVersion)")
+                    ProductOpsTokenView("方針変更")
                 }
                 Text(item.mission.objective)
                     .font(.subheadline.weight(.semibold))
@@ -3186,17 +3194,22 @@ private struct VentureKnowledgeChangeMissionRow: View {
                 if let knowledgeChange = item.knowledgeChange {
                     VentureKnowledgeChangeSummaryView(
                         summary: item.knowledgeChangeDeliverable?.summary ?? item.result?.summary ?? "",
-                        knowledgeChange: knowledgeChange
+                        knowledgeChange: knowledgeChange,
+                        currentPolicy: nil
                     )
                 } else if let result = item.result {
-                    VentureKnowledgeChangeSummaryView(summary: result.summary, knowledgeChange: result.knowledgeChange)
+                    VentureKnowledgeChangeSummaryView(
+                        summary: result.summary,
+                        knowledgeChange: result.knowledgeChange,
+                        currentPolicy: nil
+                    )
                 } else if let error = item.mission.error, !error.isEmpty {
                     Text(error)
                         .font(.caption)
                         .foregroundStyle(.red)
                         .fixedSize(horizontal: false, vertical: true)
                 } else {
-                    Text("LearningからKnowledge更新候補を作成中です。方針はまだ更新しません。")
+                    Text("事業認識の変化から、方針へ反映すべき差分を確認しています。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -3261,9 +3274,10 @@ private struct VentureKnowledgeChangeMissionRow: View {
 private struct VentureKnowledgeChangeSummaryView: View {
     let summary: String
     let knowledgeChange: VentureKnowledgeChangeDeliverable
+    let currentPolicy: VenturePolicy?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 12) {
             if !summary.isEmpty {
                 Text(summary)
                     .font(.caption)
@@ -3271,24 +3285,123 @@ private struct VentureKnowledgeChangeSummaryView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            ProductChangeSection(title: "現在", items: [knowledgeChange.currentState].filter { !$0.isEmpty })
-            ProductChangeSection(title: "変更候補", items: [knowledgeChange.proposedState].filter { !$0.isEmpty }, tint: .primary)
-            ProductChangeSection(title: "理由", items: [knowledgeChange.reason].filter { !$0.isEmpty })
-
-            if !knowledgeChange.sourceIds.isEmpty {
-                HStack(spacing: 6) {
-                    ForEach(knowledgeChange.sourceIds.prefix(3), id: \.self) { sourceId in
-                        ProductOpsTokenView(sourceId)
-                    }
-                }
+            if isStale {
+                Label("現在の方針Versionと候補の基準Versionが異なります。採用前に再生成が必要です。", systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
-            Text("採用しても、この画面では正本の方針を自動更新しません。")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            ForEach(fieldChanges) { change in
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(change.label)
+                        .font(.caption.weight(.semibold))
+                    ProductChangeSection(title: "変更前", items: change.before)
+                    ProductChangeSection(title: "変更後", items: change.after, tint: .primary)
+                }
+                .padding(.vertical, 2)
+            }
+
+            ProductChangeSection(title: "変更理由", items: [knowledgeChange.rationale], tint: .primary)
+            ProductChangeSection(title: "今後の影響", items: [knowledgeChange.expectedImpact], tint: .primary)
+            ProductChangeSection(title: "反対材料", items: knowledgeChange.contraryEvidence)
+            ProductChangeSection(title: "根拠", items: knowledgeChange.sourceRefs.map(referenceLabel))
+
+            HStack(spacing: 6) {
+                ProductOpsTokenView(riskLabel)
+                ProductOpsTokenView("Strategy: \(shortId(knowledgeChange.baseStrategyVersionId))")
+                ProductOpsTokenView("Frame: \(shortId(knowledgeChange.baseDecisionFrameVersionId))")
+            }
         }
     }
+
+    private var isStale: Bool {
+        guard let currentPolicy else { return false }
+        return currentPolicy.strategyVersionId != knowledgeChange.baseStrategyVersionId
+            || currentPolicy.decisionFrameVersionId != knowledgeChange.baseDecisionFrameVersionId
+    }
+
+    private var fieldChanges: [VenturePolicyFieldChange] {
+        var changes: [VenturePolicyFieldChange] = []
+
+        if let next = knowledgeChange.nextStrategy {
+            appendChange("目的", currentPolicy.map { [$0.mission] }, [next.mission], to: &changes)
+            appendChange("対象顧客", currentPolicy.map { segmentLines($0.targetSegments) }, segmentLines(next.targetSegments), to: &changes)
+            appendChange("期待する成果", currentPolicy?.desiredOutcomes, next.desiredOutcomes, to: &changes)
+            appendChange("Focus", currentPolicy?.focusAreas, next.focusAreas, to: &changes)
+            appendChange("除外事項", currentPolicy?.exclusions, next.exclusions, to: &changes)
+            appendChange("研究制約", currentPolicy?.researchGuardrails, next.researchGuardrails, to: &changes)
+            appendChange("実装・提供制約", currentPolicy?.deliveryGuardrails, next.deliveryGuardrails, to: &changes)
+        }
+
+        if let nextCommercialHypotheses = knowledgeChange.nextCommercialHypotheses {
+            appendChange("商業仮説", currentPolicy?.commercialHypotheses, nextCommercialHypotheses, to: &changes)
+        }
+
+        if let next = knowledgeChange.nextDecisionFrame {
+            appendChange("事業段階", currentPolicy.map { [$0.stage] }, [next.stage], to: &changes)
+            appendChange("現在の目的", currentPolicy?.objectives, next.objectiveIds, to: &changes)
+            appendChange("評価基準", currentPolicy.map { lensLines($0.lenses) }, lensLines(next.lenses), to: &changes)
+            appendChange("Hard Gate", currentPolicy.map { gateLines($0.hardGates) }, gateLines(next.hardGates), to: &changes)
+            appendChange("最大推薦数", nil, [String(next.maxRecommendations)], to: &changes)
+        }
+
+        return changes
+    }
+
+    private var riskLabel: String {
+        switch knowledgeChange.risk {
+        case "medium": return "中リスク"
+        case "high": return "高リスク"
+        case "critical": return "重大"
+        default: return knowledgeChange.risk
+        }
+    }
+
+    private func appendChange(
+        _ label: String,
+        _ before: [String]?,
+        _ after: [String],
+        to changes: inout [VenturePolicyFieldChange]
+    ) {
+        let previous = before ?? ["基準Versionの方針"]
+        guard previous != after else { return }
+        changes.append(VenturePolicyFieldChange(label: label, before: previous, after: after))
+    }
+
+    private func segmentLines(_ segments: [VenturePolicyTargetSegment]) -> [String] {
+        segments.map { "\($0.label): \($0.description)" }
+    }
+
+    private func lensLines(_ lenses: [VenturePolicyDecisionLens]) -> [String] {
+        lenses.map { "\($0.label)（\($0.weight.formatted())）" }
+    }
+
+    private func gateLines(_ gates: [VenturePolicyHardGate]) -> [String] {
+        gates.map { "\($0.label): \($0.description)" }
+    }
+
+    private func referenceLabel(_ reference: VentureKnowledgeReference) -> String {
+        let relation: String
+        switch reference.relation {
+        case "supports": relation = "支持"
+        case "contradicts": relation = "反例"
+        default: relation = "文脈"
+        }
+        return "\(reference.kind) / \(shortId(reference.id)) / \(relation)"
+    }
+
+    private func shortId(_ id: String) -> String {
+        id.count > 12 ? "\(id.prefix(12))…" : id
+    }
+}
+
+private struct VenturePolicyFieldChange: Identifiable {
+    let label: String
+    let before: [String]
+    let after: [String]
+
+    var id: String { label }
 }
 
 private struct VentureProductChangeSummaryView: View {

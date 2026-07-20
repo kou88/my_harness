@@ -5,7 +5,8 @@ let package = Package(
     name: "MyHarnessNotificationDomain",
     platforms: [.macOS(.v14)],
     products: [
-        .library(name: "MyHarnessNotificationDomain", targets: ["MyHarnessNotificationDomain"])
+        .library(name: "MyHarnessNotificationDomain", targets: ["MyHarnessNotificationDomain"]),
+        .library(name: "MyHarnessProductOpsDomain", targets: ["MyHarnessProductOpsDomain"]),
     ],
     targets: [
         .target(
@@ -23,9 +24,30 @@ let package = Package(
             ],
             sources: ["PushNotificationPreferences.domain.swift"]
         ),
+        .target(
+            name: "MyHarnessProductOpsDomain",
+            path: "MyHarness/domain/model",
+            exclude: [
+                "ActionSuggestionWidgetSnapshot.domain.swift",
+                "DayEntry.domain.swift",
+                "NotificationSchedule.domain.swift",
+                "PushNotificationPreferences.domain.swift",
+                "RoutineItem.domain.swift",
+                "WidgetDisplaySettings.domain.swift",
+                "WidgetSnapshot.domain.swift",
+            ],
+            sources: [
+                "ActionSuggestion.domain.swift",
+                "ProductOps.domain.swift",
+            ]
+        ),
         .testTarget(
             name: "MyHarnessNotificationDomainTests",
             dependencies: ["MyHarnessNotificationDomain"]
-        )
+        ),
+        .testTarget(
+            name: "MyHarnessProductOpsDomainTests",
+            dependencies: ["MyHarnessProductOpsDomain"]
+        ),
     ]
 )

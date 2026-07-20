@@ -83,7 +83,7 @@ final class AppRouter {
             }
         case "policy":
             selectedTab = .nextActions
-            nextActionsPath = [.projectPolicy]
+            nextActionsPath = [.venturePolicy]
         case "executions":
             routeSuggestionReference(.actionExecution(id: tail.first ?? ""))
         case "needs":
@@ -178,7 +178,7 @@ enum AppRoute: Hashable {
     case codexResult(id: String)
     case needList
     case developmentBacklog
-    case projectPolicy
+    case venturePolicy
     case actionHistory
     case completedActions
 
@@ -192,7 +192,7 @@ enum AppRoute: Hashable {
              .codexResult,
              .needList,
              .developmentBacklog,
-             .projectPolicy,
+             .venturePolicy,
              .actionHistory,
              .completedActions:
             return .nextActions
@@ -210,7 +210,7 @@ enum AppRoute: Hashable {
             return id
         case .needList,
              .developmentBacklog,
-             .projectPolicy,
+             .venturePolicy,
              .actionHistory,
              .completedActions:
             return ""

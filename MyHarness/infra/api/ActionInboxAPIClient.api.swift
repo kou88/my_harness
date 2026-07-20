@@ -149,8 +149,8 @@ final class ActionInboxAPIClient {
         var data: NeedPursueResult
     }
 
-    private struct ProjectPolicyEnvelope: Decodable {
-        var data: ProjectPolicy
+    private struct VenturePolicyEnvelope: Decodable {
+        var data: VenturePolicy
     }
 
     private struct DevelopmentTasksEnvelope: Decodable {
@@ -545,18 +545,18 @@ final class ActionInboxAPIClient {
         return try decoder.decode(NeedEnvelope.self, from: data).data
     }
 
-    func fetchProjectPolicy(projectId: String) async throws -> ProjectPolicy {
-        let data = try await request(path: "/api/project-policies/\(projectId)", method: "GET")
-        return try decoder.decode(ProjectPolicyEnvelope.self, from: data).data
+    func fetchVenturePolicy(ventureId: String) async throws -> VenturePolicy {
+        let data = try await request(path: "/api/v2/ventures/\(ventureId)/policy", method: "GET")
+        return try decoder.decode(VenturePolicyEnvelope.self, from: data).data
     }
 
-    func updateProjectPolicy(projectId: String, fields: ProjectPolicyEditableFields) async throws -> ProjectPolicy {
+    func updateVenturePolicy(ventureId: String, request payload: VenturePolicyUpdateRequest) async throws -> VenturePolicy {
         let data = try await request(
-            path: "/api/project-policies/\(projectId)",
+            path: "/api/v2/ventures/\(ventureId)/policy",
             method: "PATCH",
-            body: fields
+            body: payload
         )
-        return try decoder.decode(ProjectPolicyEnvelope.self, from: data).data
+        return try decoder.decode(VenturePolicyEnvelope.self, from: data).data
     }
 
     func fetchDevelopmentTasks(projectId: String) async throws -> [DevelopmentTask] {

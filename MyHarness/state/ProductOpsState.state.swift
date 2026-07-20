@@ -25,7 +25,7 @@ final class ProductOpsState {
     var needsState: LoadState<[Need]> = .idle
     var candidatesState: LoadState<[NeedCandidate]> = .idle
     var developmentTasksState: LoadState<[DevelopmentTask]> = .idle
-    var policyState: LoadState<ProjectPolicy> = .idle
+    var policyState: LoadState<VenturePolicy> = .idle
     var isPostingMemo = false
     var isSavingPolicy = false
     var isPostingVentureDecision = false
@@ -184,7 +184,7 @@ final class ProductOpsState {
         return items
     }
 
-    var policy: ProjectPolicy? {
+    var policy: VenturePolicy? {
         guard case .loaded(let policy) = policyState else {
             return nil
         }
@@ -670,7 +670,7 @@ final class ProductOpsState {
         guard let apiClient else { return }
         policyState = .loading
         do {
-            policyState = .loaded(try await apiClient.fetchProjectPolicy(projectId: projectId))
+            policyState = .loaded(try await apiClient.fetchVenturePolicy(ventureId: ventureId))
             message = nil
         } catch {
             policyState = .failed("方針の読み込みに失敗しました: \(error.localizedDescription)")
@@ -942,13 +942,21 @@ final class ProductOpsState {
         monitoringAlertsState = .loaded(items)
     }
 
-    func updatePolicy(fields: ProjectPolicyEditableFields) async -> ProjectPolicy? {
-        guard let apiClient else { return nil }
+    func updatePolicy(bodyMarkdown: String, reason: String) async -> VenturePolicy? {
+        guard let apiClient, let currentPolicy = policy else { return nil }
         isSavingPolicy = true
         defer { isSavingPolicy = false }
 
         do {
-            let policy = try await apiClient.updateProjectPolicy(projectId: projectId, fields: fields)
+            let policy = try await apiClient.updateVenturePolicy(
+                ventureId: ventureId,
+                request: VenturePolicyUpdateRequest(
+                    expectedStrategyVersionId: currentPolicy.strategyVersionId,
+                    expectedDecisionFrameVersionId: currentPolicy.decisionFrameVersionId,
+                    bodyMarkdown: bodyMarkdown,
+                    reason: reason
+                )
+            )
             policyState = .loaded(policy)
             message = "方針を保存しました"
             return policy
