@@ -64,6 +64,24 @@ struct VenturePolicyContractTests {
         #expect(revision.applicationStatus == "not_requested")
     }
 
+    @Test
+    func decodesResearchClipWithSourceState() throws {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        let item = try decoder.decode(
+            VentureResearchClipListItem.self,
+            from: Data(researchClipJSON.utf8)
+        )
+
+        #expect(item.clip.itemKind == "supporting_evidence")
+        #expect(item.clip.relation == "supports")
+        #expect(item.clip.sourceSnapshot.type == "x_post")
+        #expect(item.sourceState.sourceMissionId == "mission-1")
+        #expect(item.sourceState.sourceReviewDecision == "adopted")
+        #expect(item.sourceState.verificationVerdict == "review_required")
+    }
+
     private let policyJSON = #"""
     {
       "ventureId": "landlord-saas",
@@ -227,6 +245,47 @@ struct VenturePolicyContractTests {
       "canAdopt": true,
       "canRequestRevision": true,
       "canReject": true
+    }
+    """#
+
+    private let researchClipJSON = #"""
+    {
+      "clip": {
+        "id": "clip-1",
+        "ownerUserId": "owner-1",
+        "ventureId": "landlord-saas",
+        "deliverableId": "deliverable-1",
+        "itemKey": "research-clip:v1:supporting_evidence:0:hash",
+        "extractorSchemaKey": "venture_research_mission_v3",
+        "extractorVersion": 1,
+        "itemKind": "supporting_evidence",
+        "relation": "supports",
+        "textSnapshot": "確定申告前に領収書をまとめている",
+        "contextSnapshot": "資料整理の負担を示している",
+        "sourceUrl": "https://x.com/example/status/1",
+        "sourceSnapshot": {
+          "type": "x_post",
+          "externalKey": "1",
+          "author": "example",
+          "publishedAt": null,
+          "metadata": {"query": "大家 確定申告"}
+        },
+        "userNote": "有料課題候補",
+        "opportunityId": "opportunity-1",
+        "hypothesisId": "hypothesis-1",
+        "version": 1,
+        "createdAt": "2026-07-20T00:00:00Z",
+        "updatedAt": "2026-07-20T00:00:00Z",
+        "archivedAt": null
+      },
+      "sourceState": {
+        "sourceMissionId": "mission-1",
+        "sourceMissionStatus": "completed",
+        "sourceReviewDecision": "adopted",
+        "isCurrentDeliverable": true,
+        "verificationStatus": "awaiting_review",
+        "verificationVerdict": "review_required"
+      }
     }
     """#
 }

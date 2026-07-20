@@ -603,6 +603,111 @@ struct VentureResearchMissionListPayload: Decodable, Hashable {
     var items: [VentureResearchMissionItem]
 }
 
+struct VentureResearchClipSourceSnapshot: Decodable, Hashable {
+    var type: String
+    var externalKey: String
+    var author: String?
+    var publishedAt: String?
+    var metadata: [String: ProductOpsMetadataValue]
+}
+
+struct VentureResearchClipCandidatePayload: Decodable, Hashable {
+    var deliverableId: String
+    var ventureId: String
+    var missionId: String
+    var extractorVersion: Int
+    var items: [VentureResearchClipCandidate]
+}
+
+struct VentureResearchClipCandidate: Identifiable, Decodable, Hashable {
+    var itemKey: String
+    var extractorSchemaKey: String
+    var extractorVersion: Int
+    var kind: String
+    var label: String
+    var relation: String?
+    var text: String
+    var context: String
+    var sourceUrl: String?
+    var sourceSnapshot: VentureResearchClipSourceSnapshot
+    var savedClipId: String?
+    var savedClipVersion: Int?
+
+    var id: String { itemKey }
+}
+
+struct VentureResearchClip: Identifiable, Decodable, Hashable {
+    var id: String
+    var ownerUserId: String
+    var ventureId: String
+    var deliverableId: String
+    var itemKey: String
+    var extractorSchemaKey: String
+    var extractorVersion: Int
+    var itemKind: String
+    var relation: String?
+    var textSnapshot: String
+    var contextSnapshot: String
+    var sourceUrl: String?
+    var sourceSnapshot: VentureResearchClipSourceSnapshot
+    var userNote: String
+    var opportunityId: String?
+    var hypothesisId: String?
+    var version: Int
+    var createdAt: Date
+    var updatedAt: Date
+    var archivedAt: Date?
+}
+
+struct VentureResearchClipSaveResult: Decodable, Hashable {
+    struct Item: Decodable, Hashable {
+        var clip: VentureResearchClip
+        var outcome: String
+    }
+
+    var deliverableId: String
+    var items: [Item]
+}
+
+struct VentureResearchClipPage: Decodable, Hashable {
+    var items: [VentureResearchClipListItem]
+    var nextCursor: String?
+}
+
+struct VentureResearchClipListItem: Identifiable, Decodable, Hashable {
+    struct SourceState: Decodable, Hashable {
+        var sourceMissionId: String
+        var sourceMissionStatus: String
+        var sourceReviewDecision: String?
+        var isCurrentDeliverable: Bool
+        var verificationStatus: String?
+        var verificationVerdict: String?
+    }
+
+    var clip: VentureResearchClip
+    var sourceState: SourceState
+
+    var id: String { clip.id }
+}
+
+struct VentureResearchClipAssociationOptions: Decodable, Hashable {
+    struct Opportunity: Identifiable, Decodable, Hashable {
+        var id: String
+        var title: String
+        var status: String
+    }
+
+    struct Hypothesis: Identifiable, Decodable, Hashable {
+        var id: String
+        var opportunityId: String
+        var statement: String
+        var status: String
+    }
+
+    var opportunities: [Opportunity]
+    var hypotheses: [Hypothesis]
+}
+
 struct VentureMessageMissionListPayload: Decodable, Hashable {
     var items: [VentureMessageMissionItem]
 }
@@ -1789,24 +1894,6 @@ struct VentureProposalDecisionResult: Decodable, Hashable {
     var developmentMission: VentureDevelopmentMission?
     var researchMission: VentureResearchMission?
     var messageMission: VentureMessageMission?
-}
-
-struct VentureLearningAdoptionResult: Decodable, Hashable {
-    struct Learning: Decodable, Hashable {
-        var id: String
-        var ownerUserId: String
-        var ventureId: String
-        var missionId: String
-        var deliverableId: String
-        var opportunityId: String
-        var hypothesisId: String
-        var summary: String
-        var payload: ProductOpsMetadataValue
-        var adoptedAt: Date
-    }
-
-    var learning: Learning
-    var recommendationJob: VentureRecommendationJob
 }
 
 struct Need: Identifiable, Decodable, Hashable {
