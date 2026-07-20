@@ -44,6 +44,22 @@ struct VenturePolicyContractTests {
         }
     }
 
+    @Test
+    func decodesPolicyRevisionDiffAndImpactPreview() throws {
+        let revision = try JSONDecoder().decode(
+            VenturePolicyRevisionDetail.self,
+            from: Data(policyRevisionDetailJSON.utf8)
+        )
+
+        #expect(revision.reviewDeepLink == "myharness://knowledge-change-missions/mission-1")
+        #expect(revision.policyTextDiff.hunks.first?.oldStart == 1)
+        #expect(revision.policyTextDiff.hunks.first?.lines.count == 2)
+        #expect(revision.structuredChanges.first?.before == ["日々の記録"])
+        #expect(revision.structuredChanges.first?.added == ["月次確認"])
+        #expect(revision.impactPreview.staleProposalCount == 2)
+        #expect(revision.impactPreview.supersededAgendaItemCount == 1)
+    }
+
     private let policyJSON = #"""
     {
       "ventureId": "landlord-saas",
@@ -128,6 +144,78 @@ struct VenturePolicyContractTests {
       ],
       "risk": "high",
       "consultationSummary": null
+    }
+    """#
+
+    private let policyRevisionDetailJSON = #"""
+    {
+      "missionId": "mission-1",
+      "missionVersion": 1,
+      "currentAttempt": null,
+      "reviews": [],
+      "deliverableId": "deliverable-1",
+      "revisionHash": "revision-hash-1",
+      "reviewDeepLink": "myharness://knowledge-change-missions/mission-1",
+      "origin": "human_consultation",
+      "status": "awaiting_review",
+      "applicationStatus": "reviewed",
+      "applicationError": null,
+      "baseVersions": {
+        "policyTextVersionId": "policy-text-1",
+        "strategyVersionId": "strategy-1",
+        "decisionFrameVersionId": "frame-1"
+      },
+      "currentVersions": {
+        "policyTextVersionId": "policy-text-1",
+        "strategyVersionId": "strategy-1",
+        "decisionFrameVersionId": "frame-1"
+      },
+      "isStale": false,
+      "staleReasons": [],
+      "summary": "日々の記録を主軸にする",
+      "rationale": "資料準備の負担が大きい",
+      "expectedImpact": "次の推薦対象が変わる",
+      "contraryEvidence": [],
+      "sourceRefs": [],
+      "risk": "high",
+      "consultationSummary": "ChatGPTで方針を整理した",
+      "policyTextDiff": {
+        "before": "# 旧方針",
+        "after": "# 新方針",
+        "hunks": [
+          {
+            "oldStart": 1,
+            "oldLineCount": 1,
+            "newStart": 1,
+            "newLineCount": 1,
+            "lines": [
+              {"kind":"removed","oldLineNumber":1,"newLineNumber":null,"text":"# 旧方針"},
+              {"kind":"added","oldLineNumber":null,"newLineNumber":1,"text":"# 新方針"}
+            ]
+          }
+        ]
+      },
+      "structuredChanges": [
+        {
+          "path": "strategy.focusAreas",
+          "label": "現在のFocus",
+          "changeType": "list",
+          "before": ["日々の記録"],
+          "after": ["日々の記録", "月次確認"],
+          "added": ["月次確認"],
+          "removed": [],
+          "reordered": false
+        }
+      ],
+      "impactPreview": {
+        "staleProposalCount": 2,
+        "supersededRecommendationSetCount": 1,
+        "supersededSynthesisCount": 1,
+        "supersededAgendaItemCount": 1
+      },
+      "canAdopt": true,
+      "canRequestRevision": true,
+      "canReject": true
     }
     """#
 }
