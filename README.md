@@ -69,7 +69,7 @@ Required repository secrets:
 
 `TestFlight (Stage)` fetches the latest provisioning profiles from App Store Connect at runtime:
 
-- `my-harness-app-store` for `com.kou888.myharness`
+- `my-harness-app-store-push-v2` for `com.kou888.myharness`
 - `my-harness-widget-app-store` for `com.kou888.myharness.widget`
 
 Both provisioning profiles must include the App Group entitlement. The app profile must also include Push Notifications:
