@@ -77,7 +77,8 @@ struct VenturePolicyView: View {
                 .listRowSeparator(.hidden)
             case .loaded(let policy):
                 Section {
-                    VenturePolicyMarkdownBody(markdown: policy.bodyMarkdown)
+                    ProductOpsMarkdownView(markdown: policy.bodyMarkdown)
+                        .padding(.vertical, 4)
                 }
 
                 if policy.pendingPolicyChangeCount > 0 {
@@ -94,36 +95,18 @@ struct VenturePolicyView: View {
     }
 }
 
-private struct VenturePolicyMarkdownBody: View {
-    let markdown: String
-
-    var body: some View {
-        switch Result(catching: { try AttributedString(markdown: markdown) }) {
-        case .success(let renderedMarkdown):
-            Text(renderedMarkdown)
-                .font(.body)
-                .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.vertical, 4)
-        case .failure:
-            ContentUnavailableView(
-                "方針を表示できません",
-                systemImage: "doc.badge.ellipsis",
-                description: Text("Markdownの形式を確認してください。")
-            )
-        }
-    }
-}
-
 private struct VenturePolicyEditSheet: View {
     @Environment(\.dismiss) private var dismiss
     let state: ProductOpsState
     @State private var bodyMarkdown: String
     @State private var reason = ""
+    private let originalMarkdown: String
 
     init(state: ProductOpsState, policy: VenturePolicy) {
         self.state = state
-        _bodyMarkdown = State(initialValue: Self.editableMarkdown(from: policy.bodyMarkdown))
+        let editableMarkdown = Self.editableMarkdown(from: policy.bodyMarkdown)
+        originalMarkdown = Self.normalized(editableMarkdown)
+        _bodyMarkdown = State(initialValue: editableMarkdown)
     }
 
     var body: some View {
@@ -160,17 +143,26 @@ private struct VenturePolicyEditSheet: View {
                         Text("保存")
                     }
                 }
-                .disabled(state.isSavingPolicy || normalizedMarkdown.isEmpty || normalizedReason.isEmpty)
+                .disabled(
+                    state.isSavingPolicy
+                        || normalizedMarkdown.isEmpty
+                        || normalizedReason.isEmpty
+                        || !hasChanges
+                )
             }
         }
     }
 
     private var normalizedMarkdown: String {
-        bodyMarkdown.trimmingCharacters(in: .whitespacesAndNewlines)
+        Self.normalized(bodyMarkdown)
     }
 
     private var normalizedReason: String {
         reason.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var hasChanges: Bool {
+        normalizedMarkdown != originalMarkdown
     }
 
     private static func editableMarkdown(from markdown: String) -> String {
@@ -179,6 +171,15 @@ private struct VenturePolicyEditSheet: View {
             return markdown
         }
         return String(markdown[..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func normalized(_ markdown: String) -> String {
+        markdown
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { $0.replacingOccurrences(of: #"\s+$"#, with: "", options: .regularExpression) }
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func save() async {

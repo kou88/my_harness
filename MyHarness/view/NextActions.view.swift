@@ -1749,7 +1749,7 @@ private struct VentureMissionDetailSheet: View {
                         .buttonStyle(.borderless)
                         .accessibilityLabel("承認済み依頼をコピー")
                     }
-                    ProductOpsRenderedMarkdown(markdown: approvedInstruction)
+                    ProductOpsMarkdownView(markdown: approvedInstruction)
                 }
                 .padding(.vertical, 4)
             }
@@ -2667,7 +2667,7 @@ private struct VentureResearchReportDetailView: View {
                         .buttonStyle(.borderless)
                         .accessibilityLabel("成果物本文をコピー")
                     }
-                    ProductOpsRenderedMarkdown(markdown: artifactMarkdown)
+                    ProductOpsMarkdownView(markdown: artifactMarkdown)
                 }
             } else if !summary.isEmpty {
                 Text(summary)
@@ -2763,21 +2763,6 @@ private struct VentureResearchReportDetailView: View {
         guard let host = url.host else { return source }
         let location = host + url.path
         return location.isEmpty ? source : location
-    }
-}
-
-private struct ProductOpsRenderedMarkdown: View {
-    let markdown: String
-
-    var body: some View {
-        Text(renderedMarkdown)
-            .font(.body)
-            .fixedSize(horizontal: false, vertical: true)
-            .textSelection(.enabled)
-    }
-
-    private var renderedMarkdown: AttributedString {
-        (try? AttributedString(markdown: markdown)) ?? AttributedString(markdown)
     }
 }
 
