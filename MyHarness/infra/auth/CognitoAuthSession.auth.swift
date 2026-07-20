@@ -35,6 +35,7 @@ final class CognitoAuthSession: NSObject, ASWebAuthenticationPresentationContext
         case missingAuthorizationCode
         case stateMismatch
         case missingToken
+        case missingIdentityToken
         case tokenRefreshUnavailable
         case tokenEndpointFailed(Int, String)
 
@@ -50,6 +51,8 @@ final class CognitoAuthSession: NSObject, ASWebAuthenticationPresentationContext
                 return "Hosted UIのstateが一致しません。"
             case .missingToken:
                 return "アクセストークンがありません。"
+            case .missingIdentityToken:
+                return "IDトークンがありません。再ログインしてください。"
             case .tokenRefreshUnavailable:
                 return "再ログインが必要です。"
             case .tokenEndpointFailed(let status, let body):
@@ -84,6 +87,20 @@ final class CognitoAuthSession: NSObject, ASWebAuthenticationPresentationContext
         token = try await refresh(token: token)
         try saveToken(token)
         return token.accessToken
+    }
+
+    func idToken() async throws -> String {
+        guard var token = try loadToken() else {
+            throw AuthError.missingToken
+        }
+        if token.expiresAt.timeIntervalSinceNow <= 60 {
+            token = try await refresh(token: token)
+            try saveToken(token)
+        }
+        guard let idToken = token.idToken, !idToken.isEmpty else {
+            throw AuthError.missingIdentityToken
+        }
+        return idToken
     }
 
     func signIn() async throws {

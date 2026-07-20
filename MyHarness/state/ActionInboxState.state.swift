@@ -87,6 +87,8 @@ final class ActionInboxState {
 
         do {
             try await authSession.signIn()
+            apiClient?.invalidateBootstrap()
+            try await apiClient?.bootstrapCurrentUser()
             ActionPushNotificationCoordinator.shared.configure(apiClient: apiClient, registerStoredToken: false)
             await synchronizePushAfterSignIn()
             await load()
@@ -99,6 +101,7 @@ final class ActionInboxState {
     func signOut() async {
         do {
             try authSession?.signOut()
+            apiClient?.invalidateBootstrap()
             inboxState = .idle
             detailState = .idle
             try await widgetRepository.publish(.empty)
