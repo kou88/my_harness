@@ -12,6 +12,8 @@ struct VenturePolicyContractTests {
         let policy = try decoder.decode(VenturePolicy.self, from: data)
 
         #expect(policy.ventureId == "landlord-saas")
+        #expect(policy.policyText == "# 自由な事業方針")
+        #expect(policy.policyTextVersion == 2)
         #expect(policy.strategyVersionId == "strategy-v2")
         #expect(policy.decisionFrameVersionId == "frame-v3")
         #expect(policy.targetSegments.first?.key == "small-landlord")
@@ -45,6 +47,9 @@ struct VenturePolicyContractTests {
     private let policyJSON = #"""
     {
       "ventureId": "landlord-saas",
+      "policyText": "# 自由な事業方針",
+      "policyTextVersion": 2,
+      "policyTextUpdatedAt": "2026-07-20T00:00:00Z",
       "strategyVersionId": "strategy-v2",
       "decisionFrameVersionId": "frame-v3",
       "mission": "小規模大家の日常事務を減らす",
@@ -66,9 +71,18 @@ struct VenturePolicyContractTests {
       "hardGates": [
         {"key":"target_segment_match","label":"対象顧客","description":"対象顧客に一致する","parameters":{"required":true}}
       ],
+      "maxRecommendations": 1,
+      "objectiveDefinitions": [
+        {"key":"validate-rent-reconciliation","label":"入金照合を検証","description":"課題の強さを確認する"}
+      ],
+      "decisionLensDefinitions": [
+        {"key":"strategic_fit","label":"方針一致","direction":"higher_is_better","description":"対象顧客と目的への一致"}
+      ],
+      "hardGateDefinitions": [
+        {"key":"target_segment_match","label":"対象顧客","description":"対象顧客に一致する"}
+      ],
       "currentView": "入金照合は有力だが負担量は未確認",
       "synthesisVersionId": "synthesis-v4",
-      "bodyMarkdown": "# 事業方針",
       "pendingPolicyChangeCount": 1,
       "generatedAt": "2026-07-20T00:00:00Z"
     }

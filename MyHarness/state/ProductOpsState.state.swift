@@ -942,37 +942,61 @@ final class ProductOpsState {
         monitoringAlertsState = .loaded(items)
     }
 
-    func updatePolicy(bodyMarkdown: String, reason: String) async -> VenturePolicy? {
+    func updatePolicyText(policyText: String, reason: String) async -> VenturePolicy? {
         guard let apiClient, let currentPolicy = policy else { return nil }
         isSavingPolicy = true
-        message = "方針を保存しています"
+        message = "事業方針を保存しています"
         defer { isSavingPolicy = false }
 
         let updatedPolicy: VenturePolicy
         do {
-            updatedPolicy = try await apiClient.updateVenturePolicy(
+            updatedPolicy = try await apiClient.updateVenturePolicyText(
                 ventureId: ventureId,
-                request: VenturePolicyUpdateRequest(
-                    expectedStrategyVersionId: currentPolicy.strategyVersionId,
-                    expectedDecisionFrameVersionId: currentPolicy.decisionFrameVersionId,
-                    bodyMarkdown: bodyMarkdown,
+                request: VenturePolicyTextUpdateRequest(
+                    expectedVersion: currentPolicy.policyTextVersion,
+                    policyText: policyText,
                     reason: reason
                 )
             )
         } catch {
-            message = "方針を保存できませんでした: \(error.localizedDescription)"
+            message = "事業方針を保存できませんでした: \(error.localizedDescription)"
             return nil
         }
 
         policyState = .loaded(updatedPolicy)
+        message = "事業方針を更新しました。推薦設定は変更されていません"
+        return updatedPolicy
+    }
+
+    func updateRecommendationSettings(
+        strategy: VenturePolicyStrategySettingsRequest,
+        decisionFrame: VenturePolicyDecisionFrameSettingsRequest,
+        commercialHypotheses: [String],
+        reason: String
+    ) async -> VenturePolicy? {
+        guard let apiClient, let currentPolicy = policy else { return nil }
+        isSavingPolicy = true
+        message = "推薦設定を保存しています"
+        defer { isSavingPolicy = false }
+
         do {
-            let policy = try await apiClient.fetchVenturePolicy(ventureId: ventureId)
-            policyState = .loaded(policy)
-            message = "方針を保存しました"
-            return policy
-        } catch {
-            message = "方針は保存されましたが、再読み込みに失敗しました: \(error.localizedDescription)"
+            let updatedPolicy = try await apiClient.updateVentureRecommendationSettings(
+                ventureId: ventureId,
+                request: VenturePolicyRecommendationSettingsUpdateRequest(
+                    expectedStrategyVersionId: currentPolicy.strategyVersionId,
+                    expectedDecisionFrameVersionId: currentPolicy.decisionFrameVersionId,
+                    strategyPatch: strategy,
+                    decisionFramePatch: decisionFrame,
+                    commercialHypotheses: commercialHypotheses,
+                    reason: reason
+                )
+            )
+            policyState = .loaded(updatedPolicy)
+            message = "推薦設定を更新しました"
             return updatedPolicy
+        } catch {
+            message = "推薦設定を保存できませんでした: \(error.localizedDescription)"
+            return nil
         }
     }
 

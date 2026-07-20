@@ -1554,26 +1554,57 @@ struct VentureKnowledgeReference: Decodable, Hashable {
     var relation: String
 }
 
-struct VenturePolicyTargetSegment: Decodable, Hashable {
+struct VenturePolicyTargetSegment: Codable, Hashable, Identifiable {
     var key: String
     var label: String
     var description: String
+
+    var id: String { key }
 }
 
-struct VenturePolicyDecisionLens: Decodable, Hashable {
+struct VenturePolicyDecisionLens: Codable, Hashable, Identifiable {
     var key: String
     var label: String
     var weight: Double
     var direction: String
     var required: Bool
     var description: String
+
+    var id: String { key }
 }
 
-struct VenturePolicyHardGate: Decodable, Hashable {
+struct VenturePolicyHardGate: Codable, Hashable, Identifiable {
     var key: String
     var label: String
     var description: String
     var parameters: [String: ProductOpsMetadataValue]
+
+    var id: String { key }
+}
+
+struct VenturePolicyObjectiveDefinition: Decodable, Hashable, Identifiable {
+    var key: String
+    var label: String
+    var description: String
+
+    var id: String { key }
+}
+
+struct VenturePolicyDecisionLensDefinition: Decodable, Hashable, Identifiable {
+    var key: String
+    var label: String
+    var direction: String
+    var description: String
+
+    var id: String { key }
+}
+
+struct VenturePolicyHardGateDefinition: Decodable, Hashable, Identifiable {
+    var key: String
+    var label: String
+    var description: String
+
+    var id: String { key }
 }
 
 struct VenturePolicyStrategyDefinition: Decodable, Hashable {
@@ -1934,6 +1965,9 @@ struct NextActionCommand: Decodable, Hashable {
 
 struct VenturePolicy: Identifiable, Decodable, Hashable {
     var ventureId: String
+    var policyText: String
+    var policyTextVersion: Int
+    var policyTextUpdatedAt: Date
     var strategyVersionId: String
     var decisionFrameVersionId: String
     var mission: String
@@ -1949,20 +1983,49 @@ struct VenturePolicy: Identifiable, Decodable, Hashable {
     var objectives: [String]
     var lenses: [VenturePolicyDecisionLens]
     var hardGates: [VenturePolicyHardGate]
+    var maxRecommendations: Int
+    var objectiveDefinitions: [VenturePolicyObjectiveDefinition]
+    var decisionLensDefinitions: [VenturePolicyDecisionLensDefinition]
+    var hardGateDefinitions: [VenturePolicyHardGateDefinition]
     var currentView: String?
     var synthesisVersionId: String?
-    var bodyMarkdown: String
     var pendingPolicyChangeCount: Int
     var generatedAt: Date
 
     var id: String { ventureId }
 }
 
-struct VenturePolicyUpdateRequest: Encodable, Hashable {
+struct VenturePolicyTextUpdateRequest: Encodable, Hashable {
+    var expectedVersion: Int
+    var policyText: String
+    var reason: String
+}
+
+struct VenturePolicyRecommendationSettingsUpdateRequest: Encodable, Hashable {
     var expectedStrategyVersionId: String
     var expectedDecisionFrameVersionId: String
-    var bodyMarkdown: String
+    var strategyPatch: VenturePolicyStrategySettingsRequest
+    var decisionFramePatch: VenturePolicyDecisionFrameSettingsRequest
+    var commercialHypotheses: [String]
     var reason: String
+}
+
+struct VenturePolicyStrategySettingsRequest: Encodable, Hashable {
+    var mission: String
+    var targetSegments: [VenturePolicyTargetSegment]
+    var desiredOutcomes: [String]
+    var focusAreas: [String]
+    var exclusions: [String]
+    var researchGuardrails: [String]
+    var deliveryGuardrails: [String]
+}
+
+struct VenturePolicyDecisionFrameSettingsRequest: Encodable, Hashable {
+    var stage: String
+    var objectiveIds: [String]
+    var lenses: [VenturePolicyDecisionLens]
+    var hardGates: [VenturePolicyHardGate]
+    var maxRecommendations: Int
 }
 
 struct DevelopmentTask: Identifiable, Decodable, Hashable {
@@ -1983,7 +2046,7 @@ struct DevelopmentTask: Identifiable, Decodable, Hashable {
     var updatedAt: Date
 }
 
-enum ProductOpsMetadataValue: Decodable, Hashable {
+enum ProductOpsMetadataValue: Codable, Hashable {
     case string(String)
     case number(Double)
     case bool(Bool)
@@ -2019,6 +2082,31 @@ enum ProductOpsMetadataValue: Decodable, Hashable {
             self = .number(value)
         } else {
             self = .string(try single.decode(String.self))
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        switch self {
+        case .string(let value):
+            var container = encoder.singleValueContainer()
+            try container.encode(value)
+        case .number(let value):
+            var container = encoder.singleValueContainer()
+            try container.encode(value)
+        case .bool(let value):
+            var container = encoder.singleValueContainer()
+            try container.encode(value)
+        case .object(let value):
+            var container = encoder.container(keyedBy: ProductOpsDynamicCodingKey.self)
+            for (key, item) in value {
+                try container.encode(item, forKey: ProductOpsDynamicCodingKey(stringValue: key)!)
+            }
+        case .array(let value):
+            var container = encoder.unkeyedContainer()
+            try container.encode(contentsOf: value)
+        case .null:
+            var container = encoder.singleValueContainer()
+            try container.encodeNil()
         }
     }
 }

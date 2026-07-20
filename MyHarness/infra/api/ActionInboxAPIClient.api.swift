@@ -550,9 +550,21 @@ final class ActionInboxAPIClient {
         return try decoder.decode(VenturePolicyEnvelope.self, from: data).data
     }
 
-    func updateVenturePolicy(ventureId: String, request payload: VenturePolicyUpdateRequest) async throws -> VenturePolicy {
+    func updateVenturePolicyText(ventureId: String, request payload: VenturePolicyTextUpdateRequest) async throws -> VenturePolicy {
         let data = try await request(
-            path: "/api/v2/ventures/\(ventureId)/policy",
+            path: "/api/v2/ventures/\(ventureId)/policy/text",
+            method: "PATCH",
+            body: payload
+        )
+        return try decoder.decode(VenturePolicyEnvelope.self, from: data).data
+    }
+
+    func updateVentureRecommendationSettings(
+        ventureId: String,
+        request payload: VenturePolicyRecommendationSettingsUpdateRequest
+    ) async throws -> VenturePolicy {
+        let data = try await request(
+            path: "/api/v2/ventures/\(ventureId)/policy/recommendation-settings",
             method: "PATCH",
             body: payload
         )
