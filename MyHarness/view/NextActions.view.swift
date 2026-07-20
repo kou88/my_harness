@@ -19,6 +19,7 @@ struct NextActionsView: View {
 
     private enum NextActionsSheet: Identifiable {
         case directMissionRequest
+        case researchClips
         case needMemo
         case proposalFeedback(PendingVentureProposalFeedback)
         case proposalDetail(proposalId: String, decisionItem: VentureDecisionInboxItem?)
@@ -30,6 +31,8 @@ struct NextActionsView: View {
             switch self {
             case .directMissionRequest:
                 return "directMissionRequest"
+            case .researchClips:
+                return "researchClips"
             case .needMemo:
                 return "needMemo"
             case .proposalFeedback(let feedback):
@@ -83,6 +86,20 @@ struct NextActionsView: View {
             switch sheet {
             case .directMissionRequest:
                 DirectMissionRequestSheet(state: productOpsState)
+            case .researchClips:
+                NavigationStack {
+                    ResearchClipListView(
+                        state: productOpsState,
+                        onOpenMission: { missionId in
+                            deferredSheet = .missionDetail(
+                                missionId: missionId,
+                                kindLabel: "調査",
+                                requestedAction: nil
+                            )
+                            presentedSheet = nil
+                        }
+                    )
+                }
             case .needMemo:
                 NavigationStack {
                     NextActionNeedMemoSheet(state: productOpsState)
@@ -413,7 +430,9 @@ struct NextActionsView: View {
             }
         )
         .swipeActions(edge: .leading, allowsFullSwipe: false) {
-            if item.availableActions.contains("adopt") && item.deliverableKind != "knowledge_change" {
+            if item.availableActions.contains("adopt") &&
+                item.deliverableKind != "knowledge_change" &&
+                item.deliverableKind != "research_report" {
                 Button {
                     Task { await productOpsState.adoptMissionFromList(item) }
                 } label: {
@@ -587,6 +606,12 @@ struct NextActionsView: View {
                 presentedSheet = .needMemo
             } label: {
                 Label("ニーズ候補をメモ", systemImage: "square.and.pencil")
+            }
+
+            Button {
+                presentedSheet = .researchClips
+            } label: {
+                Label("保存した調査メモ", systemImage: "bookmark")
             }
 
             Button {
@@ -1926,6 +1951,8 @@ private struct VentureMissionDetailSheet: View {
                 )
             case .researchReport(let value):
                 VentureResearchReportDetailView(
+                    state: state,
+                    deliverableId: deliverable.id,
                     summary: deliverable.displaySummary,
                     report: value,
                     copyMarkdown: { markdown in state.copyMarkdown(markdown) }
@@ -1984,7 +2011,12 @@ private struct VentureMissionDetailSheet: View {
             }
 
             if detail.availableActions.contains("adopt") {
-                missionActionButton("採用する", tint: .accentColor) {
+                missionActionButton(
+                    detail.currentDeliverable?.kind == "research_report"
+                        ? "レポート全体をLearningとして採用"
+                        : "採用する",
+                    tint: .accentColor
+                ) {
                     startSubmission { await adopt(detail) }
                 }
             } else if detail.availableActions.contains("retry") {
@@ -2473,7 +2505,6 @@ private struct VentureMonitoringAlertRow: View {
 
 private struct VentureResearchMissionRow: View {
     let item: VentureResearchMissionItem
-    let onAdopt: (VentureDeliverable) -> Void
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -2498,16 +2529,6 @@ private struct VentureResearchMissionRow: View {
                         summary: item.researchReportDeliverable?.summary ?? item.result?.summary ?? "",
                         report: report
                     )
-                    if item.mission.status == "awaiting_review", let deliverable = item.researchReportDeliverable {
-                        Button {
-                            onAdopt(deliverable)
-                        } label: {
-                            Label("Learningとして採用", systemImage: "checkmark.seal")
-                                .font(.caption.weight(.semibold))
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
-                    }
                 } else if let result = item.result {
                     VentureResearchReportSummaryView(summary: result.summary, report: result.report)
                 } else if let error = item.mission.error, !error.isEmpty {
@@ -2668,6 +2689,8 @@ private struct VentureResearchReportSummaryView: View {
 }
 
 private struct VentureResearchReportDetailView: View {
+    let state: ProductOpsState
+    let deliverableId: String
     let summary: String
     let report: VentureResearchReportDeliverable
     let copyMarkdown: (String) -> Void
@@ -2696,33 +2719,11 @@ private struct VentureResearchReportDetailView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            ProductChangeSection(title: "調査テーマ", items: [report.researchQuestion].filter { !$0.isEmpty })
-            ProductChangeSection(title: "結論", items: [report.conclusion].filter { !$0.isEmpty })
-            ProductChangeSection(title: "重要な発見", items: report.findings)
-            ProductChangeSection(title: "支持する根拠", items: report.supportingEvidence, tint: .green)
-            ProductChangeSection(title: "反例", items: report.contradictingEvidence, tint: .orange)
-            ProductChangeSection(title: "まだ分からないこと", items: report.unknowns)
-            ProductChangeSection(title: "次に確認すること", items: report.nextQuestions)
-
-            if !report.sources.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("情報源")
-                        .font(.subheadline.weight(.semibold))
-                    ForEach(Array(report.sources.enumerated()), id: \.offset) { _, source in
-                        if let url = researchSourceURL(source) {
-                            ProductOpsExternalLinkButton(destination: url) {
-                                Label(researchSourceLabel(source, url: url), systemImage: "arrow.up.right.square")
-                                    .font(.subheadline)
-                            }
-                        } else {
-                            Text(source)
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                                .textSelection(.enabled)
-                        }
-                    }
-                }
-            }
+            ResearchReportItemsView(
+                state: state,
+                deliverableId: deliverableId,
+                report: report
+            )
 
             if let executionLog = report.executionLog {
                 DisclosureGroup("実行ログ") {
