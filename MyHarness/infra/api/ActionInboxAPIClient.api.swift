@@ -18,6 +18,7 @@ final class ActionInboxAPIClient {
 
     private struct ErrorEnvelope: Decodable {
         struct APIError: Decodable {
+            var code: String
             var message: String
         }
 
@@ -818,6 +819,22 @@ final class ActionInboxAPIClient {
         bodyData: Data?
     ) async throws -> Data {
         try await bootstrapCurrentUser()
+        return try await sendAuthenticatedRequest(
+            path: path,
+            method: method,
+            queryItems: queryItems,
+            bodyData: bodyData,
+            canRecoverBootstrap: true
+        )
+    }
+
+    private func sendAuthenticatedRequest(
+        path: String,
+        method: String,
+        queryItems: [URLQueryItem],
+        bodyData: Data?,
+        canRecoverBootstrap: Bool
+    ) async throws -> Data {
         var request = URLRequest(
             url: endpoint(path: path, queryItems: queryItems),
             cachePolicy: .reloadIgnoringLocalCacheData
@@ -836,7 +853,21 @@ final class ActionInboxAPIClient {
         }
         guard (200..<300).contains(httpResponse.statusCode) else {
             let body = String(data: data, encoding: .utf8) ?? ""
-            let message = (try? decoder.decode(ErrorEnvelope.self, from: data).error.message) ?? body
+            let apiError = try? decoder.decode(ErrorEnvelope.self, from: data).error
+            if canRecoverBootstrap,
+               httpResponse.statusCode == 404,
+               apiError?.code == "USER_NOT_BOOTSTRAPPED" {
+                invalidateBootstrap()
+                try await bootstrapCurrentUser()
+                return try await sendAuthenticatedRequest(
+                    path: path,
+                    method: method,
+                    queryItems: queryItems,
+                    bodyData: bodyData,
+                    canRecoverBootstrap: false
+                )
+            }
+            let message = apiError?.message ?? body
             throw ClientError.requestFailed(httpResponse.statusCode, message)
         }
         return data
