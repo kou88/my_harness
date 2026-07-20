@@ -19,6 +19,8 @@ struct VenturePolicyContractTests {
         #expect(policy.targetSegments.first?.key == "small-landlord")
         #expect(policy.lenses.first?.weight == 40)
         #expect(policy.pendingPolicyChangeCount == 1)
+        #expect(policy.policyChangeStatusCounts.awaitingReview == 1)
+        #expect(policy.policyChangeStatusCounts.applyFailed == 1)
     }
 
     @Test
@@ -58,6 +60,8 @@ struct VenturePolicyContractTests {
         #expect(revision.structuredChanges.first?.added == ["月次確認"])
         #expect(revision.impactPreview.staleProposalCount == 2)
         #expect(revision.impactPreview.supersededAgendaItemCount == 1)
+        #expect(revision.reviewStatus == "awaiting_review")
+        #expect(revision.applicationStatus == "not_requested")
     }
 
     private let policyJSON = #"""
@@ -101,6 +105,12 @@ struct VenturePolicyContractTests {
       "currentView": "入金照合は有力だが負担量は未確認",
       "synthesisVersionId": "synthesis-v4",
       "pendingPolicyChangeCount": 1,
+      "policyChangeStatusCounts": {
+        "awaitingReview": 1,
+        "awaitingExternalInput": 0,
+        "pendingApply": 0,
+        "applyFailed": 1
+      },
       "generatedAt": "2026-07-20T00:00:00Z"
     }
     """#
@@ -158,7 +168,8 @@ struct VenturePolicyContractTests {
       "reviewDeepLink": "myharness://knowledge-change-missions/mission-1",
       "origin": "human_consultation",
       "status": "awaiting_review",
-      "applicationStatus": "reviewed",
+      "reviewStatus": "awaiting_review",
+      "applicationStatus": "not_requested",
       "applicationError": null,
       "baseVersions": {
         "policyTextVersionId": "policy-text-1",

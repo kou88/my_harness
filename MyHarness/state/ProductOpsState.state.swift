@@ -18,7 +18,6 @@ final class ProductOpsState {
     var researchMissionsState: LoadState<[VentureResearchMissionItem]> = .idle
     var messageMissionsState: LoadState<[VentureMessageMissionItem]> = .idle
     var verificationMissionsState: LoadState<[VentureVerificationMissionItem]> = .idle
-    var knowledgeChangeMissionsState: LoadState<[VentureKnowledgeChangeMissionItem]> = .idle
     var monitoringAlertsState: LoadState<[VentureMonitoringAlertItem]> = .idle
     var missionCatalogState: LoadState<VentureMissionCatalogPayload> = .idle
     var missionProgressState: LoadState<VentureMissionProgressPayload> = .idle
@@ -135,13 +134,6 @@ final class ProductOpsState {
         return items
     }
 
-    var knowledgeChangeMissionItems: [VentureKnowledgeChangeMissionItem] {
-        guard case .loaded(let items) = knowledgeChangeMissionsState else {
-            return []
-        }
-        return items
-    }
-
     var monitoringAlertItems: [VentureMonitoringAlertItem] {
         guard case .loaded(let items) = monitoringAlertsState else {
             return []
@@ -199,7 +191,6 @@ final class ProductOpsState {
         researchMissionsState = .idle
         messageMissionsState = .idle
         verificationMissionsState = .idle
-        knowledgeChangeMissionsState = .idle
         monitoringAlertsState = .idle
         missionCatalogState = .idle
         missionProgressState = .idle
@@ -265,7 +256,6 @@ final class ProductOpsState {
             researchMissionsState = .loading
             messageMissionsState = .loading
             verificationMissionsState = .loading
-            knowledgeChangeMissionsState = .loading
             monitoringAlertsState = .loading
             missionProgressState = .loading
         }
@@ -283,7 +273,6 @@ final class ProductOpsState {
                 researchMissionsState = .idle
                 messageMissionsState = .idle
                 verificationMissionsState = .idle
-                knowledgeChangeMissionsState = .idle
                 monitoringAlertsState = .idle
                 missionProgressState = .idle
             }

@@ -488,7 +488,7 @@ struct NextActionsView: View {
     private func missionSectionLabel(_ status: String) -> String {
         switch status {
         case "queued": return "やること"
-        case "dispatching", "running": return "進行中"
+        case "dispatching", "running", "pending_apply": return "進行中"
         case "awaiting_external_input": return "やること"
         default: return "確認待ち"
         }
@@ -1602,6 +1602,8 @@ private struct VentureMissionSummaryRow: View {
         case "running": return "実行中"
         case "awaiting_external_input": return "Mac Codexの修正版待ち"
         case "awaiting_review": return "結果確認"
+        case "pending_apply": return "方針を反映中"
+        case "apply_failed": return "方針の反映失敗"
         case "failed": return "失敗"
         default: return item.status
         }
@@ -1620,8 +1622,8 @@ private struct VentureMissionSummaryRow: View {
 
     private var tint: Color {
         switch item.status {
-        case "failed": return .red
-        case "awaiting_review": return .orange
+        case "failed", "apply_failed": return .red
+        case "awaiting_review", "pending_apply": return .orange
         default: return .blue
         }
     }
@@ -2140,6 +2142,8 @@ private struct VentureMissionDetailSheet: View {
         case "running": return "実行中"
         case "awaiting_external_input": return "Mac Codexの修正版待ち"
         case "awaiting_review": return "結果確認"
+        case "pending_apply": return "方針を反映中"
+        case "apply_failed": return "方針の反映失敗"
         case "completed": return "採用済み"
         case "failed": return "失敗"
         case "canceled": return "キャンセル"
@@ -3168,107 +3172,6 @@ private struct VentureVerificationReportSummaryView: View {
             return .red
         default:
             return .secondary
-        }
-    }
-}
-
-private struct VentureKnowledgeChangeMissionRow: View {
-    let item: VentureKnowledgeChangeMissionItem
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: iconName)
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(tint)
-                .frame(width: 22)
-                .padding(.top, 4)
-
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 6) {
-                    ProductOpsTokenView(statusLabel)
-                    ProductOpsTokenView("方針変更")
-                }
-                Text(item.mission.objective)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                if let knowledgeChange = item.knowledgeChange {
-                    VentureKnowledgeChangeSummaryView(
-                        summary: item.knowledgeChangeDeliverable?.summary ?? item.result?.summary ?? "",
-                        knowledgeChange: knowledgeChange,
-                        currentPolicy: nil
-                    )
-                } else if let result = item.result {
-                    VentureKnowledgeChangeSummaryView(
-                        summary: result.summary,
-                        knowledgeChange: result.knowledgeChange,
-                        currentPolicy: nil
-                    )
-                } else if let error = item.mission.error, !error.isEmpty {
-                    Text(error)
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                        .fixedSize(horizontal: false, vertical: true)
-                } else {
-                    Text("事業認識の変化から、方針へ反映すべき差分を確認しています。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-
-            Spacer(minLength: 0)
-        }
-        .padding(.vertical, 6)
-    }
-
-    private var statusLabel: String {
-        switch item.mission.status {
-        case "queued":
-            return "待機中"
-        case "dispatching":
-            return "整理依頼済み"
-        case "running":
-            return "整理中"
-        case "awaiting_review":
-            return "更新候補"
-        case "failed":
-            return "失敗"
-        case "completed":
-            return "完了"
-        case "canceled":
-            return "キャンセル"
-        default:
-            return item.mission.status
-        }
-    }
-
-    private var iconName: String {
-        switch item.mission.status {
-        case "awaiting_review":
-            return "lightbulb"
-        case "failed":
-            return "exclamationmark.triangle"
-        case "completed":
-            return "checkmark.circle"
-        case "canceled":
-            return "xmark.circle"
-        default:
-            return "books.vertical"
-        }
-    }
-
-    private var tint: Color {
-        switch item.mission.status {
-        case "failed":
-            return .red
-        case "awaiting_review":
-            return .orange
-        case "completed":
-            return .green
-        default:
-            return .accentColor
         }
     }
 }
