@@ -82,6 +82,20 @@ struct VenturePolicyContractTests {
         #expect(item.sourceState.verificationVerdict == "review_required")
     }
 
+    @Test
+    func decodesResearchClipCandidateWithSavedClip() throws {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let payload = try decoder.decode(
+            VentureResearchClipCandidatePayload.self,
+            from: Data(researchClipCandidateJSON.utf8)
+        )
+
+        #expect(payload.items.count == 1)
+        #expect(payload.items[0].savedClip?.id == "clip-1")
+        #expect(payload.items[0].savedClip?.version == 2)
+    }
+
     private let policyJSON = #"""
     {
       "ventureId": "landlord-saas",
@@ -286,6 +300,63 @@ struct VenturePolicyContractTests {
         "verificationStatus": "awaiting_review",
         "verificationVerdict": "review_required"
       }
+    }
+    """#
+
+    private let researchClipCandidateJSON = #"""
+    {
+      "deliverableId": "deliverable-1",
+      "ventureId": "landlord-saas",
+      "missionId": "mission-1",
+      "extractorVersion": 1,
+      "items": [
+        {
+          "itemKey": "research-clip:v1:observation:0:abc",
+          "extractorSchemaKey": "venture_research_mission_v3",
+          "extractorVersion": 1,
+          "kind": "observation",
+          "label": "個別の観測結果",
+          "relation": "supports",
+          "text": "確定申告前に領収書をまとめている",
+          "context": "資料整理の負担を示す",
+          "sourceUrl": "https://x.com/example/status/1",
+          "sourceSnapshot": {
+            "type": "x_post",
+            "externalKey": "1",
+            "author": "example",
+            "publishedAt": null,
+            "metadata": {}
+          },
+          "savedClip": {
+            "id": "clip-1",
+            "ownerUserId": "owner-1",
+            "ventureId": "landlord-saas",
+            "deliverableId": "deliverable-1",
+            "itemKey": "research-clip:v1:observation:0:abc",
+            "extractorSchemaKey": "venture_research_mission_v3",
+            "extractorVersion": 1,
+            "itemKind": "observation",
+            "relation": "supports",
+            "textSnapshot": "確定申告前に領収書をまとめている",
+            "contextSnapshot": "資料整理の負担を示す",
+            "sourceUrl": "https://x.com/example/status/1",
+            "sourceSnapshot": {
+              "type": "x_post",
+              "externalKey": "1",
+              "author": "example",
+              "publishedAt": null,
+              "metadata": {}
+            },
+            "userNote": "保存済み",
+            "opportunityId": null,
+            "hypothesisId": null,
+            "version": 2,
+            "createdAt": "2026-07-20T00:00:00.000Z",
+            "updatedAt": "2026-07-20T01:00:00.000Z",
+            "archivedAt": null
+          }
+        }
+      ]
     }
     """#
 }

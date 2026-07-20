@@ -630,8 +630,7 @@ struct VentureResearchClipCandidate: Identifiable, Decodable, Hashable {
     var context: String
     var sourceUrl: String?
     var sourceSnapshot: VentureResearchClipSourceSnapshot
-    var savedClipId: String?
-    var savedClipVersion: Int?
+    var savedClip: VentureResearchClip?
 
     var id: String { itemKey }
 }
