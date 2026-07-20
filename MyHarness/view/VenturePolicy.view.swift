@@ -55,6 +55,10 @@ struct VenturePolicyView: View {
                     }
                 case .revision(let revision):
                     VenturePolicyRevisionReviewView(state: state, revision: revision)
+                case .revisionList(let items):
+                    VenturePolicyRevisionListView(state: state, items: items) { revision in
+                        editor = .revision(revision)
+                    }
                 }
             }
         }
@@ -231,10 +235,15 @@ struct VenturePolicyView: View {
     }
 
     private func openPendingPolicyRevision() async {
-        guard let item = state.missionSummaryItems.first(where: {
+        let items = state.missionSummaryItems.filter {
             $0.deliverableKind == "knowledge_change" && $0.status == "awaiting_review"
-        }) else {
+        }
+        guard !items.isEmpty else {
             state.message = "確認待ちの方針変更を取得できませんでした"
+            return
+        }
+        guard items.count == 1, let item = items.first else {
+            editor = .revisionList(items)
             return
         }
         do {
@@ -249,12 +258,78 @@ private enum VenturePolicyEditor: Identifiable {
     case policyText(VenturePolicy)
     case recommendationSettings(VenturePolicy)
     case revision(VenturePolicyRevisionDetail)
+    case revisionList([VentureMissionSummaryItem])
 
     var id: String {
         switch self {
         case .policyText(let policy): "text-\(policy.policyTextVersion)"
         case .recommendationSettings(let policy): "settings-\(policy.strategyVersionId)-\(policy.decisionFrameVersionId)"
         case .revision(let revision): "revision-\(revision.missionId)-\(revision.revisionHash)"
+        case .revisionList(let items): "revision-list-\(items.map(\.id).joined(separator: "-"))"
+        }
+    }
+}
+
+private struct VenturePolicyRevisionListView: View {
+    @Environment(\.dismiss) private var dismiss
+    let state: ProductOpsState
+    let items: [VentureMissionSummaryItem]
+    let onSelect: (VenturePolicyRevisionDetail) -> Void
+    @State private var loadingMissionId: String?
+    @State private var errorMessage: String?
+
+    var body: some View {
+        List(items) { item in
+            Button {
+                Task { await open(item) }
+            } label: {
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(item.title)
+                            .foregroundStyle(.primary)
+                            .lineLimit(2)
+                        Text(item.updatedAt, format: .dateTime.year().month().day().hour().minute())
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    if loadingMissionId == item.id {
+                        ProgressView()
+                    } else {
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                .frame(minHeight: 44)
+            }
+            .disabled(loadingMissionId != nil)
+            .accessibilityLabel("\(item.title)、方針変更の差分を確認")
+        }
+        .navigationTitle("確認待ちの方針変更")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("閉じる") { dismiss() }
+            }
+        }
+        .alert("方針変更を読み込めません", isPresented: Binding(
+            get: { errorMessage != nil },
+            set: { if !$0 { errorMessage = nil } }
+        )) {
+            Button("閉じる", role: .cancel) {}
+        } message: {
+            Text(errorMessage ?? "")
+        }
+    }
+
+    private func open(_ item: VentureMissionSummaryItem) async {
+        loadingMissionId = item.id
+        defer { loadingMissionId = nil }
+        do {
+            onSelect(try await state.fetchPolicyRevision(missionId: item.id))
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 }
@@ -647,6 +722,8 @@ struct VenturePolicyRevisionReviewView: View {
                     structuredChangesSection
                 }
 
+                impactPreviewSection
+
                 reviewContextSection
             }
             .padding(.horizontal, 20)
@@ -673,7 +750,7 @@ struct VenturePolicyRevisionReviewView: View {
             }
             Button("キャンセル", role: .cancel) {}
         } message: {
-            Text("現在の方針に基づく提案と事業認識は失効し、新しい方針で再評価されます。")
+            Text(adoptionConfirmationMessage)
         }
         .sheet(item: $feedbackAction) { action in
             NavigationStack {
@@ -748,22 +825,31 @@ struct VenturePolicyRevisionReviewView: View {
             Text("事業方針本文")
                 .font(.headline)
             VStack(spacing: 0) {
-                ForEach(revision.policyTextDiff.lines) { line in
-                    HStack(alignment: .top, spacing: 8) {
-                        Text(diffLineNumber(line))
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                            .frame(width: 52, alignment: .trailing)
-                        Text(diffPrefix(line.kind))
-                            .font(.body.monospaced())
-                            .foregroundStyle(diffTint(line.kind))
-                        Text(line.text.isEmpty ? " " : line.text)
-                            .font(.body.monospaced())
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                ForEach(revision.policyTextDiff.hunks) { hunk in
+                    Text("@@ -\(hunk.oldStart),\(hunk.oldLineCount) +\(hunk.newStart),\(hunk.newLineCount) @@")
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(Color.secondary.opacity(0.08))
+                    ForEach(hunk.lines) { line in
+                        HStack(alignment: .top, spacing: 8) {
+                            Text(diffLineNumber(line))
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                                .frame(width: 52, alignment: .trailing)
+                            Text(diffPrefix(line.kind))
+                                .font(.body.monospaced())
+                                .foregroundStyle(diffTint(line.kind))
+                            Text(line.text.isEmpty ? " " : line.text)
+                                .font(.body.monospaced())
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(diffBackground(line.kind))
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(diffBackground(line.kind))
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: 8))
@@ -782,11 +868,33 @@ struct VenturePolicyRevisionReviewView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(change.label)
                         .font(.subheadline.weight(.semibold))
-                    comparisonBlock(label: "変更前", value: change.before, tint: .red)
-                    comparisonBlock(label: "変更後", value: change.after, tint: .green)
+                    comparisonBlock(label: "変更前", lines: change.before, tint: .red)
+                    comparisonBlock(label: "変更後", lines: change.after, tint: .green)
+                    if !change.removed.isEmpty {
+                        changeLines(label: "削除", values: change.removed, tint: .red)
+                    }
+                    if !change.added.isEmpty {
+                        changeLines(label: "追加", values: change.added, tint: .green)
+                    }
+                    if change.reordered {
+                        Label("並び順を変更", systemImage: "arrow.up.arrow.down")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 .padding(.vertical, 4)
             }
+        }
+    }
+
+    private var impactPreviewSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("反映時の影響")
+                .font(.headline)
+            impactRow("おすすめ", count: revision.impactPreview.staleProposalCount, suffix: "件を古い方針扱いにする")
+            impactRow("判断項目", count: revision.impactPreview.supersededAgendaItemCount, suffix: "件を終了する")
+            impactRow("推薦集合", count: revision.impactPreview.supersededRecommendationSetCount, suffix: "件を更新する")
+            impactRow("事業認識", count: revision.impactPreview.supersededSynthesisCount, suffix: "件を更新する")
         }
     }
 
@@ -849,18 +957,50 @@ struct VenturePolicyRevisionReviewView: View {
         .disabled(state.isUpdatingMission)
     }
 
-    private func comparisonBlock(label: String, value: ProductOpsMetadataValue, tint: Color) -> some View {
+    private func comparisonBlock(label: String, lines: [String], tint: Color) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(label)
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(tint)
-            Text(metadataText(value))
-                .font(.subheadline)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .textSelection(.enabled)
+            if lines.isEmpty {
+                Text("なし")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                    Text(line)
+                        .font(.subheadline)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                }
+            }
         }
         .padding(10)
         .background(tint.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func changeLines(label: String, values: [String], tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(label)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(tint)
+            ForEach(values, id: \.self) { value in
+                Text("• \(value)")
+                    .font(.caption)
+            }
+        }
+    }
+
+    private func impactRow(_ label: String, count: Int, suffix: String) -> some View {
+        LabeledContent(label) {
+            Text("\(count)\(suffix)")
+                .foregroundStyle(count == 0 ? .secondary : .primary)
+        }
+    }
+
+    private var adoptionConfirmationMessage: String {
+        let preview = revision.impactPreview
+        return "この変更により、おすすめ\(preview.staleProposalCount)件、判断項目\(preview.supersededAgendaItemCount)件を古い方針扱いにし、新しい方針で再評価します。"
     }
 
     private func detailText(_ title: String, _ value: String) -> some View {
@@ -967,20 +1107,6 @@ struct VenturePolicyRevisionReviewView: View {
         }
     }
 
-    private func metadataText(_ value: ProductOpsMetadataValue, indent: String = "") -> String {
-        switch value {
-        case .string(let value): value
-        case .number(let value): value.formatted()
-        case .bool(let value): value ? "有効" : "無効"
-        case .null: "なし"
-        case .array(let values):
-            values.map { "• \(metadataText($0, indent: indent + "  "))" }.joined(separator: "\n")
-        case .object(let values):
-            values.keys.sorted().map { key in
-                "\(key): \(metadataText(values[key] ?? .null, indent: indent + "  "))"
-            }.joined(separator: "\n")
-        }
-    }
 }
 
 struct VenturePolicyRevisionLoaderView: View {

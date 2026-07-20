@@ -2059,16 +2059,37 @@ struct VenturePolicyDiffLine: Decodable, Hashable, Identifiable {
 struct VenturePolicyTextDiff: Decodable, Hashable {
     var before: String
     var after: String
+    var hunks: [VenturePolicyDiffHunk]
+}
+
+struct VenturePolicyDiffHunk: Decodable, Hashable, Identifiable {
+    var oldStart: Int
+    var oldLineCount: Int
+    var newStart: Int
+    var newLineCount: Int
     var lines: [VenturePolicyDiffLine]
+
+    var id: String { "\(oldStart)-\(oldLineCount)-\(newStart)-\(newLineCount)" }
 }
 
 struct VenturePolicyStructuredChange: Decodable, Hashable, Identifiable {
     var path: String
     var label: String
-    var before: ProductOpsMetadataValue
-    var after: ProductOpsMetadataValue
+    var changeType: String
+    var before: [String]
+    var after: [String]
+    var added: [String]
+    var removed: [String]
+    var reordered: Bool
 
     var id: String { path }
+}
+
+struct VenturePolicyRevisionImpactPreview: Decodable, Hashable {
+    var staleProposalCount: Int
+    var supersededRecommendationSetCount: Int
+    var supersededSynthesisCount: Int
+    var supersededAgendaItemCount: Int
 }
 
 struct VenturePolicyRevisionVersions: Decodable, Hashable {
@@ -2084,6 +2105,7 @@ struct VenturePolicyRevisionDetail: Decodable, Hashable, Identifiable {
     var reviews: [VentureDeliverableReview]
     var deliverableId: String
     var revisionHash: String
+    var reviewDeepLink: String
     var origin: String
     var status: String
     var applicationStatus: String
@@ -2101,6 +2123,7 @@ struct VenturePolicyRevisionDetail: Decodable, Hashable, Identifiable {
     var consultationSummary: String?
     var policyTextDiff: VenturePolicyTextDiff
     var structuredChanges: [VenturePolicyStructuredChange]
+    var impactPreview: VenturePolicyRevisionImpactPreview
     var canAdopt: Bool
     var canRequestRevision: Bool
     var canReject: Bool
