@@ -603,32 +603,126 @@ struct VentureResearchMissionListPayload: Decodable, Hashable {
     var items: [VentureResearchMissionItem]
 }
 
-struct VentureResearchClipSourceSnapshot: Decodable, Hashable {
-    var type: String
-    var externalKey: String
-    var author: String?
-    var publishedAt: String?
-    var metadata: [String: ProductOpsMetadataValue]
+enum VentureResearchReportItemKind: String, CaseIterable, Decodable, Hashable {
+    case conclusion
+    case finding
+    case supportingEvidence = "supporting_evidence"
+    case contradictingEvidence = "contradicting_evidence"
+    case unknown
+    case nextQuestion = "next_question"
+    case observation
+
+    var label: String {
+        switch self {
+        case .conclusion: return "結論"
+        case .finding: return "重要な発見"
+        case .supportingEvidence: return "支持する根拠"
+        case .contradictingEvidence: return "反例"
+        case .unknown: return "まだ分からないこと"
+        case .nextQuestion: return "次に確認すること"
+        case .observation: return "個別の観測結果"
+        }
+    }
+}
+
+enum VentureResearchReportRelation: String, Decodable, Hashable {
+    case supports
+    case contradicts
+    case context
+    case unrelated
+
+    var label: String {
+        switch self {
+        case .supports: return "支持"
+        case .contradicts: return "反例"
+        case .context: return "文脈"
+        case .unrelated: return "未関連"
+        }
+    }
+}
+
+enum VentureResearchReportSource: Decodable, Hashable {
+    enum ExternalType: String, Decodable, Hashable {
+        case xPost = "x_post"
+        case tiktokVideo = "tiktok_video"
+        case tiktokComment = "tiktok_comment"
+        case web
+    }
+
+    struct External: Decodable, Hashable {
+        var type: ExternalType
+        var url: String
+        var externalKey: String
+        var author: String?
+        var publishedAt: String?
+
+        var destination: URL? { URL(string: url) }
+    }
+
+    case none
+    case external(External)
+
+    private enum CodingKeys: String, CodingKey {
+        case kind
+        case type
+        case url
+        case externalKey
+        case author
+        case publishedAt
+    }
+
+    private enum Kind: String, Decodable {
+        case none
+        case external
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        switch try container.decode(Kind.self, forKey: .kind) {
+        case .none:
+            self = .none
+        case .external:
+            self = .external(External(
+                type: try container.decode(ExternalType.self, forKey: .type),
+                url: try container.decode(String.self, forKey: .url),
+                externalKey: try container.decode(String.self, forKey: .externalKey),
+                author: try container.decodeIfPresent(String.self, forKey: .author),
+                publishedAt: try container.decodeIfPresent(String.self, forKey: .publishedAt)
+            ))
+        }
+    }
+
+    var external: External? {
+        guard case .external(let source) = self else { return nil }
+        return source
+    }
+}
+
+typealias VentureResearchClipSourceSnapshot = VentureResearchReportSource
+
+struct VentureResearchReportItem: Identifiable, Decodable, Hashable {
+    var id: String
+    var kind: VentureResearchReportItemKind
+    var relation: VentureResearchReportRelation
+    var text: String
+    var context: String
+    var source: VentureResearchReportSource
 }
 
 struct VentureResearchClipCandidatePayload: Decodable, Hashable {
     var deliverableId: String
     var ventureId: String
     var missionId: String
-    var extractorVersion: Int
     var items: [VentureResearchClipCandidate]
 }
 
 struct VentureResearchClipCandidate: Identifiable, Decodable, Hashable {
     var itemKey: String
-    var extractorSchemaKey: String
-    var extractorVersion: Int
-    var kind: String
+    var kind: VentureResearchReportItemKind
     var label: String
-    var relation: String?
+    var relation: VentureResearchReportRelation
     var text: String
     var context: String
-    var sourceUrl: String?
     var sourceSnapshot: VentureResearchClipSourceSnapshot
     var savedClip: VentureResearchClip?
 
@@ -641,13 +735,10 @@ struct VentureResearchClip: Identifiable, Decodable, Hashable {
     var ventureId: String
     var deliverableId: String
     var itemKey: String
-    var extractorSchemaKey: String
-    var extractorVersion: Int
-    var itemKind: String
-    var relation: String?
+    var itemKind: VentureResearchReportItemKind
+    var relation: VentureResearchReportRelation
     var textSnapshot: String
     var contextSnapshot: String
-    var sourceUrl: String?
     var sourceSnapshot: VentureResearchClipSourceSnapshot
     var userNote: String
     var opportunityId: String?
@@ -673,6 +764,10 @@ struct VentureResearchClipPage: Decodable, Hashable {
     var nextCursor: String?
 }
 
+enum VentureResearchClipKnowledgeStatus: String, Decodable, Hashable {
+    case unadopted
+}
+
 struct VentureResearchClipListItem: Identifiable, Decodable, Hashable {
     struct SourceState: Decodable, Hashable {
         var sourceMissionId: String
@@ -684,6 +779,7 @@ struct VentureResearchClipListItem: Identifiable, Decodable, Hashable {
     }
 
     var clip: VentureResearchClip
+    var knowledgeStatus: VentureResearchClipKnowledgeStatus
     var sourceState: SourceState
 
     var id: String { clip.id }
@@ -1322,7 +1418,7 @@ struct VentureProductChangeDeliverable: Hashable {
     }
 }
 
-struct VentureResearchExecutionLog: Hashable {
+struct VentureResearchExecutionLog: Decodable, Hashable {
     var queries: [String]
     var checkedCount: Int
     var selectedCount: Int
@@ -1330,21 +1426,30 @@ struct VentureResearchExecutionLog: Hashable {
     var limitations: [String]
 }
 
-struct VentureGrokExecution: Hashable {
-    struct Requested: Hashable {
+struct VentureGrokExecution: Decodable, Hashable {
+    struct Requested: Decodable, Hashable {
         var surface: String
         var mode: String
         var model: String
         var reasoning: String
     }
 
-    struct Applied: Hashable {
+    struct Applied: Decodable, Hashable {
         var pageURL: String
         var surface: String
         var modeLabel: String
         var modelLabel: String?
         var reasoningLabel: String?
         var reasoningAppliedBy: String
+
+        private enum CodingKeys: String, CodingKey {
+            case pageURL = "pageUrl"
+            case surface
+            case modeLabel
+            case modelLabel
+            case reasoningLabel
+            case reasoningAppliedBy
+        }
     }
 
     var requested: Requested
@@ -1354,39 +1459,19 @@ struct VentureGrokExecution: Hashable {
 struct VentureResearchReportDeliverable: Decodable, Hashable {
     var artifactMarkdown: String?
     var researchQuestion: String
-    var conclusion: String
-    var findings: [String]
-    var supportingEvidence: [String]
-    var contradictingEvidence: [String]
-    var sources: [String]
-    var unknowns: [String]
-    var nextQuestions: [String]
+    var items: [VentureResearchReportItem]
     var executionLog: VentureResearchExecutionLog?
     var grokExecution: VentureGrokExecution?
-    var rawResult: ProductOpsMetadataValue?
 
     init(
         researchQuestion: String,
-        conclusion: String,
-        findings: [String],
-        supportingEvidence: [String],
-        contradictingEvidence: [String],
-        sources: [String],
-        unknowns: [String],
-        nextQuestions: [String]
+        items: [VentureResearchReportItem]
     ) {
         artifactMarkdown = nil
         self.researchQuestion = researchQuestion
-        self.conclusion = conclusion
-        self.findings = findings
-        self.supportingEvidence = supportingEvidence
-        self.contradictingEvidence = contradictingEvidence
-        self.sources = sources
-        self.unknowns = unknowns
-        self.nextQuestions = nextQuestions
+        self.items = items
         executionLog = nil
         grokExecution = nil
-        rawResult = nil
     }
 
     init(from decoder: Decoder) throws {
@@ -1395,45 +1480,37 @@ struct VentureResearchReportDeliverable: Decodable, Hashable {
 
     init(payload: ProductOpsMetadataValue) throws {
         let rootReader = try VentureDeliverablePayloadReader(kind: "research_report", payload: payload)
-        let reportReader: VentureDeliverablePayloadReader
-        if let reportObject = rootReader.object["report"]?.unwrappedObjectValue {
-            reportReader = VentureDeliverablePayloadReader(kind: "research_report.report", object: reportObject)
-        } else {
-            reportReader = rootReader
+        artifactMarkdown = Self.nonemptyString(rootReader.object["artifactMarkdown"])
+        researchQuestion = try rootReader.requiredString("researchQuestion")
+        items = try rootReader.requiredObjectArray("items").map { object in
+            try Self.decode(VentureResearchReportItem.self, from: .object(object))
         }
-
-        artifactMarkdown = Self.nonemptyString(
-            rootReader.object["artifactMarkdown"]
-                ?? rootReader.object["artifact_markdown"]
-                ?? reportReader.object["artifactMarkdown"]
-                ?? reportReader.object["artifact_markdown"]
+        guard !items.isEmpty else {
+            throw VentureDeliverablePayloadDecodingError(
+                kind: "research_report",
+                reason: "itemsは1件以上必要です。"
+            )
+        }
+        guard Set(items.map(\.id)).count == items.count else {
+            throw VentureDeliverablePayloadDecodingError(
+                kind: "research_report",
+                reason: "items.idが重複しています。"
+            )
+        }
+        guard items.filter({ $0.kind == .conclusion }).count == 1 else {
+            throw VentureDeliverablePayloadDecodingError(
+                kind: "research_report",
+                reason: "結論は1件だけ必要です。"
+            )
+        }
+        executionLog = try Self.decodeIfPresent(
+            VentureResearchExecutionLog.self,
+            from: rootReader.object["executionLog"]
         )
-        researchQuestion = try reportReader.requiredString("researchQuestion", "research_question")
-        conclusion = try reportReader.requiredString("conclusion")
-        findings = try reportReader.requiredStringArray("findings")
-        supportingEvidence = try reportReader.requiredStringArray("supportingEvidence", "supporting_evidence")
-        contradictingEvidence = try reportReader.requiredStringArray("contradictingEvidence", "contradicting_evidence")
-        sources = Self.sourceStrings(
-            rootReader.object["sources"] ?? reportReader.object["sources"]
+        grokExecution = try Self.decodeIfPresent(
+            VentureGrokExecution.self,
+            from: rootReader.object["grokExecution"]
         )
-        unknowns = try reportReader.requiredStringArray("unknowns")
-        nextQuestions = try reportReader.requiredStringArray("nextQuestions", "next_questions")
-        executionLog = Self.executionLog(
-            rootReader.object["executionLog"]
-                ?? rootReader.object["execution_log"]
-                ?? reportReader.object["executionLog"]
-                ?? reportReader.object["execution_log"]
-        )
-        grokExecution = Self.grokExecution(
-            rootReader.object["grokExecution"]
-                ?? rootReader.object["grok_execution"]
-                ?? reportReader.object["grokExecution"]
-                ?? reportReader.object["grok_execution"]
-        )
-        rawResult = rootReader.object["rawResult"]
-            ?? rootReader.object["raw_result"]
-            ?? reportReader.object["rawResult"]
-            ?? reportReader.object["raw_result"]
     }
 
     private static func nonemptyString(_ value: ProductOpsMetadataValue?) -> String? {
@@ -1444,62 +1521,48 @@ struct VentureResearchReportDeliverable: Decodable, Hashable {
         return text
     }
 
-    private static func sourceStrings(_ value: ProductOpsMetadataValue?) -> [String] {
-        guard let values = value?.arrayValue else { return [] }
-        return values.compactMap { item in
-            if let source = nonemptyString(item) {
-                return source
-            }
-            guard let object = item.unwrappedObjectValue else { return nil }
-            return nonemptyString(object["url"])
-                ?? nonemptyString(object["sourceUrl"])
-                ?? nonemptyString(object["source_url"])
-        }
-    }
-
-    private static func executionLog(_ value: ProductOpsMetadataValue?) -> VentureResearchExecutionLog? {
-        guard let object = value?.unwrappedObjectValue else { return nil }
-        return VentureResearchExecutionLog(
-            queries: object["queries"]?.stringArrayValue ?? [],
-            checkedCount: object["checkedCount"]?.intValue ?? object["checked_count"]?.intValue ?? 0,
-            selectedCount: object["selectedCount"]?.intValue ?? object["selected_count"]?.intValue ?? 0,
-            excludedCount: object["excludedCount"]?.intValue ?? object["excluded_count"]?.intValue ?? 0,
-            limitations: object["limitations"]?.stringArrayValue ?? []
-        )
-    }
-
-    private static func grokExecution(_ value: ProductOpsMetadataValue?) -> VentureGrokExecution? {
-        guard let object = value?.unwrappedObjectValue,
-              let requested = object["requested"]?.unwrappedObjectValue,
-              let applied = object["applied"]?.unwrappedObjectValue,
-              let requestedSurface = nonemptyString(requested["surface"]),
-              let requestedMode = nonemptyString(requested["mode"]),
-              let requestedModel = nonemptyString(requested["model"]),
-              let requestedReasoning = nonemptyString(requested["reasoning"]),
-              let pageURL = nonemptyString(applied["pageUrl"] ?? applied["page_url"]),
-              let appliedSurface = nonemptyString(applied["surface"]),
-              let modeLabel = nonemptyString(applied["modeLabel"] ?? applied["mode_label"]),
-              let reasoningAppliedBy = nonemptyString(
-                applied["reasoningAppliedBy"] ?? applied["reasoning_applied_by"]
-              ) else {
-            return nil
-        }
-        return VentureGrokExecution(
-            requested: .init(
-                surface: requestedSurface,
-                mode: requestedMode,
-                model: requestedModel,
-                reasoning: requestedReasoning
-            ),
-            applied: .init(
-                pageURL: pageURL,
-                surface: appliedSurface,
-                modeLabel: modeLabel,
-                modelLabel: nonemptyString(applied["modelLabel"] ?? applied["model_label"]),
-                reasoningLabel: nonemptyString(applied["reasoningLabel"] ?? applied["reasoning_label"]),
-                reasoningAppliedBy: reasoningAppliedBy
+    private static func decode<T: Decodable>(_ type: T.Type, from value: ProductOpsMetadataValue) throws -> T {
+        do {
+            let data = try JSONEncoder().encode(value)
+            return try JSONDecoder().decode(type, from: data)
+        } catch {
+            throw VentureDeliverablePayloadDecodingError(
+                kind: "research_report",
+                reason: "itemsの形式が不正です。\(error.localizedDescription)"
             )
-        )
+        }
+    }
+
+    private static func decodeIfPresent<T: Decodable>(
+        _ type: T.Type,
+        from value: ProductOpsMetadataValue?
+    ) throws -> T? {
+        guard let value else { return nil }
+        return try decode(type, from: value)
+    }
+
+    var conclusionItems: [VentureResearchReportItem] {
+        items.filter { $0.kind == .conclusion }
+    }
+
+    var findingItems: [VentureResearchReportItem] {
+        items.filter { $0.kind == .finding }
+    }
+
+    var supportingItems: [VentureResearchReportItem] {
+        items.filter { $0.relation == .supports }
+    }
+
+    var contradictingItems: [VentureResearchReportItem] {
+        items.filter { $0.relation == .contradicts }
+    }
+
+    var unresolvedItems: [VentureResearchReportItem] {
+        items.filter { $0.kind == .unknown || $0.kind == .nextQuestion }
+    }
+
+    var externalSources: [VentureResearchReportSource.External] {
+        items.compactMap(\.source.external)
     }
 }
 

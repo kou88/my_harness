@@ -2664,22 +2664,37 @@ private struct VentureResearchReportSummaryView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            ProductChangeSection(title: "結論", items: [report.conclusion].filter { !$0.isEmpty })
-            ProductChangeSection(title: "重要な発見", items: report.findings.prefixArray(3))
-            ProductChangeSection(title: "支持", items: report.supportingEvidence.prefixArray(2), tint: .green)
-            ProductChangeSection(title: "反例", items: report.contradictingEvidence.prefixArray(2), tint: .orange)
-            ProductChangeSection(title: "未確認", items: (report.unknowns + report.nextQuestions).prefixArray(3))
+            ProductChangeSection(
+                title: "結論",
+                items: report.conclusionItems.map(\.text).prefixArray(1)
+            )
+            ProductChangeSection(
+                title: "重要な発見",
+                items: report.findingItems.map(\.text).prefixArray(3)
+            )
+            ProductChangeSection(
+                title: "支持",
+                items: report.supportingItems.map(\.text).prefixArray(2),
+                tint: .green
+            )
+            ProductChangeSection(
+                title: "反例",
+                items: report.contradictingItems.map(\.text).prefixArray(2),
+                tint: .orange
+            )
+            ProductChangeSection(
+                title: "未確認",
+                items: report.unresolvedItems.map(\.text).prefixArray(3)
+            )
 
-            if !report.sources.isEmpty {
+            if !report.externalSources.isEmpty {
                 HStack(spacing: 8) {
-                    ForEach(Array(report.sources.prefix(2)), id: \.self) { source in
-                        if let url = URL(string: source), url.scheme != nil {
+                    ForEach(Array(report.externalSources.prefix(2)), id: \.externalKey) { source in
+                        if let url = source.destination {
                             ProductOpsExternalLinkButton(destination: url) {
                                 Label("Source", systemImage: "arrow.up.right.square")
                                     .font(.caption.weight(.semibold))
                             }
-                        } else {
-                            ProductOpsTokenView(source)
                         }
                     }
                 }
@@ -2754,15 +2769,6 @@ private struct VentureResearchReportDetailView: View {
                 }
             }
 
-            if let rawResult = report.rawResult {
-                DisclosureGroup("Raw result") {
-                    Text(rawResult.prettyPrintedJSON)
-                        .font(.caption.monospaced())
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.top, 8)
-                }
-            }
         }
     }
 
