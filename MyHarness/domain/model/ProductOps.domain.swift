@@ -656,7 +656,15 @@ enum VentureResearchReportSource: Decodable, Hashable {
         var author: String?
         var publishedAt: String?
 
-        var destination: URL? { URL(string: url) }
+        var destination: URL? {
+            guard let destination = URL(string: url),
+                  let scheme = destination.scheme?.lowercased(),
+                  scheme == "https" || scheme == "http",
+                  destination.host != nil else {
+                return nil
+            }
+            return destination
+        }
     }
 
     case none

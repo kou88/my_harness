@@ -12,6 +12,7 @@ struct ResearchReportItemsView: View {
     @State private var mutatingItemKeys: Set<String> = []
     @State private var editingClip: VentureResearchClip?
     @State private var associationState: ResearchClipAssociationLoadState = .loading
+    @State private var sourceDestination: ResearchSourceDestination?
 
     private let kindOrder = VentureResearchReportItemKind.allCases
 
@@ -90,6 +91,10 @@ struct ResearchReportItemsView: View {
                 )
             }
         }
+        .sheet(item: $sourceDestination) { destination in
+            ResearchSourceBrowser(destination: destination)
+                .ignoresSafeArea()
+        }
     }
 
     @ViewBuilder
@@ -109,10 +114,13 @@ struct ResearchReportItemsView: View {
                 }
                 if let source = item.sourceSnapshot.external,
                    let destination = source.destination {
-                    Link(destination: destination) {
+                    Button {
+                        sourceDestination = ResearchSourceDestination(url: destination)
+                    } label: {
                         Label("元の情報源", systemImage: "arrow.up.right.square")
                             .font(.caption.weight(.semibold))
                     }
+                    .buttonStyle(.plain)
                     .accessibilityLabel("元の情報源を開く")
                     .accessibilityHint(source.url)
                 }
@@ -131,7 +139,9 @@ struct ResearchReportItemsView: View {
                     }
                     if let source = item.sourceSnapshot.external,
                        let destination = source.destination {
-                        Link(destination: destination) {
+                        Button {
+                            sourceDestination = ResearchSourceDestination(url: destination)
+                        } label: {
                             Label("元の情報源を開く", systemImage: "arrow.up.right.square")
                         }
                     }

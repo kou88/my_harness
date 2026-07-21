@@ -98,6 +98,17 @@ struct VenturePolicyContractTests {
     }
 
     @Test
+    func allowsOnlyWebResearchSourceDestinations() throws {
+        let httpsSource = try decodeResearchSource(url: "https://x.com/example/status/123")
+        let customSchemeSource = try decodeResearchSource(url: "x://status?id=123")
+        let hostlessSource = try decodeResearchSource(url: "https:status/123")
+
+        #expect(httpsSource.external?.destination?.absoluteString == "https://x.com/example/status/123")
+        #expect(customSchemeSource.external?.destination == nil)
+        #expect(hostlessSource.external?.destination == nil)
+    }
+
+    @Test
     func decodesResearchReportItemsAsTheOnlyReportContent() throws {
         let metadata = try JSONDecoder().decode(
             ProductOpsMetadataValue.self,
@@ -135,6 +146,16 @@ struct VenturePolicyContractTests {
         #expect(throws: VentureDeliverablePayloadDecodingError.self) {
             try VentureResearchReportDeliverable(payload: metadata)
         }
+    }
+
+    private func decodeResearchSource(url: String) throws -> VentureResearchReportSource {
+        let data = try JSONSerialization.data(withJSONObject: [
+            "kind": "external",
+            "type": "x_post",
+            "url": url,
+            "externalKey": "123",
+        ])
+        return try JSONDecoder().decode(VentureResearchReportSource.self, from: data)
     }
 
     private let policyJSON = #"""
