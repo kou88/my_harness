@@ -4,6 +4,12 @@ import Testing
 
 struct VenturePolicyContractTests {
     @Test
+    func directResearchMissionUsesTheGrokSizedInputBudget() {
+        #expect(VentureDirectMissionInputPolicy.researchInstructionMaxUTF16Length == 400_000)
+        #expect(VentureDirectMissionInputPolicy.messageInstructionMaxUTF16Length == 4_000)
+    }
+
+    @Test
     func decodesVenturePolicyProjection() throws {
         let data = Data(policyJSON.utf8)
         let decoder = JSONDecoder()
