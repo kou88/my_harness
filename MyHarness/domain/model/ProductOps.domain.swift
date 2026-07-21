@@ -1,5 +1,10 @@
 import Foundation
 
+enum VentureDirectMissionInputPolicy {
+    static let researchInstructionMaxUTF16Length = 400_000
+    static let messageInstructionMaxUTF16Length = 4_000
+}
+
 enum ProductOpsProject {
     static let landlordSaaS = "landlord_saas"
     static let landlordSaaSVenture = "landlord-saas"
