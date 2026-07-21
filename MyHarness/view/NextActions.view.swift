@@ -1669,10 +1669,7 @@ private struct VentureMissionDetailSheet: View {
         NavigationStack {
             Group {
                 if let detail {
-                    List {
-                        missionContent(detail)
-                    }
-                    .listStyle(.plain)
+                    missionDetailContent(detail)
                     .safeAreaInset(edge: .bottom) {
                         if !detail.availableActions.isEmpty {
                             missionActionBar(detail)
@@ -1741,6 +1738,24 @@ private struct VentureMissionDetailSheet: View {
             } message: {
                 Text(operationErrorMessage ?? "")
             }
+        }
+    }
+
+    @ViewBuilder
+    private func missionDetailContent(_ detail: VentureMissionDetail) -> some View {
+        if detail.currentDeliverable?.kind == "research_report" {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 20) {
+                    missionContent(detail)
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 16)
+            }
+        } else {
+            List {
+                missionContent(detail)
+            }
+            .listStyle(.plain)
         }
     }
 
