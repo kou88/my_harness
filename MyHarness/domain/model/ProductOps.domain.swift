@@ -665,6 +665,16 @@ enum VentureResearchReportSource: Decodable, Hashable {
             }
             return destination
         }
+
+        var applicationDestination: URL? {
+            guard type == .xPost,
+                  !externalKey.isEmpty,
+                  var components = URLComponents(string: "twitter://status") else {
+                return nil
+            }
+            components.queryItems = [URLQueryItem(name: "id", value: externalKey)]
+            return components.url
+        }
     }
 
     case none

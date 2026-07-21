@@ -286,7 +286,6 @@ struct ResearchClipEditView: View {
     @State private var hypothesisId: String
     @State private var isSaving = false
     @State private var errorMessage: String?
-    @State private var sourceDestination: ResearchSourceDestination?
 
     init(
         state: ProductOpsState,
@@ -321,10 +320,8 @@ struct ResearchClipEditView: View {
                     LabeledContent("文脈", value: clip.contextSnapshot)
                 }
                 if let source = clip.sourceSnapshot.external,
-                   let destination = source.destination {
-                    Button {
-                        sourceDestination = ResearchSourceDestination(url: destination)
-                    } label: {
+                   let destination = ResearchSourceDestination(source: source) {
+                    ResearchSourceLinkButton(destination: destination) {
                         Label("元の情報源を開く", systemImage: "arrow.up.right.square")
                     }
                     .accessibilityHint(source.url)
@@ -385,10 +382,6 @@ struct ResearchClipEditView: View {
                 Button("保存") { Task { await save() } }
                     .disabled(isSaving || note.count > 2_000 || !canSaveAssociation)
             }
-        }
-        .sheet(item: $sourceDestination) { destination in
-            ResearchSourceBrowser(destination: destination)
-                .ignoresSafeArea()
         }
     }
 

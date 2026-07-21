@@ -1255,7 +1255,6 @@ private struct ProductOpsMarkdownCopyButton: View {
 private struct ProductOpsExternalLinkButton<Label: View>: View {
     let destination: URL
     let label: Label
-    @State private var sourceDestination: ResearchSourceDestination?
 
     init(destination: URL, @ViewBuilder label: () -> Label) {
         self.destination = destination
@@ -1263,17 +1262,8 @@ private struct ProductOpsExternalLinkButton<Label: View>: View {
     }
 
     var body: some View {
-        Button {
-            sourceDestination = ResearchSourceDestination(url: destination)
-        } label: {
+        ResearchSourceLinkButton(destination: ResearchSourceDestination(url: destination)) {
             label
-        }
-        // A List row can otherwise combine multiple automatic button actions.
-        .buttonStyle(.borderless)
-        .accessibilityHint("アプリ内ブラウザで開きます")
-        .sheet(item: $sourceDestination) { destination in
-            ResearchSourceBrowser(destination: destination)
-                .ignoresSafeArea()
         }
     }
 }

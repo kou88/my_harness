@@ -104,6 +104,7 @@ struct VenturePolicyContractTests {
         let hostlessSource = try decodeResearchSource(url: "https:status/123")
 
         #expect(httpsSource.external?.destination?.absoluteString == "https://x.com/example/status/123")
+        #expect(httpsSource.external?.applicationDestination?.absoluteString == "twitter://status?id=123")
         #expect(customSchemeSource.external?.destination == nil)
         #expect(hostlessSource.external?.destination == nil)
     }
