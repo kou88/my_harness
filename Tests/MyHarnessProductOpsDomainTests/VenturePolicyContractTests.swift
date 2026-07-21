@@ -74,9 +74,10 @@ struct VenturePolicyContractTests {
             from: Data(researchClipJSON.utf8)
         )
 
-        #expect(item.clip.itemKind == "supporting_evidence")
-        #expect(item.clip.relation == "supports")
-        #expect(item.clip.sourceSnapshot.type == "x_post")
+        #expect(item.clip.itemKind == .supportingEvidence)
+        #expect(item.clip.relation == .supports)
+        #expect(item.clip.sourceSnapshot.external?.type == .xPost)
+        #expect(item.knowledgeStatus == .unadopted)
         #expect(item.sourceState.sourceMissionId == "mission-1")
         #expect(item.sourceState.sourceReviewDecision == "adopted")
         #expect(item.sourceState.verificationVerdict == "review_required")
@@ -94,6 +95,46 @@ struct VenturePolicyContractTests {
         #expect(payload.items.count == 1)
         #expect(payload.items[0].savedClip?.id == "clip-1")
         #expect(payload.items[0].savedClip?.version == 2)
+    }
+
+    @Test
+    func decodesResearchReportItemsAsTheOnlyReportContent() throws {
+        let metadata = try JSONDecoder().decode(
+            ProductOpsMetadataValue.self,
+            from: Data(researchReportJSON.utf8)
+        )
+
+        let report = try VentureResearchReportDeliverable(payload: metadata)
+
+        #expect(report.items.count == 2)
+        #expect(report.items[0].kind == .conclusion)
+        #expect(report.items[0].source == .none)
+        #expect(report.items[1].source.external?.externalKey == "post-1")
+        #expect(report.supportingItems.map(\.id) == ["report-item-2"])
+    }
+
+    @Test
+    func rejectsLegacyResearchReportArrays() throws {
+        let metadata = try JSONDecoder().decode(
+            ProductOpsMetadataValue.self,
+            from: Data(#"{"researchQuestion":"旧形式","conclusion":"結論","findings":[]}"#.utf8)
+        )
+
+        #expect(throws: VentureDeliverablePayloadDecodingError.self) {
+            try VentureResearchReportDeliverable(payload: metadata)
+        }
+    }
+
+    @Test
+    func rejectsResearchReportWithoutExactlyOneConclusion() throws {
+        let metadata = try JSONDecoder().decode(
+            ProductOpsMetadataValue.self,
+            from: Data(#"{"researchQuestion":"問い","items":[{"id":"finding-1","kind":"finding","relation":"context","text":"発見","context":"文脈","source":{"kind":"none"}}]}"#.utf8)
+        )
+
+        #expect(throws: VentureDeliverablePayloadDecodingError.self) {
+            try VentureResearchReportDeliverable(payload: metadata)
+        }
     }
 
     private let policyJSON = #"""
@@ -269,16 +310,15 @@ struct VenturePolicyContractTests {
         "ownerUserId": "owner-1",
         "ventureId": "landlord-saas",
         "deliverableId": "deliverable-1",
-        "itemKey": "research-clip:v1:supporting_evidence:0:hash",
-        "extractorSchemaKey": "venture_research_mission_v3",
-        "extractorVersion": 1,
+        "itemKey": "report-item-1",
         "itemKind": "supporting_evidence",
         "relation": "supports",
         "textSnapshot": "確定申告前に領収書をまとめている",
         "contextSnapshot": "資料整理の負担を示している",
-        "sourceUrl": "https://x.com/example/status/1",
         "sourceSnapshot": {
+          "kind": "external",
           "type": "x_post",
+          "url": "https://x.com/example/status/1",
           "externalKey": "1",
           "author": "example",
           "publishedAt": null,
@@ -292,6 +332,7 @@ struct VenturePolicyContractTests {
         "updatedAt": "2026-07-20T00:00:00Z",
         "archivedAt": null
       },
+      "knowledgeStatus": "unadopted",
       "sourceState": {
         "sourceMissionId": "mission-1",
         "sourceMissionStatus": "completed",
@@ -308,20 +349,18 @@ struct VenturePolicyContractTests {
       "deliverableId": "deliverable-1",
       "ventureId": "landlord-saas",
       "missionId": "mission-1",
-      "extractorVersion": 1,
       "items": [
         {
-          "itemKey": "research-clip:v1:observation:0:abc",
-          "extractorSchemaKey": "venture_research_mission_v3",
-          "extractorVersion": 1,
+          "itemKey": "report-item-1",
           "kind": "observation",
           "label": "個別の観測結果",
           "relation": "supports",
           "text": "確定申告前に領収書をまとめている",
           "context": "資料整理の負担を示す",
-          "sourceUrl": "https://x.com/example/status/1",
           "sourceSnapshot": {
+            "kind": "external",
             "type": "x_post",
+            "url": "https://x.com/example/status/1",
             "externalKey": "1",
             "author": "example",
             "publishedAt": null,
@@ -332,20 +371,18 @@ struct VenturePolicyContractTests {
             "ownerUserId": "owner-1",
             "ventureId": "landlord-saas",
             "deliverableId": "deliverable-1",
-            "itemKey": "research-clip:v1:observation:0:abc",
-            "extractorSchemaKey": "venture_research_mission_v3",
-            "extractorVersion": 1,
+            "itemKey": "report-item-1",
             "itemKind": "observation",
             "relation": "supports",
             "textSnapshot": "確定申告前に領収書をまとめている",
             "contextSnapshot": "資料整理の負担を示す",
-            "sourceUrl": "https://x.com/example/status/1",
             "sourceSnapshot": {
+              "kind": "external",
               "type": "x_post",
+              "url": "https://x.com/example/status/1",
               "externalKey": "1",
               "author": "example",
-              "publishedAt": null,
-              "metadata": {}
+              "publishedAt": null
             },
             "userNote": "保存済み",
             "opportunityId": null,
@@ -354,6 +391,37 @@ struct VenturePolicyContractTests {
             "createdAt": "2026-07-20T00:00:00.000Z",
             "updatedAt": "2026-07-20T01:00:00.000Z",
             "archivedAt": null
+          }
+        }
+      ]
+    }
+    """#
+
+    private let researchReportJSON = #"""
+    {
+      "researchQuestion": "確定申告前の資料整理は有料課題か",
+      "items": [
+        {
+          "id": "report-item-1",
+          "kind": "conclusion",
+          "relation": "context",
+          "text": "資料整理には継続的な負担がある",
+          "context": "調査全体の結論",
+          "source": {"kind": "none"}
+        },
+        {
+          "id": "report-item-2",
+          "kind": "observation",
+          "relation": "supports",
+          "text": "確定申告前に領収書をまとめ直している",
+          "context": "日々の記録不足を示す",
+          "source": {
+            "kind": "external",
+            "type": "x_post",
+            "url": "https://x.com/example/status/1",
+            "externalKey": "post-1",
+            "author": "example",
+            "publishedAt": null
           }
         }
       ]

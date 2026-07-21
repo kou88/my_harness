@@ -493,9 +493,9 @@ final class ActionInboxAPIClient {
     func saveResearchClip(
         deliverableId: String,
         itemKey: String,
-        userNote: String = "",
-        opportunityId: String? = nil,
-        hypothesisId: String? = nil
+        userNote: String,
+        opportunityId: String?,
+        hypothesisId: String?
     ) async throws -> VentureResearchClipSaveResult.Item {
         let data = try await request(
             path: "/api/v2/deliverables/\(deliverableId)/research-clips",

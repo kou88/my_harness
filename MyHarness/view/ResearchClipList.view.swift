@@ -1,13 +1,20 @@
 import SwiftUI
 
+enum ResearchClipAssociationLoadState: Hashable {
+    case loading
+    case loaded(VentureResearchClipAssociationOptions)
+    case failed(String)
+}
+
 struct ResearchClipListView: View {
     let state: ProductOpsState
     let onOpenMission: (String) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var grouping: Grouping = .savedAt
-    @State private var associationOptions: VentureResearchClipAssociationOptions?
+    @State private var associationState: ResearchClipAssociationLoadState = .loading
     @State private var selectedItem: VentureResearchClipListItem?
+    @State private var loadMoreError: String?
 
     private enum Grouping: String, CaseIterable, Identifiable {
         case savedAt
@@ -32,6 +39,7 @@ struct ResearchClipListView: View {
             switch state.researchClipsState {
             case .idle, .loading:
                 ProgressView()
+                    .accessibilityLabel("保存した調査メモを読み込み中")
             case .failed(let message):
                 ContentUnavailableView {
                     Label("調査メモを読み込めません", systemImage: "exclamationmark.triangle")
@@ -48,22 +56,7 @@ struct ResearchClipListView: View {
                         description: Text("調査結果の各項目にあるブックマークから保存できます。")
                     )
                 } else {
-                    List {
-                        ForEach(groupedItems(page.items), id: \.title) { group in
-                            Section(group.title) {
-                                ForEach(group.items) { item in
-                                    researchClipRow(item)
-                                }
-                            }
-                        }
-                        if page.nextCursor != nil {
-                            Button("さらに表示") {
-                                Task { await state.loadMoreResearchClips() }
-                            }
-                            .frame(maxWidth: .infinity)
-                        }
-                    }
-                    .listStyle(.plain)
+                    clipList(page)
                 }
             }
         }
@@ -90,16 +83,87 @@ struct ResearchClipListView: View {
                     state: state,
                     clip: item.clip,
                     sourceState: item.sourceState,
-                    associationOptions: associationOptions,
+                    associationState: associationState,
+                    onRetryAssociations: {
+                        Task { await loadAssociationOptions() }
+                    },
                     onOpenMission: {
                         selectedItem = nil
                         onOpenMission(item.sourceState.sourceMissionId)
                     },
-                    onUpdated: { _ in },
-                    onArchived: {}
+                    onUpdated: { updated in
+                        selectedItem = VentureResearchClipListItem(
+                            clip: updated,
+                            knowledgeStatus: item.knowledgeStatus,
+                            sourceState: item.sourceState
+                        )
+                    },
+                    onArchived: {
+                        selectedItem = nil
+                    }
                 )
             }
         }
+    }
+
+    @ViewBuilder
+    private func clipList(_ page: VentureResearchClipPage) -> some View {
+        List {
+            if case .failed(let message) = associationState {
+                Section {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(message)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                        Button("関連候補を再読み込み") {
+                            Task { await loadAssociationOptions() }
+                        }
+                        .font(.caption.weight(.semibold))
+                    }
+                }
+            }
+
+            ForEach(groupedItems(page.items), id: \.title) { group in
+                Section(group.title) {
+                    ForEach(group.items) { item in
+                        researchClipRow(item)
+                    }
+                }
+            }
+
+            if page.nextCursor != nil || loadMoreError != nil {
+                Section {
+                    if let loadMoreError {
+                        Text(loadMoreError)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                            .accessibilityLabel("追加読み込みエラー。\(loadMoreError)")
+                    }
+                    Button {
+                        Task { await loadMore() }
+                    } label: {
+                        if state.isLoadingMoreResearchClips {
+                            HStack(spacing: 8) {
+                                ProgressView()
+                                    .accessibilityHidden(true)
+                                Text("読み込み中")
+                            }
+                            .frame(maxWidth: .infinity)
+                        } else {
+                            Text(loadMoreError == nil ? "さらに表示" : "続きを再試行")
+                                .frame(maxWidth: .infinity)
+                        }
+                    }
+                    .disabled(state.isLoadingMoreResearchClips || page.nextCursor == nil)
+                    .accessibilityLabel(
+                        state.isLoadingMoreResearchClips
+                            ? "調査メモの続きを読み込み中"
+                            : (loadMoreError == nil ? "調査メモをさらに表示" : "調査メモの続きを再試行")
+                    )
+                }
+            }
+        }
+        .listStyle(.plain)
     }
 
     @ViewBuilder
@@ -113,10 +177,8 @@ struct ResearchClipListView: View {
                     .foregroundStyle(.primary)
                     .lineLimit(3)
                 HStack(spacing: 6) {
-                    Text(itemKindLabel(item.clip.itemKind))
-                    if let relation = item.clip.relation {
-                        Text(relationLabel(relation))
-                    }
+                    Text(item.clip.itemKind.label)
+                    Text(item.clip.relation.label)
                     Text(sourceStateLabel(item.sourceState))
                 }
                 .font(.caption)
@@ -131,7 +193,10 @@ struct ResearchClipListView: View {
             .padding(.vertical, 4)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("\(itemKindLabel(item.clip.itemKind))、保存済み。\(item.clip.textSnapshot)")
+        .accessibilityLabel(
+            "\(item.clip.itemKind.label)、未採用の調査メモ。\(item.clip.textSnapshot)。\(sourceStateLabel(item.sourceState))"
+        )
+        .accessibilityHint("ダブルタップでメモ、関連付け、元の情報源を確認します")
     }
 
     private func groupedItems(_ items: [VentureResearchClipListItem]) -> [(title: String, items: [VentureResearchClipListItem])] {
@@ -149,40 +214,40 @@ struct ResearchClipListView: View {
             return Self.dayFormatter.string(from: item.clip.createdAt)
         case .opportunity:
             guard let id = item.clip.opportunityId else { return "未関連付け" }
-            return associationOptions?.opportunities.first { $0.id == id }?.title ?? id
+            guard case .loaded(let options) = associationState else { return "関連候補を読み込み中" }
+            return options.opportunities.first { $0.id == id }?.title ?? id
         case .hypothesis:
             guard let id = item.clip.hypothesisId else { return "未関連付け" }
-            return associationOptions?.hypotheses.first { $0.id == id }?.statement ?? id
+            guard case .loaded(let options) = associationState else { return "関連候補を読み込み中" }
+            return options.hypotheses.first { $0.id == id }?.statement ?? id
         case .mission:
             return item.sourceState.sourceMissionId
         }
     }
 
     private func load() async {
-        async let clips: Void = state.loadResearchClips()
-        async let options = try? state.fetchResearchClipAssociationOptions()
-        _ = await clips
-        associationOptions = await options
+        loadMoreError = nil
+        async let clipsTask: Void = state.loadResearchClips()
+        async let associationsTask: Void = loadAssociationOptions()
+        _ = await (clipsTask, associationsTask)
     }
 
-    private func itemKindLabel(_ kind: String) -> String {
-        switch kind {
-        case "conclusion": return "結論"
-        case "finding": return "重要な発見"
-        case "supporting_evidence": return "支持する根拠"
-        case "contradicting_evidence": return "反例"
-        case "unknown": return "まだ分からないこと"
-        case "next_question": return "次に確認すること"
-        case "source": return "情報源"
-        default: return "個別の観測結果"
+    private func loadAssociationOptions() async {
+        associationState = .loading
+        do {
+            associationState = .loaded(try await state.fetchResearchClipAssociationOptions())
+        } catch {
+            associationState = .failed("関連候補を読み込めませんでした: \(error.localizedDescription)")
         }
     }
 
-    private func relationLabel(_ relation: String) -> String {
-        switch relation {
-        case "supports": return "支持"
-        case "contradicts": return "反例"
-        default: return "文脈"
+    private func loadMore() async {
+        guard !state.isLoadingMoreResearchClips else { return }
+        loadMoreError = nil
+        do {
+            try await state.loadMoreResearchClips()
+        } catch {
+            loadMoreError = "調査メモの続きを読み込めませんでした: \(error.localizedDescription)"
         }
     }
 
@@ -209,7 +274,8 @@ struct ResearchClipEditView: View {
     let state: ProductOpsState
     let clip: VentureResearchClip
     let sourceState: VentureResearchClipListItem.SourceState?
-    let associationOptions: VentureResearchClipAssociationOptions?
+    let associationState: ResearchClipAssociationLoadState
+    let onRetryAssociations: () -> Void
     let onOpenMission: (() -> Void)?
     let onUpdated: (VentureResearchClip) -> Void
     let onArchived: () -> Void
@@ -225,7 +291,8 @@ struct ResearchClipEditView: View {
         state: ProductOpsState,
         clip: VentureResearchClip,
         sourceState: VentureResearchClipListItem.SourceState?,
-        associationOptions: VentureResearchClipAssociationOptions?,
+        associationState: ResearchClipAssociationLoadState,
+        onRetryAssociations: @escaping () -> Void,
         onOpenMission: (() -> Void)?,
         onUpdated: @escaping (VentureResearchClip) -> Void,
         onArchived: @escaping () -> Void
@@ -233,7 +300,8 @@ struct ResearchClipEditView: View {
         self.state = state
         self.clip = clip
         self.sourceState = sourceState
-        self.associationOptions = associationOptions
+        self.associationState = associationState
+        self.onRetryAssociations = onRetryAssociations
         self.onOpenMission = onOpenMission
         self.onUpdated = onUpdated
         self.onArchived = onArchived
@@ -247,43 +315,31 @@ struct ResearchClipEditView: View {
             Section("調査メモ") {
                 Text(clip.textSnapshot)
                     .textSelection(.enabled)
+                LabeledContent("知識への反映", value: "未採用メモ")
                 if !clip.contextSnapshot.isEmpty {
-                    LabeledContent("採用理由", value: clip.contextSnapshot)
+                    LabeledContent("文脈", value: clip.contextSnapshot)
                 }
-                if let url = clip.sourceUrl.flatMap(URL.init(string:)) {
-                    Link(destination: url) {
+                if let source = clip.sourceSnapshot.external,
+                   let destination = source.destination {
+                    Link(destination: destination) {
                         Label("元の情報源を開く", systemImage: "arrow.up.right.square")
                     }
+                    .accessibilityHint(source.url)
                 }
             }
 
             Section("メモ") {
                 TextEditor(text: $note)
                     .frame(minHeight: 100)
+                    .accessibilityLabel("調査メモ入力")
+                    .accessibilityHint("2,000文字以内で補足を入力します")
+                Text("\(note.count) / 2,000")
+                    .font(.caption)
+                    .foregroundStyle(note.count > 2_000 ? .red : .secondary)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
             }
 
-            Section("関連付け") {
-                Picker("Opportunity", selection: $opportunityId) {
-                    Text("関連付けなし").tag("")
-                    ForEach(associationOptions?.opportunities ?? []) { opportunity in
-                        Text(opportunity.title).tag(opportunity.id)
-                    }
-                }
-                .onChange(of: opportunityId) { _, value in
-                    let isValid = associationOptions?.hypotheses.contains {
-                        $0.id == hypothesisId && $0.opportunityId == value
-                    } ?? false
-                    if !isValid { hypothesisId = "" }
-                }
-
-                Picker("Hypothesis", selection: $hypothesisId) {
-                    Text("関連付けなし").tag("")
-                    ForEach((associationOptions?.hypotheses ?? []).filter { $0.opportunityId == opportunityId }) { hypothesis in
-                        Text(hypothesis.statement).tag(hypothesis.id)
-                    }
-                }
-                .disabled(opportunityId.isEmpty)
-            }
+            associationSection
 
             if let sourceState {
                 Section("元レポート") {
@@ -310,7 +366,9 @@ struct ResearchClipEditView: View {
 
             if let errorMessage {
                 Section {
-                    Text(errorMessage).foregroundStyle(.red)
+                    Text(errorMessage)
+                        .foregroundStyle(.red)
+                        .accessibilityLabel("調査メモの保存エラー。\(errorMessage)")
                 }
             }
         }
@@ -322,13 +380,67 @@ struct ResearchClipEditView: View {
             }
             ToolbarItem(placement: .confirmationAction) {
                 Button("保存") { Task { await save() } }
-                    .disabled(isSaving || note.count > 2_000)
+                    .disabled(isSaving || note.count > 2_000 || !canSaveAssociation)
             }
         }
     }
 
+    @ViewBuilder
+    private var associationSection: some View {
+        Section("関連付け") {
+            switch associationState {
+            case .loading:
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .accessibilityHidden(true)
+                    Text("関連候補を読み込み中")
+                        .foregroundStyle(.secondary)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("OpportunityとHypothesisの候補を読み込み中")
+            case .failed(let message):
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                Button("再試行", action: onRetryAssociations)
+            case .loaded(let options):
+                Picker("Opportunity", selection: $opportunityId) {
+                    Text("関連付けなし").tag("")
+                    ForEach(options.opportunities) { opportunity in
+                        Text(opportunity.title).tag(opportunity.id)
+                    }
+                }
+                .onChange(of: opportunityId) { _, value in
+                    let isValid = options.hypotheses.contains {
+                        $0.id == hypothesisId && $0.opportunityId == value
+                    }
+                    if !isValid { hypothesisId = "" }
+                }
+
+                Picker("Hypothesis", selection: $hypothesisId) {
+                    Text("関連付けなし").tag("")
+                    ForEach(options.hypotheses.filter { $0.opportunityId == opportunityId }) { hypothesis in
+                        Text(hypothesis.statement).tag(hypothesis.id)
+                    }
+                }
+                .disabled(opportunityId.isEmpty)
+            }
+        }
+    }
+
+    private var canSaveAssociation: Bool {
+        if opportunityId.isEmpty && hypothesisId.isEmpty { return true }
+        guard case .loaded(let options) = associationState else { return false }
+        guard options.opportunities.contains(where: { $0.id == opportunityId }) else { return false }
+        return hypothesisId.isEmpty || options.hypotheses.contains {
+            $0.id == hypothesisId && $0.opportunityId == opportunityId
+        }
+    }
+
     private func save() async {
+        guard !isSaving else { return }
         isSaving = true
+        errorMessage = nil
         defer { isSaving = false }
         do {
             let updated = try await state.updateResearchClip(
@@ -345,7 +457,9 @@ struct ResearchClipEditView: View {
     }
 
     private func archive() async {
+        guard !isSaving else { return }
         isSaving = true
+        errorMessage = nil
         defer { isSaving = false }
         do {
             try await state.archiveResearchClip(clip)

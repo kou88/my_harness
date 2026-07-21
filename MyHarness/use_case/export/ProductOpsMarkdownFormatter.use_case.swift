@@ -338,13 +338,25 @@ enum ProductOpsMarkdownFormatter {
                     document.section("成果物本文", text: artifactMarkdown, level: 4)
                 }
                 document.section("調査テーマ", text: value.researchQuestion, level: 4)
-                document.section("結論", text: value.conclusion, level: 4)
-                document.listSection("重要な発見", items: value.findings, level: 4)
-                document.listSection("支持する根拠", items: value.supportingEvidence, level: 4)
-                document.listSection("反例", items: value.contradictingEvidence, level: 4)
-                document.listSection("情報源", items: value.sources, level: 4)
-                document.listSection("まだ分からないこと", items: value.unknowns, level: 4)
-                document.listSection("次に確認すること", items: value.nextQuestions, level: 4)
+                document.listSection("結論", items: value.conclusionItems.map(\.text), level: 4)
+                document.listSection("重要な発見", items: value.findingItems.map(\.text), level: 4)
+                document.listSection("支持する根拠", items: value.supportingItems.map(\.text), level: 4)
+                document.listSection("反例", items: value.contradictingItems.map(\.text), level: 4)
+                document.listSection(
+                    "情報源",
+                    items: value.externalSources.map(\.url),
+                    level: 4
+                )
+                document.listSection(
+                    "まだ分からないこと",
+                    items: value.items.filter { $0.kind == .unknown }.map(\.text),
+                    level: 4
+                )
+                document.listSection(
+                    "次に確認すること",
+                    items: value.items.filter { $0.kind == .nextQuestion }.map(\.text),
+                    level: 4
+                )
                 if let executionLog = value.executionLog {
                     document.heading("実行ログ", level: 4)
                     if let grokExecution = value.grokExecution {
@@ -366,9 +378,6 @@ enum ProductOpsMarkdownFormatter {
                     ])
                     document.listSection("検索語", items: executionLog.queries, level: 5)
                     document.listSection("制約・不足", items: executionLog.limitations, level: 5)
-                }
-                if let rawResult = value.rawResult {
-                    document.codeSection("Raw result", code: rawResult.prettyPrintedJSON, language: "json", level: 4)
                 }
             case .message(let value):
                 document.keyValues([
