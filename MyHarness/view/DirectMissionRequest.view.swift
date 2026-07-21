@@ -47,6 +47,15 @@ struct DirectMissionRequestSheet: View {
                     TextEditor(text: $instruction)
                         .frame(minHeight: 120)
                         .accessibilityLabel(requestKind == .research ? "調べてほしいこと" : "作ってほしい文案")
+                    HStack {
+                        Text(requestKind == .research ? "Grokへ渡す依頼本文" : "Codexへ渡す依頼本文")
+                        Spacer()
+                        Text("\(instructionUTF16Length.formatted()) / \(instructionMaxUTF16Length.formatted())文字")
+                            .foregroundStyle(isInstructionTooLong ? .red : .secondary)
+                            .monospacedDigit()
+                    }
+                    .font(.caption)
+                    .accessibilityElement(children: .combine)
                 }
 
                 if requestKind == .research {
@@ -209,6 +218,7 @@ struct DirectMissionRequestSheet: View {
 
     private var canSubmit: Bool {
         guard !cleaned(instruction).isEmpty else { return false }
+        guard !isInstructionTooLong else { return false }
         if requestKind == .message {
             guard !cleaned(audience).isEmpty else { return false }
             if messageChannel == "x_reply" {
@@ -216,6 +226,20 @@ struct DirectMissionRequestSheet: View {
             }
         }
         return true
+    }
+
+    private var instructionMaxUTF16Length: Int {
+        requestKind == .research
+            ? VentureDirectMissionInputPolicy.researchInstructionMaxUTF16Length
+            : VentureDirectMissionInputPolicy.messageInstructionMaxUTF16Length
+    }
+
+    private var instructionUTF16Length: Int {
+        instruction.utf16.count
+    }
+
+    private var isInstructionTooLong: Bool {
+        instructionUTF16Length > instructionMaxUTF16Length
     }
 
     private var requestSignature: String {
