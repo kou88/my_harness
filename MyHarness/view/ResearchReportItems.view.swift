@@ -8,7 +8,7 @@ struct ResearchReportItemsView: View {
     @State private var candidates: [VentureResearchClipCandidate] = []
     @State private var isLoading = false
     @State private var loadingError: String?
-    @State private var operationError: String?
+    @State private var operationErrors: [String: String] = [:]
     @State private var mutatingItemKeys: Set<String> = []
     @State private var editingClip: VentureResearchClip?
     @State private var associationState: ResearchClipAssociationLoadState = .loading
@@ -58,12 +58,6 @@ struct ResearchReportItemsView: View {
                 associationErrorView(message)
             }
 
-            if let operationError {
-                Text(operationError)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .accessibilityLabel("調査メモの操作エラー。\(operationError)")
-            }
         }
         .task(id: deliverableId) { await load() }
         .sheet(item: $editingClip) { clip in
@@ -94,76 +88,119 @@ struct ResearchReportItemsView: View {
 
     @ViewBuilder
     private func candidateRow(_ item: VentureResearchClipCandidate) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(item.text)
-                    .font(.subheadline)
-                    .foregroundStyle(tint(item.relation))
-                    .textSelection(.enabled)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .top, spacing: 8) {
+                if let source = item.sourceSnapshot.external,
+                   let destination = ResearchSourceDestination(source: source) {
+                    ResearchSourceLinkButton(destination: destination) {
+                        candidateContent(item, showsSourceLabel: true)
+                            .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+                            .contentShape(Rectangle())
+                    }
+                    .accessibilityLabel("\(item.kind.label)。\(item.text)。元の情報源を開く")
+                    .accessibilityHint(source.url)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    candidateContent(item, showsSourceLabel: false)
+                        .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+                }
+
+                bookmarkControl(item)
+            }
+
+            if let operationError = operationErrors[item.itemKey] {
+                Label(operationError, systemImage: "exclamationmark.circle")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .accessibilityLabel("\(item.kind.label)の調査メモ操作エラー。\(operationError)")
+            }
+        }
+        .padding(.vertical, 8)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .contain)
+    }
+
+    @ViewBuilder
+    private func candidateContent(
+        _ item: VentureResearchClipCandidate,
+        showsSourceLabel: Bool
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(item.text)
+                .font(.subheadline)
+                .foregroundStyle(tint(item.relation))
+                .fixedSize(horizontal: false, vertical: true)
+            if !item.context.isEmpty {
+                Text(item.context)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                if !item.context.isEmpty {
-                    Text(item.context)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+            }
+            if showsSourceLabel {
+                Label("元の情報源", systemImage: "arrow.up.right.square")
+                    .font(.caption.weight(.semibold))
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func bookmarkControl(_ item: VentureResearchClipCandidate) -> some View {
+        if mutatingItemKeys.contains(item.itemKey) {
+            VStack(spacing: 3) {
+                ProgressView()
+                Text("保存中")
+                    .font(.caption2)
+            }
+            .frame(width: 56, height: 52)
+            .accessibilityLabel("\(item.kind.label)、保存中")
+        } else if let savedClip = item.savedClip {
+            Menu {
+                Button {
+                    editingClip = savedClip
+                } label: {
+                    Label("調査メモを編集", systemImage: "square.and.pencil")
                 }
                 if let source = item.sourceSnapshot.external,
                    let destination = ResearchSourceDestination(source: source) {
                     ResearchSourceLinkButton(destination: destination) {
-                        Label("元の情報源", systemImage: "arrow.up.right.square")
-                            .font(.caption.weight(.semibold))
+                        Label("元の情報源を開く", systemImage: "arrow.up.right.square")
                     }
-                    .accessibilityLabel("元の情報源を開く")
-                    .accessibilityHint(source.url)
                 }
-            }
-            Spacer(minLength: 8)
-            if mutatingItemKeys.contains(item.itemKey) {
-                ProgressView()
-                    .frame(width: 44, height: 44)
-                    .accessibilityLabel("\(item.kind.label)、保存中")
-            } else if let savedClip = item.savedClip {
-                Menu {
-                    Button {
-                        editingClip = savedClip
-                    } label: {
-                        Label("調査メモを編集", systemImage: "square.and.pencil")
-                    }
-                    if let source = item.sourceSnapshot.external,
-                       let destination = ResearchSourceDestination(source: source) {
-                        ResearchSourceLinkButton(destination: destination) {
-                            Label("元の情報源を開く", systemImage: "arrow.up.right.square")
-                        }
-                    }
-                    Button(role: .destructive) {
-                        Task { await archive(item) }
-                    } label: {
-                        Label("保存を解除", systemImage: "bookmark.slash")
-                    }
+                Button(role: .destructive) {
+                    Task { await archive(item) }
                 } label: {
+                    Label("保存を解除", systemImage: "bookmark.slash")
+                }
+            } label: {
+                VStack(spacing: 3) {
                     Image(systemName: "bookmark.fill")
                         .font(.system(size: 18, weight: .semibold))
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
+                    Text("保存済み")
+                        .font(.caption2.weight(.semibold))
                 }
-                .accessibilityLabel("\(item.kind.label)、保存済み")
-                .accessibilityHint("調査メモの編集、情報源表示、保存解除の操作を開きます")
-            } else {
-                Button {
-                    Task { await save(item) }
-                } label: {
+                .foregroundStyle(.tint)
+                .frame(width: 56, height: 52)
+                .contentShape(Rectangle())
+            }
+            .accessibilityLabel("\(item.kind.label)、保存済み")
+            .accessibilityHint("調査メモの編集、情報源表示、保存解除の操作を開きます")
+        } else {
+            Button {
+                Task { await save(item) }
+            } label: {
+                VStack(spacing: 3) {
                     Image(systemName: "bookmark")
                         .font(.system(size: 18, weight: .semibold))
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
+                    Text("保存")
+                        .font(.caption2.weight(.semibold))
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("\(item.kind.label)、未保存")
-                .accessibilityHint("調査メモに保存します")
+                .frame(width: 56, height: 52)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(item.kind.label)、未保存")
+            .accessibilityHint("調査メモに保存します")
         }
-        .padding(.vertical, 3)
-        .accessibilityElement(children: .contain)
     }
 
     private func tint(_ relation: VentureResearchReportRelation) -> Color {
@@ -239,15 +276,17 @@ struct ResearchReportItemsView: View {
     private func save(_ item: VentureResearchClipCandidate) async {
         guard !mutatingItemKeys.contains(item.itemKey) else { return }
         mutatingItemKeys.insert(item.itemKey)
-        operationError = nil
+        operationErrors[item.itemKey] = nil
         defer { mutatingItemKeys.remove(item.itemKey) }
         do {
             let clip = try await state.saveResearchClip(deliverableId: deliverableId, itemKey: item.itemKey)
-            updateCandidate(item.itemKey) { candidate in
-                candidate.savedClip = clip
+            withAnimation(.easeInOut(duration: 0.2)) {
+                updateCandidate(item.itemKey) { candidate in
+                    candidate.savedClip = clip
+                }
             }
         } catch {
-            operationError = "保存できませんでした: \(error.localizedDescription)"
+            operationErrors[item.itemKey] = "保存できませんでした: \(error.localizedDescription)"
         }
     }
 
@@ -255,15 +294,17 @@ struct ResearchReportItemsView: View {
         guard let clip = item.savedClip,
               !mutatingItemKeys.contains(item.itemKey) else { return }
         mutatingItemKeys.insert(item.itemKey)
-        operationError = nil
+        operationErrors[item.itemKey] = nil
         defer { mutatingItemKeys.remove(item.itemKey) }
         do {
             try await state.archiveResearchClip(clipId: clip.id, expectedVersion: clip.version)
-            updateCandidate(item.itemKey) { candidate in
-                candidate.savedClip = nil
+            withAnimation(.easeInOut(duration: 0.2)) {
+                updateCandidate(item.itemKey) { candidate in
+                    candidate.savedClip = nil
+                }
             }
         } catch {
-            operationError = "保存を解除できませんでした: \(error.localizedDescription)"
+            operationErrors[item.itemKey] = "保存を解除できませんでした: \(error.localizedDescription)"
         }
     }
 
@@ -272,6 +313,8 @@ struct ResearchReportItemsView: View {
         change: (inout VentureResearchClipCandidate) -> Void
     ) {
         guard let index = candidates.firstIndex(where: { $0.itemKey == itemKey }) else { return }
-        change(&candidates[index])
+        var updatedCandidates = candidates
+        change(&updatedCandidates[index])
+        candidates = updatedCandidates
     }
 }

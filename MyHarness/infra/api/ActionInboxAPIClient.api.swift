@@ -259,6 +259,29 @@ final class ActionInboxAPIClient {
             var userNote: String
             var opportunityId: String?
             var hypothesisId: String?
+
+            private enum CodingKeys: String, CodingKey {
+                case itemKey
+                case userNote
+                case opportunityId
+                case hypothesisId
+            }
+
+            func encode(to encoder: Encoder) throws {
+                var container = encoder.container(keyedBy: CodingKeys.self)
+                try container.encode(itemKey, forKey: .itemKey)
+                try container.encode(userNote, forKey: .userNote)
+                if let opportunityId {
+                    try container.encode(opportunityId, forKey: .opportunityId)
+                } else {
+                    try container.encodeNil(forKey: .opportunityId)
+                }
+                if let hypothesisId {
+                    try container.encode(hypothesisId, forKey: .hypothesisId)
+                } else {
+                    try container.encodeNil(forKey: .hypothesisId)
+                }
+            }
         }
 
         var items: [Item]
@@ -269,6 +292,29 @@ final class ActionInboxAPIClient {
         var userNote: String
         var opportunityId: String?
         var hypothesisId: String?
+
+        private enum CodingKeys: String, CodingKey {
+            case expectedVersion
+            case userNote
+            case opportunityId
+            case hypothesisId
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(expectedVersion, forKey: .expectedVersion)
+            try container.encode(userNote, forKey: .userNote)
+            if let opportunityId {
+                try container.encode(opportunityId, forKey: .opportunityId)
+            } else {
+                try container.encodeNil(forKey: .opportunityId)
+            }
+            if let hypothesisId {
+                try container.encode(hypothesisId, forKey: .hypothesisId)
+            } else {
+                try container.encodeNil(forKey: .hypothesisId)
+            }
+        }
     }
 
     private struct VentureResearchClipVersionRequest: Encodable {

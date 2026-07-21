@@ -369,7 +369,6 @@ final class ProductOpsState {
             opportunityId: nil,
             hypothesisId: nil
         )
-        message = result.outcome == "existing" ? "保存済みの調査メモです" : "調査メモに保存しました"
         return result.clip
     }
 
@@ -434,7 +433,6 @@ final class ProductOpsState {
             hypothesisId: hypothesisId
         )
         replaceResearchClip(updated)
-        message = "調査メモを更新しました"
         return updated
     }
 
@@ -451,7 +449,6 @@ final class ProductOpsState {
                 nextCursor: page.nextCursor
             ))
         }
-        message = "調査メモの保存を解除しました"
     }
 
     func archiveResearchClip(clipId: String, expectedVersion: Int) async throws {
@@ -461,7 +458,6 @@ final class ProductOpsState {
         mutatingResearchClipIds.insert(clipId)
         defer { mutatingResearchClipIds.remove(clipId) }
         _ = try await apiClient.archiveResearchClip(clipId: clipId, expectedVersion: expectedVersion)
-        message = "調査メモの保存を解除しました"
     }
 
     func isMutatingResearchClip(id: String) -> Bool {
