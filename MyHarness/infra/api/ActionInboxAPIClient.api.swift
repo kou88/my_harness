@@ -326,6 +326,25 @@ final class ActionInboxAPIClient {
         var expectedRevisionHash: String?
         var decision: String
         var feedback: String
+
+        private enum CodingKeys: String, CodingKey {
+            case expectedMissionVersion
+            case expectedRevisionHash
+            case decision
+            case feedback
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(expectedMissionVersion, forKey: .expectedMissionVersion)
+            if let expectedRevisionHash {
+                try container.encode(expectedRevisionHash, forKey: .expectedRevisionHash)
+            } else {
+                try container.encodeNil(forKey: .expectedRevisionHash)
+            }
+            try container.encode(decision, forKey: .decision)
+            try container.encode(feedback, forKey: .feedback)
+        }
     }
 
     private struct VentureMissionRetryRequest: Encodable {
