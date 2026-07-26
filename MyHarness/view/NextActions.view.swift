@@ -420,7 +420,7 @@ struct NextActionsView: View {
             contextLabel: missionSectionLabel(item.status),
             isWorking: isWorking,
             onOpen: {
-                presentedSheet = item.deliverableKind == "knowledge_change"
+                presentedSheet = item.hasReviewablePolicyRevision
                     ? .policyRevision(missionId: item.id)
                     : .missionDetail(
                         missionId: item.id,
@@ -474,7 +474,7 @@ struct NextActionsView: View {
             }
             if item.availableActions.contains("reject") {
                 Button(role: .destructive) {
-                    presentedSheet = item.deliverableKind == "knowledge_change"
+                    presentedSheet = item.hasReviewablePolicyRevision
                         ? .policyRevision(missionId: item.id)
                         : .missionDetail(
                             missionId: item.id,
@@ -488,7 +488,7 @@ struct NextActionsView: View {
             }
             if item.availableActions.contains("request_revision") {
                 Button {
-                    presentedSheet = item.deliverableKind == "knowledge_change"
+                    presentedSheet = item.hasReviewablePolicyRevision
                         ? .policyRevision(missionId: item.id)
                         : .missionDetail(
                             missionId: item.id,

@@ -161,6 +161,10 @@ struct VentureMissionSummaryItem: Identifiable, Decodable, Hashable {
         default: return capability
         }
     }
+
+    var hasReviewablePolicyRevision: Bool {
+        deliverableKind == "knowledge_change" && currentDeliverableId != nil
+    }
 }
 
 struct VentureVerificationSummary: Decodable, Hashable {
