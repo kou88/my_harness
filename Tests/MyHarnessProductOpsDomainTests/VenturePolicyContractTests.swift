@@ -10,6 +10,15 @@ struct VenturePolicyContractTests {
     }
 
     @Test
+    func opensPolicyRevisionOnlyAfterItsDeliverableExists() {
+        let unfinished = missionSummary(currentDeliverableId: nil)
+        let reviewable = missionSummary(currentDeliverableId: "deliverable-1")
+
+        #expect(!unfinished.hasReviewablePolicyRevision)
+        #expect(reviewable.hasReviewablePolicyRevision)
+    }
+
+    @Test
     func decodesVenturePolicyProjection() throws {
         let data = Data(policyJSON.utf8)
         let decoder = JSONDecoder()
@@ -163,6 +172,30 @@ struct VenturePolicyContractTests {
             "externalKey": "123",
         ])
         return try JSONDecoder().decode(VentureResearchReportSource.self, from: data)
+    }
+
+    private func missionSummary(currentDeliverableId: String?) -> VentureMissionSummaryItem {
+        VentureMissionSummaryItem(
+            id: "mission-1",
+            missionKind: "knowledge_change",
+            capability: "analyze",
+            deliverableKind: "knowledge_change",
+            title: "方針変更候補を作る",
+            summary: "新しいLearningを方針へ反映する",
+            status: currentDeliverableId == nil ? "running" : "awaiting_review",
+            missionVersion: 1,
+            currentAttemptId: "attempt-1",
+            currentDeliverableId: currentDeliverableId,
+            availableActions: [],
+            sideEffectPolicy: VentureSideEffectPolicy(
+                externalSend: false,
+                repositoryWrite: false,
+                dataMutation: false,
+                productionChange: false
+            ),
+            verification: nil,
+            updatedAt: Date(timeIntervalSince1970: 0)
+        )
     }
 
     private let policyJSON = #"""
