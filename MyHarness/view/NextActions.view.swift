@@ -1253,7 +1253,6 @@ private struct ProductOpsMarkdownCopyButton: View {
 }
 
 private struct ProductOpsExternalLinkButton<Label: View>: View {
-    @Environment(\.openURL) private var openURL
     let destination: URL
     let label: Label
 
@@ -1263,14 +1262,9 @@ private struct ProductOpsExternalLinkButton<Label: View>: View {
     }
 
     var body: some View {
-        Button {
-            openURL(destination)
-        } label: {
+        ResearchSourceLinkButton(destination: ResearchSourceDestination(url: destination)) {
             label
         }
-        // A List row can otherwise combine multiple automatic button actions.
-        .buttonStyle(.borderless)
-        .accessibilityHint("外部アプリで開きます")
     }
 }
 
@@ -1675,10 +1669,7 @@ private struct VentureMissionDetailSheet: View {
         NavigationStack {
             Group {
                 if let detail {
-                    List {
-                        missionContent(detail)
-                    }
-                    .listStyle(.plain)
+                    missionDetailContent(detail)
                     .safeAreaInset(edge: .bottom) {
                         if !detail.availableActions.isEmpty {
                             missionActionBar(detail)
@@ -1747,6 +1738,24 @@ private struct VentureMissionDetailSheet: View {
             } message: {
                 Text(operationErrorMessage ?? "")
             }
+        }
+    }
+
+    @ViewBuilder
+    private func missionDetailContent(_ detail: VentureMissionDetail) -> some View {
+        if detail.currentDeliverable?.kind == "research_report" {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 20) {
+                    missionContent(detail)
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 16)
+            }
+        } else {
+            List {
+                missionContent(detail)
+            }
+            .listStyle(.plain)
         }
     }
 
@@ -2664,22 +2673,37 @@ private struct VentureResearchReportSummaryView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            ProductChangeSection(title: "結論", items: [report.conclusion].filter { !$0.isEmpty })
-            ProductChangeSection(title: "重要な発見", items: report.findings.prefixArray(3))
-            ProductChangeSection(title: "支持", items: report.supportingEvidence.prefixArray(2), tint: .green)
-            ProductChangeSection(title: "反例", items: report.contradictingEvidence.prefixArray(2), tint: .orange)
-            ProductChangeSection(title: "未確認", items: (report.unknowns + report.nextQuestions).prefixArray(3))
+            ProductChangeSection(
+                title: "結論",
+                items: report.conclusionItems.map(\.text).prefixArray(1)
+            )
+            ProductChangeSection(
+                title: "重要な発見",
+                items: report.findingItems.map(\.text).prefixArray(3)
+            )
+            ProductChangeSection(
+                title: "支持",
+                items: report.supportingItems.map(\.text).prefixArray(2),
+                tint: .green
+            )
+            ProductChangeSection(
+                title: "反例",
+                items: report.contradictingItems.map(\.text).prefixArray(2),
+                tint: .orange
+            )
+            ProductChangeSection(
+                title: "未確認",
+                items: report.unresolvedItems.map(\.text).prefixArray(3)
+            )
 
-            if !report.sources.isEmpty {
+            if !report.externalSources.isEmpty {
                 HStack(spacing: 8) {
-                    ForEach(Array(report.sources.prefix(2)), id: \.self) { source in
-                        if let url = URL(string: source), url.scheme != nil {
+                    ForEach(Array(report.externalSources.prefix(2)), id: \.externalKey) { source in
+                        if let url = source.destination {
                             ProductOpsExternalLinkButton(destination: url) {
                                 Label("Source", systemImage: "arrow.up.right.square")
                                     .font(.caption.weight(.semibold))
                             }
-                        } else {
-                            ProductOpsTokenView(source)
                         }
                     }
                 }
@@ -2754,15 +2778,6 @@ private struct VentureResearchReportDetailView: View {
                 }
             }
 
-            if let rawResult = report.rawResult {
-                DisclosureGroup("Raw result") {
-                    Text(rawResult.prettyPrintedJSON)
-                        .font(.caption.monospaced())
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.top, 8)
-                }
-            }
         }
     }
 

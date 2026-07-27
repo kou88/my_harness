@@ -34,6 +34,7 @@ final class ProductOpsState {
     var isCreatingDirectMission = false
     var isUpdatingMission = false
     var isLoadingMoreMissionItems = false
+    var isLoadingMoreResearchClips = false
     var message: String?
     var configurationErrorMessage: String?
 
@@ -49,6 +50,7 @@ final class ProductOpsState {
     private var mutatingVentureProposalIds: Set<String> = []
     private var mutatingMissionIds: Set<String> = []
     private var mutatingResearchClipIds: Set<String> = []
+    private var researchClipListGeneration = 0
 
     init(
         authSession: CognitoAuthSession?,
@@ -360,35 +362,49 @@ final class ProductOpsState {
         }
         mutatingResearchClipIds.insert(itemKey)
         defer { mutatingResearchClipIds.remove(itemKey) }
-        let result = try await apiClient.saveResearchClip(deliverableId: deliverableId, itemKey: itemKey)
-        message = result.outcome == "existing" ? "保存済みの調査メモです" : "調査メモに保存しました"
+        let result = try await apiClient.saveResearchClip(
+            deliverableId: deliverableId,
+            itemKey: itemKey,
+            userNote: "",
+            opportunityId: nil,
+            hypothesisId: nil
+        )
         return result.clip
     }
 
     func loadResearchClips() async {
         guard let apiClient else { return }
+        researchClipListGeneration += 1
+        let requestGeneration = researchClipListGeneration
         researchClipsState = .loading
         do {
-            researchClipsState = .loaded(try await apiClient.fetchResearchClips(ventureId: ventureId))
+            let page = try await apiClient.fetchResearchClips(ventureId: ventureId)
+            guard requestGeneration == researchClipListGeneration else { return }
+            researchClipsState = .loaded(page)
         } catch {
+            guard requestGeneration == researchClipListGeneration else { return }
             researchClipsState = .failed("調査メモの読み込みに失敗しました: \(error.localizedDescription)")
         }
     }
 
-    func loadMoreResearchClips() async {
+    func loadMoreResearchClips() async throws {
         guard let apiClient,
+              !isLoadingMoreResearchClips,
               case .loaded(let current) = researchClipsState,
               let cursor = current.nextCursor else { return }
-        do {
-            let next = try await apiClient.fetchResearchClips(ventureId: ventureId, cursor: cursor)
-            let existingIds = Set(current.items.map(\.id))
-            researchClipsState = .loaded(VentureResearchClipPage(
-                items: current.items + next.items.filter { !existingIds.contains($0.id) },
-                nextCursor: next.nextCursor
-            ))
-        } catch {
-            message = "調査メモの続きを読み込めませんでした: \(error.localizedDescription)"
-        }
+        let requestGeneration = researchClipListGeneration
+        isLoadingMoreResearchClips = true
+        defer { isLoadingMoreResearchClips = false }
+
+        let next = try await apiClient.fetchResearchClips(ventureId: ventureId, cursor: cursor)
+        guard requestGeneration == researchClipListGeneration,
+              case .loaded(let latest) = researchClipsState,
+              latest.nextCursor == cursor else { return }
+        let existingIds = Set(latest.items.map(\.id))
+        researchClipsState = .loaded(VentureResearchClipPage(
+            items: latest.items + next.items.filter { !existingIds.contains($0.id) },
+            nextCursor: next.nextCursor
+        ))
     }
 
     func fetchResearchClipAssociationOptions() async throws -> VentureResearchClipAssociationOptions {
@@ -417,7 +433,6 @@ final class ProductOpsState {
             hypothesisId: hypothesisId
         )
         replaceResearchClip(updated)
-        message = "調査メモを更新しました"
         return updated
     }
 
@@ -434,7 +449,6 @@ final class ProductOpsState {
                 nextCursor: page.nextCursor
             ))
         }
-        message = "調査メモの保存を解除しました"
     }
 
     func archiveResearchClip(clipId: String, expectedVersion: Int) async throws {
@@ -444,7 +458,6 @@ final class ProductOpsState {
         mutatingResearchClipIds.insert(clipId)
         defer { mutatingResearchClipIds.remove(clipId) }
         _ = try await apiClient.archiveResearchClip(clipId: clipId, expectedVersion: expectedVersion)
-        message = "調査メモの保存を解除しました"
     }
 
     func isMutatingResearchClip(id: String) -> Bool {
@@ -456,7 +469,11 @@ final class ProductOpsState {
         researchClipsState = .loaded(VentureResearchClipPage(
             items: page.items.map { item in
                 guard item.clip.id == clip.id else { return item }
-                return VentureResearchClipListItem(clip: clip, sourceState: item.sourceState)
+                return VentureResearchClipListItem(
+                    clip: clip,
+                    knowledgeStatus: item.knowledgeStatus,
+                    sourceState: item.sourceState
+                )
             },
             nextCursor: page.nextCursor
         ))
