@@ -144,3 +144,175 @@ struct BlogPost: Codable, Hashable, Identifiable {
         translation?.plainText ?? plainText
     }
 }
+
+enum XArticleTranslationMode: String, Codable, CaseIterable, Hashable, Identifiable {
+    case originalOnly = "none"
+    case japanese = "ja"
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .originalOnly:
+            return "原文のみ"
+        case .japanese:
+            return "日本語訳も作成"
+        }
+    }
+}
+
+enum XArticleImportHostStatus: String, Codable, Hashable {
+    case pending
+    case online
+    case offline
+    case disabled
+
+    var label: String {
+        switch self {
+        case .pending:
+            return "未接続"
+        case .online:
+            return "オンライン"
+        case .offline:
+            return "オフライン"
+        case .disabled:
+            return "無効"
+        }
+    }
+}
+
+struct XArticleImportHost: Codable, Hashable, Identifiable {
+    var id: String
+    var name: String
+    var hostname: String?
+    var status: XArticleImportHostStatus
+    var capabilities: [String]
+    var tags: [String]
+
+    var displayName: String {
+        guard let hostname, !hostname.isEmpty, hostname != name else { return name }
+        return "\(name)（\(hostname)）"
+    }
+
+    var missingImportTags: [String] {
+        let availableTags = Set(capabilities + tags)
+        return XArticleImportRequest.requiredTags.filter { !availableTags.contains($0) }
+    }
+
+    var canImportXArticle: Bool {
+        status == .online && missingImportTags.isEmpty
+    }
+}
+
+enum XArticleImportTaskStatus: String, Codable, Hashable {
+    case queued
+    case running
+    case succeeded
+    case failed
+    case canceled
+}
+
+struct XArticleImportTask: Codable, Hashable, Identifiable {
+    var id: String
+    var hostId: String
+    var status: XArticleImportTaskStatus
+    var queuedAt: Date
+    var createdAt: Date
+    var updatedAt: Date
+}
+
+enum XArticleImportValidationError: LocalizedError {
+    case invalidURL
+    case unsupportedURL
+    case hostNotReady
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidURL:
+            return "有効なX記事URLを入力してください。"
+        case .unsupportedURL:
+            return "https://x.com/{ユーザー名}/status/{記事ID} 形式のURLを入力してください。"
+        case .hostNotReady:
+            return "選択したPCではX記事を取り込めません。"
+        }
+    }
+}
+
+struct XArticleImportRequest: Encodable, Hashable {
+    struct Payload: Encodable, Hashable {
+        struct Input: Encodable, Hashable {
+            var sourceUrl: String
+            var translationMode: XArticleTranslationMode
+        }
+
+        var agentId: String
+        var entrypoint: String
+        var input: Input
+        var command: String
+        var args: [String]
+        var cwd: String
+    }
+
+    static let requiredTags = [
+        "has:deno",
+        "network:internet",
+        "browser:cdp",
+        "has:my-system",
+        "role:codex-app-server",
+        "needs-api"
+    ]
+
+    var hostId: String
+    var taskType: String
+    var title: String
+    var payload: Payload
+    var requiredTags: [String]
+
+    static func make(
+        host: XArticleImportHost,
+        sourceURL: String,
+        translationMode: XArticleTranslationMode
+    ) throws -> XArticleImportRequest {
+        guard host.canImportXArticle else {
+            throw XArticleImportValidationError.hostNotReady
+        }
+        return XArticleImportRequest(
+            hostId: host.id,
+            taskType: "x_article_import",
+            title: "X記事を取り込む",
+            payload: Payload(
+                agentId: "x-agent",
+                entrypoint: "article-import",
+                input: Payload.Input(
+                    sourceUrl: try normalizedSourceURL(sourceURL),
+                    translationMode: translationMode
+                ),
+                command: "deno",
+                args: ["task", "article-import"],
+                cwd: "/Users/kou888/apps/x-agent"
+            ),
+            requiredTags: requiredTags
+        )
+    }
+
+    static func normalizedSourceURL(_ value: String) throws -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: trimmed),
+              url.scheme?.lowercased() == "https",
+              let hostname = url.host?.lowercased().replacingOccurrences(of: "www.", with: "") else {
+            throw XArticleImportValidationError.invalidURL
+        }
+
+        let allowedHosts = Set(["x.com", "twitter.com", "mobile.x.com", "mobile.twitter.com"])
+        let components = url.pathComponents.filter { $0 != "/" }
+        guard allowedHosts.contains(hostname),
+              components.count == 3,
+              components[1] == "status",
+              !components[0].isEmpty,
+              components[2].allSatisfy(\.isNumber) else {
+            throw XArticleImportValidationError.unsupportedURL
+        }
+
+        return "https://x.com/\(components[0])/status/\(components[2])"
+    }
+}

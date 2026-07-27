@@ -194,6 +194,14 @@ final class ActionInboxAPIClient {
         var data: BlogPost
     }
 
+    private struct XArticleImportHostsEnvelope: Decodable {
+        var data: [XArticleImportHost]
+    }
+
+    private struct XArticleImportTaskEnvelope: Decodable {
+        var data: XArticleImportTask
+    }
+
     private struct PushDevice: Decodable {
         var id: String
     }
@@ -414,6 +422,16 @@ final class ActionInboxAPIClient {
         }
         let data = try await request(path: "/api/blog-posts/\(id.lowercased())", method: "GET")
         return try decoder.decode(BlogPostEnvelope.self, from: data).data
+    }
+
+    func fetchXArticleImportHosts() async throws -> [XArticleImportHost] {
+        let data = try await request(path: "/api/os-agent/hosts", method: "GET")
+        return try decoder.decode(XArticleImportHostsEnvelope.self, from: data).data
+    }
+
+    func createXArticleImportTask(_ input: XArticleImportRequest) async throws -> XArticleImportTask {
+        let data = try await request(path: "/api/os-agent/tasks", method: "POST", body: input)
+        return try decoder.decode(XArticleImportTaskEnvelope.self, from: data).data
     }
 
     func bootstrapCurrentUser() async throws {
