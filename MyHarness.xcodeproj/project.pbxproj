@@ -7,11 +7,22 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		11A0B1C2D3E4F56789012345 /* MyHarnessShareExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 16A0B1C2D3E4F56789012345 /* MyHarnessShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		12A0B1C2D3E4F56789012345 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17A0B1C2D3E4F56789012345 /* ShareViewController.swift */; };
+		13A0B1C2D3E4F56789012345 /* BlogPost.domain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AA0B1C2D3E4F56789012345 /* BlogPost.domain.swift */; };
+		14A0B1C2D3E4F56789012345 /* SharedXImportCandidateRepository.repository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BA0B1C2D3E4F56789012345 /* SharedXImportCandidateRepository.repository.swift */; };
 		A1B2C3D4E5F6071829345678 /* MyHarnessWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = B2C3D4E5F607182934567890 /* MyHarnessWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		AABBCCDDEEFF001122334455 /* MyHarnessWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBCCDDEEFF00112233445566 /* MyHarnessWidget.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		15A0B1C2D3E4F56789012345 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 8A9B0C1D2E3F456701234567 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 1DA0B1C2D3E4F56789012345;
+			remoteInfo = MyHarnessShareExtension;
+		};
 		C3D4E5F60718293456789012 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 8A9B0C1D2E3F456701234567 /* Project object */;
@@ -28,6 +39,7 @@
 			dstPath = "";
 			dstSubfolderSpec = 13;
 			files = (
+				11A0B1C2D3E4F56789012345 /* MyHarnessShareExtension.appex in Embed Foundation Extensions */,
 				A1B2C3D4E5F6071829345678 /* MyHarnessWidget.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
@@ -37,6 +49,12 @@
 
 /* Begin PBXFileReference section */
 		0062E0D32F1B4F2A9B6A2C03 /* MyHarness.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MyHarness.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		16A0B1C2D3E4F56789012345 /* MyHarnessShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MyHarnessShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		17A0B1C2D3E4F56789012345 /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
+		18A0B1C2D3E4F56789012345 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		19A0B1C2D3E4F56789012345 /* MyHarnessShareExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MyHarnessShareExtension.entitlements; sourceTree = "<group>"; };
+		1AA0B1C2D3E4F56789012345 /* BlogPost.domain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = BlogPost.domain.swift; path = MyHarness/domain/model/BlogPost.domain.swift; sourceTree = SOURCE_ROOT; };
+		1BA0B1C2D3E4F56789012345 /* SharedXImportCandidateRepository.repository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SharedXImportCandidateRepository.repository.swift; path = MyHarness/infra/repository/system/SharedXImportCandidateRepository.repository.swift; sourceTree = SOURCE_ROOT; };
 		B2C3D4E5F607182934567890 /* MyHarnessWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MyHarnessWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		BBCCDDEEFF00112233445566 /* MyHarnessWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyHarnessWidget.swift; sourceTree = "<group>"; };
 		CCDDEEFF0011223344556677 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -59,6 +77,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		1EA0B1C2D3E4F56789012345 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		E6F708192A3B4C5D6E7F8091 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -74,6 +99,7 @@
 			children = (
 				0A1B2C3D4E5F678901234567 /* MyHarness */,
 				C2D3E4F50617283940516273 /* MyHarnessWidget */,
+				1CA0B1C2D3E4F56789012345 /* MyHarnessShareExtension */,
 				3A4B5C6D7E8F901201234567 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -83,6 +109,7 @@
 			children = (
 				0062E0D32F1B4F2A9B6A2C03 /* MyHarness.app */,
 				B2C3D4E5F607182934567890 /* MyHarnessWidget.appex */,
+				16A0B1C2D3E4F56789012345 /* MyHarnessShareExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -95,6 +122,18 @@
 				DDEEFF001122334455667788 /* MyHarnessWidget.entitlements */,
 			);
 			path = MyHarnessWidget;
+			sourceTree = "<group>";
+		};
+		1CA0B1C2D3E4F56789012345 /* MyHarnessShareExtension */ = {
+			isa = PBXGroup;
+			children = (
+				17A0B1C2D3E4F56789012345 /* ShareViewController.swift */,
+				18A0B1C2D3E4F56789012345 /* Info.plist */,
+				19A0B1C2D3E4F56789012345 /* MyHarnessShareExtension.entitlements */,
+				1AA0B1C2D3E4F56789012345 /* BlogPost.domain.swift */,
+				1BA0B1C2D3E4F56789012345 /* SharedXImportCandidateRepository.repository.swift */,
+			);
+			path = MyHarnessShareExtension;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -113,6 +152,7 @@
 			);
 			dependencies = (
 				F7A8192A3B4C5D6E7F8091A2 /* PBXTargetDependency */,
+				21A0B1C2D3E4F56789012345 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				0A1B2C3D4E5F678901234567 /* MyHarness */,
@@ -123,6 +163,25 @@
 			productName = MyHarness;
 			productReference = 0062E0D32F1B4F2A9B6A2C03 /* MyHarness.app */;
 			productType = "com.apple.product-type.application";
+		};
+		1DA0B1C2D3E4F56789012345 /* MyHarnessShareExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 24A0B1C2D3E4F56789012345 /* Build configuration list for PBXNativeTarget "MyHarnessShareExtension" */;
+			buildPhases = (
+				20A0B1C2D3E4F56789012345 /* Sources */,
+				1EA0B1C2D3E4F56789012345 /* Frameworks */,
+				1FA0B1C2D3E4F56789012345 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = MyHarnessShareExtension;
+			packageProductDependencies = (
+			);
+			productName = MyHarnessShareExtension;
+			productReference = 16A0B1C2D3E4F56789012345 /* MyHarnessShareExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 		D4E5F6071829345678901234 /* MyHarnessWidget */ = {
 			isa = PBXNativeTarget;
@@ -164,6 +223,9 @@
 					D4E5F6071829345678901234 = {
 						CreatedOnToolsVersion = 26.4.1;
 					};
+					1DA0B1C2D3E4F56789012345 = {
+						CreatedOnToolsVersion = 26.4.1;
+					};
 				};
 			};
 			buildConfigurationList = 9A0B1C2D3E4F567801234567 /* Build configuration list for PBXProject "MyHarness" */;
@@ -182,11 +244,19 @@
 			targets = (
 				4A5B6C7D8E9F012301234567 /* MyHarness */,
 				D4E5F6071829345678901234 /* MyHarnessWidget */,
+				1DA0B1C2D3E4F56789012345 /* MyHarnessShareExtension */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		1FA0B1C2D3E4F56789012345 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		7A8B9C0D1E2F345601234567 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -204,6 +274,16 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		20A0B1C2D3E4F56789012345 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				12A0B1C2D3E4F56789012345 /* ShareViewController.swift in Sources */,
+				13A0B1C2D3E4F56789012345 /* BlogPost.domain.swift in Sources */,
+				14A0B1C2D3E4F56789012345 /* SharedXImportCandidateRepository.repository.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		6A7B8C9D0E1F234501234567 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -222,6 +302,11 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		21A0B1C2D3E4F56789012345 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 1DA0B1C2D3E4F56789012345 /* MyHarnessShareExtension */;
+			targetProxy = 15A0B1C2D3E4F56789012345 /* PBXContainerItemProxy */;
+		};
 		F7A8192A3B4C5D6E7F8091A2 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = D4E5F6071829345678901234 /* MyHarnessWidget */;
@@ -230,6 +315,66 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		22A0B1C2D3E4F56789012345 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = MyHarnessShareExtension/MyHarnessShareExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = MyHarnessShareExtension/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.kou888.myharness.share;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		23A0B1C2D3E4F56789012345 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = MyHarnessShareExtension/MyHarnessShareExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = MyHarnessShareExtension/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.kou888.myharness.share;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
 		AA0B1C2D3E4F567801234567 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -478,6 +623,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		24A0B1C2D3E4F56789012345 /* Build configuration list for PBXNativeTarget "MyHarnessShareExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				22A0B1C2D3E4F56789012345 /* Debug */,
+				23A0B1C2D3E4F56789012345 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		9A0B1C2D3E4F567801234567 /* Build configuration list for PBXProject "MyHarness" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

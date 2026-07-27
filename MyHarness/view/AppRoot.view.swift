@@ -38,7 +38,8 @@ struct AppRootView: View {
         _blogPostState = State(initialValue: BlogPostState(
             authSession: dependencies.actionInbox.authSession,
             apiClient: dependencies.actionInbox.apiClient,
-            configurationErrorMessage: dependencies.actionInbox.configurationErrorMessage
+            configurationErrorMessage: dependencies.actionInbox.configurationErrorMessage,
+            importCandidateRepository: dependencies.sharedXImportCandidates
         ))
         _pushRegistrationErrorMessage = State(
             initialValue: ActionPushNotificationCoordinator.shared.registrationErrorMessage
@@ -95,6 +96,7 @@ struct AppRootView: View {
             .tabItem {
                 Label("記事", systemImage: "doc.richtext")
             }
+            .badge(blogPostState.importCandidates.count)
             .tag(AppTab.articles)
         }
         .environment(router)
@@ -126,6 +128,7 @@ struct AppRootView: View {
                 return
             }
             lastForegroundRefreshAt = Date()
+            blogPostState.refreshImportCandidates()
             Task {
                 await productOpsState.loadRecommendationsIfPossible()
                 if router.selectedTab == .articles {
@@ -142,6 +145,7 @@ struct AppRootView: View {
             ActionPushNotificationCoordinator.shared.clearPendingDeepLink()
         }
         .task {
+            blogPostState.refreshImportCandidates()
             await actionInboxState.synchronizePushAfterSignIn()
             guard let pendingURL = ActionPushNotificationCoordinator.shared.pendingDeepLinkURL else { return }
             router.handleDeepLink(pendingURL)

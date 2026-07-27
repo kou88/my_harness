@@ -22,19 +22,24 @@ final class BlogPostState {
     var detailState: LoadState<BlogPost> = .idle
     var importHostsState: LoadState<[XArticleImportHost]> = .idle
     var importRequestState: ImportRequestState = .idle
+    var importCandidates: [SharedXImportCandidate] = []
+    var importCandidateErrorMessage: String?
 
     private let authSession: CognitoAuthSession?
     private let apiClient: ActionInboxAPIClient?
     private let configurationErrorMessage: String?
+    private let importCandidateRepository: SharedXImportCandidateRepository
 
     init(
         authSession: CognitoAuthSession?,
         apiClient: ActionInboxAPIClient?,
-        configurationErrorMessage: String?
+        configurationErrorMessage: String?,
+        importCandidateRepository: SharedXImportCandidateRepository
     ) {
         self.authSession = authSession
         self.apiClient = apiClient
         self.configurationErrorMessage = configurationErrorMessage
+        self.importCandidateRepository = importCandidateRepository
     }
 
     var isConfigured: Bool {
@@ -63,6 +68,24 @@ final class BlogPostState {
     func loadIfPossible() async {
         guard isConfigured, isSignedIn else { return }
         await load()
+    }
+
+    func refreshImportCandidates() {
+        do {
+            importCandidates = try importCandidateRepository.load()
+            importCandidateErrorMessage = nil
+        } catch {
+            importCandidateErrorMessage = error.localizedDescription
+        }
+    }
+
+    func removeImportCandidate(id: String) {
+        do {
+            try importCandidateRepository.remove(id: id)
+            refreshImportCandidates()
+        } catch {
+            importCandidateErrorMessage = error.localizedDescription
+        }
     }
 
     func load() async {
@@ -128,7 +151,8 @@ final class BlogPostState {
     func submitImportRequest(
         hostId: String,
         sourceURL: String,
-        translationMode: XArticleTranslationMode
+        translationMode: XArticleTranslationMode,
+        candidate: SharedXImportCandidate?
     ) async {
         guard let apiClient else {
             importRequestState = .failed(configurationErrorMessage ?? "API設定を読み込めません。")
@@ -151,6 +175,9 @@ final class BlogPostState {
                 translationMode: translationMode
             )
             importRequestState = .submitted(try await apiClient.createXArticleImportTask(input))
+            if let candidate {
+                removeImportCandidate(id: candidate.id)
+            }
         } catch is CancellationError {
             importRequestState = .idle
         } catch {

@@ -6,6 +6,7 @@ struct AppDependencies {
     let modelContainer: ModelContainer
     let useCases: AppUseCases
     let actionInbox: ActionInboxFeatureDependencies
+    let sharedXImportCandidates: SharedXImportCandidateRepository
 
     static func live() throws -> AppDependencies {
         try make(isStoredInMemoryOnly: false, seedPreviewData: false)
@@ -74,10 +75,14 @@ struct AppDependencies {
         )
 
         let actionInboxDependencies = ActionInboxFeatureDependencies.make()
+        let sharedXImportCandidates = try SharedXImportCandidateRepository(
+            appGroupIdentifier: HarnessAppGroup.identifier
+        )
         let dependencies = AppDependencies(
             modelContainer: container,
             useCases: useCases,
-            actionInbox: actionInboxDependencies
+            actionInbox: actionInboxDependencies,
+            sharedXImportCandidates: sharedXImportCandidates
         )
         ActionPushNotificationCoordinator.shared.configure(
             apiClient: actionInboxDependencies.apiClient,

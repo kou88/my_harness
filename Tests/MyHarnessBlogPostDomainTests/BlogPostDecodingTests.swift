@@ -107,6 +107,72 @@ import Testing
     }
 }
 
+@Test func normalizesSharedXStatusURLsAndUsesTheCanonicalURLAsItsDeduplicationKey() throws {
+    let createdAt = Date(timeIntervalSince1970: 1_785_196_800)
+    let candidate = try SharedXImportCandidate.make(
+        id: "2b6f3a1d-6548-4d9a-80a1-6ddcab63aa90",
+        sharedURL: "https://twitter.com/thedankoe/status/2081415714636996844?s=46&t=tracking",
+        sharedText: "  入金照合について参考になる投稿です。  ",
+        createdAt: createdAt
+    )
+
+    #expect(candidate.id == "2b6f3a1d-6548-4d9a-80a1-6ddcab63aa90")
+    #expect(candidate.sourceURL == "https://x.com/thedankoe/status/2081415714636996844")
+    #expect(candidate.canonicalKey == candidate.sourceURL)
+    #expect(candidate.sourceText == "入金照合について参考になる投稿です。")
+    #expect(candidate.createdAt == createdAt)
+}
+
+@Test func createsASharedXImportCandidateFromAURLOnlyShare() throws {
+    let candidate = try SharedXImportCandidate.make(
+        id: "e6d9036a-653b-42d6-9ed3-d7b2b989ea99",
+        sharedURL: "https://x.com/thedankoe/status/2081415714636996844?ref_src=twsrc%5Etfw",
+        sharedText: nil,
+        createdAt: Date(timeIntervalSince1970: 1_785_196_800)
+    )
+
+    #expect(candidate.sourceURL == "https://x.com/thedankoe/status/2081415714636996844")
+    #expect(candidate.sourceText == nil)
+    #expect(candidate.canonicalKey == "https://x.com/thedankoe/status/2081415714636996844")
+}
+
+@Test func treatsWhitespaceOnlySharedTextAsAbsent() throws {
+    let candidate = try SharedXImportCandidate.make(
+        id: "a15515e2-b5b3-489d-a5a4-769143db2d88",
+        sharedURL: "https://x.com/thedankoe/status/2081415714636996844",
+        sharedText: " \n\t ",
+        createdAt: Date(timeIntervalSince1970: 1_785_196_800)
+    )
+
+    #expect(candidate.sourceText == nil)
+}
+
+@Test func rejectsNonXAndMalformedSharedURLs() {
+    do {
+        _ = try SharedXImportCandidate.make(
+            id: "2b6f3a1d-6548-4d9a-80a1-6ddcab63aa90",
+            sharedURL: "https://example.com/thedankoe/status/2081415714636996844",
+            sharedText: nil,
+            createdAt: Date(timeIntervalSince1970: 1_785_196_800)
+        )
+        Issue.record("X以外のURLから取込候補を作成できてしまいました")
+    } catch {
+        // URL拒否が契約であり、具体的なエラー型は実装詳細とする。
+    }
+
+    do {
+        _ = try SharedXImportCandidate.make(
+            id: "e6d9036a-653b-42d6-9ed3-d7b2b989ea99",
+            sharedURL: "not a URL",
+            sharedText: nil,
+            createdAt: Date(timeIntervalSince1970: 1_785_196_800)
+        )
+        Issue.record("壊れたURLから取込候補を作成できてしまいました")
+    } catch {
+        // URL拒否が契約であり、具体的なエラー型は実装詳細とする。
+    }
+}
+
 @Test func buildsExplicitXAgentImportTaskForCompatibleHost() throws {
     let host = XArticleImportHost(
         id: "2b6f3a1d-6548-4d9a-80a1-6ddcab63aa90",

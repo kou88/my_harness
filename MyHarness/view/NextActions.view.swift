@@ -51,17 +51,14 @@ struct NextActionsView: View {
 
     var body: some View {
         List {
+            nextActionsHeader
             content
         }
         .listStyle(.plain)
         .environment(\.defaultMinListRowHeight, 46)
-        .navigationTitle("次にやる")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                menu
-            }
-        }
+        .navigationTitle("")
+        .toolbar(.hidden, for: .navigationBar)
+        .contentMargins(.top, 0, for: .scrollContent)
         .refreshable {
             await loadAllIfPossible()
         }
@@ -134,6 +131,21 @@ struct NextActionsView: View {
                 )
             }
         }
+    }
+
+    private var nextActionsHeader: some View {
+        HStack(spacing: 12) {
+            Text("次にやる")
+                .font(.title2.weight(.bold))
+            Spacer(minLength: 0)
+            menu
+                .font(.title2)
+                .frame(width: 44, height: 44)
+        }
+        .padding(.vertical, 6)
+        .listRowSeparator(.hidden)
+        .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 12))
+        .accessibilityElement(children: .contain)
     }
 
     @ViewBuilder

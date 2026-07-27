@@ -221,6 +221,48 @@ struct XArticleImportTask: Codable, Hashable, Identifiable {
     var updatedAt: Date
 }
 
+struct SharedXImportCandidate: Codable, Hashable, Identifiable {
+    var id: String
+    var sourceURL: String
+    var sourceText: String?
+    var createdAt: Date
+
+    var canonicalKey: String {
+        sourceURL
+    }
+
+    static func make(
+        id: String,
+        sharedURL: String,
+        sharedText: String?,
+        createdAt: Date
+    ) throws -> SharedXImportCandidate {
+        let normalizedIdentifier = id.lowercased()
+        guard UUID(uuidString: normalizedIdentifier)?.uuidString.lowercased() == normalizedIdentifier else {
+            throw SharedXImportCandidateValidationError.invalidIdentifier
+        }
+
+        let normalizedText = sharedText?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return SharedXImportCandidate(
+            id: normalizedIdentifier,
+            sourceURL: try XArticleImportRequest.normalizedSourceURL(sharedURL),
+            sourceText: normalizedText?.isEmpty == false ? normalizedText : nil,
+            createdAt: createdAt
+        )
+    }
+}
+
+enum SharedXImportCandidateValidationError: LocalizedError {
+    case invalidIdentifier
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidIdentifier:
+            return "共有候補のIDがUUIDではありません。"
+        }
+    }
+}
+
 enum XArticleImportValidationError: LocalizedError {
     case invalidURL
     case unsupportedURL

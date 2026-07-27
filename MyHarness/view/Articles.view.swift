@@ -9,10 +9,19 @@ struct ArticleListView: View {
     @State private var presentedSheet: ArticleListSheet?
 
     var body: some View {
-        Group {
+        List {
+            articleHeader
+            searchField
+            importCandidateSection
+
             switch state.listState {
             case .idle, .loading:
-                ProgressView("記事を読み込んでいます")
+                HStack {
+                    Spacer()
+                    ProgressView("記事を読み込んでいます")
+                    Spacer()
+                }
+                .listRowSeparator(.hidden)
             case .failed(let message):
                 ContentUnavailableView {
                     Label("記事を読み込めません", systemImage: "exclamationmark.triangle")
@@ -24,34 +33,82 @@ struct ArticleListView: View {
                     }
                     .buttonStyle(.borderedProminent)
                 }
+                .listRowSeparator(.hidden)
             case .loaded:
-                articleList
+                articleRows
             }
         }
-        .navigationTitle("記事")
-        .searchable(text: $query, prompt: "タイトル・著者・本文を検索")
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    state.resetImportRequest()
-                    presentedSheet = .importRequest
-                } label: {
-                    Label("記事を追加", systemImage: "plus")
-                }
-                .accessibilityIdentifier("article-import-open")
-            }
+        .listStyle(.plain)
+        .navigationTitle("")
+        .toolbar(.hidden, for: .navigationBar)
+        .contentMargins(.top, 0, for: .scrollContent)
+        .refreshable {
+            state.refreshImportCandidates()
+            await state.load()
         }
         .sheet(item: $presentedSheet) { sheet in
             switch sheet {
             case .importRequest:
                 NavigationStack {
-                    ArticleImportRequestView(state: state)
+                    ArticleImportRequestView(state: state, source: .manual)
+                }
+            case .importCandidate(let candidate):
+                NavigationStack {
+                    ArticleImportRequestView(state: state, source: .shared(candidate))
                 }
             }
         }
         .task {
+            state.refreshImportCandidates()
             await state.load()
         }
+    }
+
+    private var articleHeader: some View {
+        HStack(spacing: 12) {
+            Text("記事")
+                .font(.title2.weight(.bold))
+            Spacer(minLength: 0)
+            Button {
+                state.resetImportRequest()
+                presentedSheet = .importRequest
+            } label: {
+                Image(systemName: "plus.circle")
+                    .font(.title2)
+                    .frame(width: 44, height: 44)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("記事を追加")
+            .accessibilityIdentifier("article-import-open")
+        }
+        .padding(.vertical, 6)
+        .listRowSeparator(.hidden)
+        .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 12))
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+            TextField("タイトル・著者・本文を検索", text: $query)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+            if !query.isEmpty {
+                Button {
+                    query = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("検索をクリア")
+            }
+        }
+        .padding(.horizontal, 12)
+        .frame(minHeight: 42)
+        .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
+        .listRowSeparator(.hidden)
+        .listRowInsets(EdgeInsets(top: 2, leading: 16, bottom: 8, trailing: 16))
     }
 
     private var filteredPosts: [BlogPost] {
@@ -70,7 +127,40 @@ struct ArticleListView: View {
     }
 
     @ViewBuilder
-    private var articleList: some View {
+    private var importCandidateSection: some View {
+        if !state.importCandidates.isEmpty {
+            Section("取り込み候補  \(state.importCandidates.count)") {
+                ForEach(state.importCandidates) { candidate in
+                    Button {
+                        state.resetImportRequest()
+                        presentedSheet = .importCandidate(candidate)
+                    } label: {
+                        SharedXImportCandidateRow(candidate: candidate)
+                    }
+                    .buttonStyle(.plain)
+                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                        Button(role: .destructive) {
+                            state.removeImportCandidate(id: candidate.id)
+                        } label: {
+                            Label("削除", systemImage: "trash")
+                        }
+                    }
+                    .accessibilityIdentifier("article-import-candidate-\(candidate.id)")
+                }
+            }
+        }
+
+        if let message = state.importCandidateErrorMessage {
+            Section {
+                Label(message, systemImage: "exclamationmark.triangle")
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var articleRows: some View {
         if state.posts.isEmpty && query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             ContentUnavailableView {
                 Label("記事はまだありません", systemImage: "doc.richtext")
@@ -83,37 +173,73 @@ struct ArticleListView: View {
                 }
                 .buttonStyle(.borderedProminent)
             }
+            .listRowSeparator(.hidden)
         } else if filteredPosts.isEmpty {
             ContentUnavailableView.search(text: query)
+                .listRowSeparator(.hidden)
         } else {
-            List(filteredPosts) { post in
+            ForEach(filteredPosts) { post in
                 NavigationLink(value: AppRoute.article(id: post.id)) {
                     ArticleListRow(post: post)
                 }
                 .accessibilityIdentifier("article-row-\(post.id)")
             }
-            .listStyle(.plain)
-            .refreshable {
-                await state.load()
-            }
         }
     }
 }
 
-private enum ArticleListSheet: String, Identifiable {
+private enum ArticleListSheet: Identifiable {
     case importRequest
+    case importCandidate(SharedXImportCandidate)
 
-    var id: String { rawValue }
+    var id: String {
+        switch self {
+        case .importRequest:
+            return "import-request"
+        case .importCandidate(let candidate):
+            return "import-candidate-\(candidate.id)"
+        }
+    }
+}
+
+private enum ArticleImportRequestSource {
+    case manual
+    case shared(SharedXImportCandidate)
+
+    var sourceURL: String {
+        switch self {
+        case .manual:
+            return ""
+        case .shared(let candidate):
+            return candidate.sourceURL
+        }
+    }
+
+    var candidate: SharedXImportCandidate? {
+        switch self {
+        case .manual:
+            return nil
+        case .shared(let candidate):
+            return candidate
+        }
+    }
 }
 
 @MainActor
 private struct ArticleImportRequestView: View {
     let state: BlogPostState
+    let source: ArticleImportRequestSource
 
     @Environment(\.dismiss) private var dismiss
-    @State private var sourceURL = ""
+    @State private var sourceURL: String
     @State private var selectedHostId: String?
     @State private var translationMode: XArticleTranslationMode?
+
+    init(state: BlogPostState, source: ArticleImportRequestSource) {
+        self.state = state
+        self.source = source
+        _sourceURL = State(initialValue: source.sourceURL)
+    }
 
     private var readyHosts: [XArticleImportHost] {
         state.importHosts.filter(\.canImportXArticle)
@@ -298,7 +424,8 @@ private struct ArticleImportRequestView: View {
             await state.submitImportRequest(
                 hostId: selectedHostId,
                 sourceURL: sourceURL,
-                translationMode: translationMode
+                translationMode: translationMode,
+                candidate: source.candidate
             )
         }
     }
@@ -308,6 +435,39 @@ private struct ArticleImportRequestView: View {
             return host.status.label
         }
         return "不足: \(host.missingImportTags.joined(separator: ", "))"
+    }
+}
+
+private struct SharedXImportCandidateRow: View {
+    let candidate: SharedXImportCandidate
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "square.and.arrow.down")
+                .foregroundStyle(.blue)
+                .frame(width: 24)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(candidate.sourceText ?? "Xで共有した投稿")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                Text(candidate.sourceURL)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 0)
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("取り込み候補、\(candidate.sourceText ?? candidate.sourceURL)")
+        .accessibilityHint("ダブルタップで読み取り設定を開きます")
     }
 }
 
