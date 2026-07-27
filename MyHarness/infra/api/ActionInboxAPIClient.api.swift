@@ -186,6 +186,14 @@ final class ActionInboxAPIClient {
         var data: PushNotificationPreferences
     }
 
+    private struct BlogPostsEnvelope: Decodable {
+        var data: [BlogPost]
+    }
+
+    private struct BlogPostEnvelope: Decodable {
+        var data: BlogPost
+    }
+
     private struct PushDevice: Decodable {
         var id: String
     }
@@ -393,6 +401,19 @@ final class ActionInboxAPIClient {
     func fetchInbox() async throws -> ActionInboxPayload {
         let data = try await request(path: "/api/action-inbox", method: "GET")
         return try decoder.decode(InboxEnvelope.self, from: data).data
+    }
+
+    func fetchBlogPosts() async throws -> [BlogPost] {
+        let data = try await request(path: "/api/blog-posts", method: "GET")
+        return try decoder.decode(BlogPostsEnvelope.self, from: data).data
+    }
+
+    func fetchBlogPost(id: String) async throws -> BlogPost {
+        guard UUID(uuidString: id) != nil else {
+            throw ClientError.invalidResponse
+        }
+        let data = try await request(path: "/api/blog-posts/\(id.lowercased())", method: "GET")
+        return try decoder.decode(BlogPostEnvelope.self, from: data).data
     }
 
     func bootstrapCurrentUser() async throws {

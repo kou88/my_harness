@@ -10,6 +10,7 @@ struct AppRootView: View {
     @State private var settingsState: SettingsState
     @State private var actionInboxState: ActionInboxState
     @State private var productOpsState: ProductOpsState
+    @State private var blogPostState: BlogPostState
     @State private var lastForegroundRefreshAt = Date.distantPast
     @State private var pushRegistrationErrorMessage: String?
 
@@ -32,6 +33,11 @@ struct AppRootView: View {
             apiClient: dependencies.actionInbox.apiClient,
             copyText: dependencies.useCases.copyText,
             projectId: ProductOpsProject.landlordSaaS,
+            configurationErrorMessage: dependencies.actionInbox.configurationErrorMessage
+        ))
+        _blogPostState = State(initialValue: BlogPostState(
+            authSession: dependencies.actionInbox.authSession,
+            apiClient: dependencies.actionInbox.apiClient,
             configurationErrorMessage: dependencies.actionInbox.configurationErrorMessage
         ))
         _pushRegistrationErrorMessage = State(
@@ -76,6 +82,20 @@ struct AppRootView: View {
                 Label("次にやる", systemImage: "sparkles")
             }
             .tag(AppTab.nextActions)
+
+            NavigationStack(
+                path: Binding(
+                    get: { router.articlesPath },
+                    set: { router.articlesPath = $0 }
+                )
+            ) {
+                ArticleListView(state: blogPostState)
+                    .navigationDestination(for: AppRoute.self, destination: routeContent)
+            }
+            .tabItem {
+                Label("記事", systemImage: "doc.richtext")
+            }
+            .tag(AppTab.articles)
         }
         .environment(router)
         .onOpenURL { url in
@@ -107,6 +127,9 @@ struct AppRootView: View {
             lastForegroundRefreshAt = Date()
             Task {
                 await productOpsState.loadRecommendationsIfPossible()
+                if router.selectedTab == .articles {
+                    await blogPostState.loadIfPossible()
+                }
             }
         }
         .onChange(of: actionInboxState.isSignedIn) { _, isSignedIn in
@@ -177,6 +200,8 @@ struct AppRootView: View {
             ActionHistoryView(state: actionInboxState, mode: .history)
         case .completedActions:
             ActionHistoryView(state: actionInboxState, mode: .completed)
+        case .article(let id):
+            ArticleDetailView(id: id, state: blogPostState)
         }
     }
 

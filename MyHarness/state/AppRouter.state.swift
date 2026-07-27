@@ -8,6 +8,7 @@ final class AppRouter {
     var selectedTab: AppTab = .today
     var nextActionsPath: [AppRoute] = []
     var todayPath: [AppRoute] = []
+    var articlesPath: [AppRoute] = []
     var pendingProductOpsDeepLink: ProductOpsDeepLinkDestination?
 
     func push(_ route: AppRoute) {
@@ -18,6 +19,9 @@ final class AppRouter {
         case .today:
             selectedTab = .today
             todayPath.append(route)
+        case .articles:
+            selectedTab = .articles
+            articlesPath.append(route)
         }
     }
 
@@ -74,6 +78,9 @@ final class AppRouter {
             })
         case "monitoring-alert", "monitoring_alert", "monitoring-alerts":
             showProductOpsDetail(nonEmptyId(tail.first).map(ProductOpsDeepLinkDestination.monitoringAlert))
+        case "articles":
+            selectedTab = .articles
+            articlesPath = nonEmptyId(tail.first).map { [.article(id: $0)] } ?? []
         case "development":
             if let id = nonEmptyId(tail.first) {
                 showProductOpsDetail(.mission(id: id, kind: .development))
@@ -168,6 +175,7 @@ enum ProductOpsDeepLinkDestination: Identifiable, Hashable {
 enum AppTab: Hashable {
     case nextActions
     case today
+    case articles
 }
 
 enum AppRoute: Hashable {
@@ -181,11 +189,14 @@ enum AppRoute: Hashable {
     case venturePolicy
     case actionHistory
     case completedActions
+    case article(id: String)
 
     var preferredTab: AppTab {
         switch self {
         case .oneShotTasks:
             return .today
+        case .article:
+            return .articles
         case .actionSuggestionDetail,
              .actionExecution,
              .need,
@@ -207,6 +218,8 @@ enum AppRoute: Hashable {
              .actionExecution(let id),
              .need(let id),
              .codexResult(let id):
+            return id
+        case .article(let id):
             return id
         case .needList,
              .developmentBacklog,

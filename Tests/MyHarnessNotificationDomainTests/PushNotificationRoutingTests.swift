@@ -7,6 +7,7 @@ import Testing
 
     #expect(preferences.allows(.missionUpdate))
     #expect(preferences.allows(.recommendation))
+    #expect(preferences.allows(.article))
     #expect(preferences.allows(.legacy))
 }
 
@@ -19,6 +20,7 @@ import Testing
 
     #expect(!preferences.allows(.missionUpdate))
     #expect(!preferences.allows(.recommendation))
+    #expect(!preferences.allows(.article))
     #expect(!preferences.allows(.legacy))
 }
 
@@ -37,6 +39,23 @@ import Testing
     #expect(PushNotificationRouting.topic(from: ["entity_type": "venture_recommendation_set"]) == .recommendation)
     #expect(PushNotificationRouting.topic(from: ["eventType": "development_mission_failed"]) == .missionUpdate)
     #expect(PushNotificationRouting.topic(from: ["event_type": "venture_recommendations_ready"]) == .recommendation)
+    #expect(PushNotificationRouting.topic(from: ["eventType": "blog_post_import_completed"]) == .article)
+}
+
+@Test func routesImportedBlogPostToArticleDetail() {
+    let byEntity = PushNotificationRouting.deepLinkURL(from: [
+        "entityType": "blog_post",
+        "entityId": "2b6f3a1d-6548-4d9a-80a1-6ddcab63aa90"
+    ])
+    let byRoute = PushNotificationRouting.deepLinkURL(from: [
+        "route": "myharness://articles/2b6f3a1d-6548-4d9a-80a1-6ddcab63aa90"
+    ])
+
+    #expect(
+        byEntity.absoluteString
+            == "myharness://articles/2b6f3a1d-6548-4d9a-80a1-6ddcab63aa90"
+    )
+    #expect(byRoute == byEntity)
 }
 
 @Test func routesMissionToItsDetail() {

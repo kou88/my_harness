@@ -7,6 +7,7 @@ let package = Package(
     products: [
         .library(name: "MyHarnessNotificationDomain", targets: ["MyHarnessNotificationDomain"]),
         .library(name: "MyHarnessProductOpsDomain", targets: ["MyHarnessProductOpsDomain"]),
+        .library(name: "MyHarnessBlogPostDomain", targets: ["MyHarnessBlogPostDomain"]),
     ],
     targets: [
         .target(
@@ -15,6 +16,7 @@ let package = Package(
             exclude: [
                 "ActionSuggestion.domain.swift",
                 "ActionSuggestionWidgetSnapshot.domain.swift",
+                "BlogPost.domain.swift",
                 "DayEntry.domain.swift",
                 "NotificationSchedule.domain.swift",
                 "ProductOps.domain.swift",
@@ -29,6 +31,7 @@ let package = Package(
             path: "MyHarness/domain/model",
             exclude: [
                 "ActionSuggestionWidgetSnapshot.domain.swift",
+                "BlogPost.domain.swift",
                 "DayEntry.domain.swift",
                 "NotificationSchedule.domain.swift",
                 "PushNotificationPreferences.domain.swift",
@@ -41,6 +44,22 @@ let package = Package(
                 "ProductOps.domain.swift",
             ]
         ),
+        .target(
+            name: "MyHarnessBlogPostDomain",
+            path: "MyHarness/domain/model",
+            exclude: [
+                "ActionSuggestion.domain.swift",
+                "ActionSuggestionWidgetSnapshot.domain.swift",
+                "DayEntry.domain.swift",
+                "NotificationSchedule.domain.swift",
+                "ProductOps.domain.swift",
+                "PushNotificationPreferences.domain.swift",
+                "RoutineItem.domain.swift",
+                "WidgetDisplaySettings.domain.swift",
+                "WidgetSnapshot.domain.swift"
+            ],
+            sources: ["BlogPost.domain.swift"]
+        ),
         .testTarget(
             name: "MyHarnessNotificationDomainTests",
             dependencies: ["MyHarnessNotificationDomain"]
@@ -48,6 +67,10 @@ let package = Package(
         .testTarget(
             name: "MyHarnessProductOpsDomainTests",
             dependencies: ["MyHarnessProductOpsDomain"]
+        ),
+        .testTarget(
+            name: "MyHarnessBlogPostDomainTests",
+            dependencies: ["MyHarnessBlogPostDomain"]
         ),
     ]
 )
