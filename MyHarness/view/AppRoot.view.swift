@@ -109,6 +109,7 @@ struct AppRootView: View {
             Task {
                 await actionInboxState.loadIfPossible()
                 await productOpsState.loadRecommendationsIfPossible()
+                await blogPostState.loadIfPossible()
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .actionPushRegistrationFailed)) { notification in
