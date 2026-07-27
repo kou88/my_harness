@@ -6,6 +6,7 @@ struct ArticleListView: View {
     let state: BlogPostState
 
     @State private var query = ""
+    @State private var presentedSheet: ArticleListSheet?
 
     var body: some View {
         Group {
@@ -29,6 +30,25 @@ struct ArticleListView: View {
         }
         .navigationTitle("記事")
         .searchable(text: $query, prompt: "タイトル・著者・本文を検索")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    state.resetImportRequest()
+                    presentedSheet = .importRequest
+                } label: {
+                    Label("記事を追加", systemImage: "plus")
+                }
+                .accessibilityIdentifier("article-import-open")
+            }
+        }
+        .sheet(item: $presentedSheet) { sheet in
+            switch sheet {
+            case .importRequest:
+                NavigationStack {
+                    ArticleImportRequestView(state: state)
+                }
+            }
+        }
         .task {
             await state.load()
         }
@@ -51,7 +71,19 @@ struct ArticleListView: View {
 
     @ViewBuilder
     private var articleList: some View {
-        if filteredPosts.isEmpty {
+        if state.posts.isEmpty && query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            ContentUnavailableView {
+                Label("記事はまだありません", systemImage: "doc.richtext")
+            } description: {
+                Text("Xの記事URLを送ると、読み取り完了後にここへ追加されます。")
+            } actions: {
+                Button("記事を追加") {
+                    state.resetImportRequest()
+                    presentedSheet = .importRequest
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        } else if filteredPosts.isEmpty {
             ContentUnavailableView.search(text: query)
         } else {
             List(filteredPosts) { post in
@@ -65,6 +97,217 @@ struct ArticleListView: View {
                 await state.load()
             }
         }
+    }
+}
+
+private enum ArticleListSheet: String, Identifiable {
+    case importRequest
+
+    var id: String { rawValue }
+}
+
+@MainActor
+private struct ArticleImportRequestView: View {
+    let state: BlogPostState
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var sourceURL = ""
+    @State private var selectedHostId: String?
+    @State private var translationMode: XArticleTranslationMode?
+
+    private var readyHosts: [XArticleImportHost] {
+        state.importHosts.filter(\.canImportXArticle)
+    }
+
+    private var canSubmit: Bool {
+        guard selectedHostId != nil, translationMode != nil else { return false }
+        return (try? XArticleImportRequest.normalizedSourceURL(sourceURL)) != nil
+    }
+
+    var body: some View {
+        Group {
+            if case .submitted(let task) = state.importRequestState {
+                submittedContent(task)
+            } else {
+                requestForm
+            }
+        }
+        .navigationTitle("記事を追加")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("閉じる") {
+                    dismiss()
+                }
+            }
+            if case .submitted = state.importRequestState {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完了") {
+                        dismiss()
+                    }
+                }
+            } else {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button {
+                        submit()
+                    } label: {
+                        if case .submitting = state.importRequestState {
+                            ProgressView()
+                        } else {
+                            Text("依頼")
+                        }
+                    }
+                    .disabled(!canSubmit || isSubmitting)
+                    .accessibilityIdentifier("article-import-submit")
+                }
+            }
+        }
+        .task {
+            if case .idle = state.importHostsState {
+                await state.loadImportHosts()
+            }
+        }
+        .onDisappear {
+            state.resetImportRequest()
+        }
+    }
+
+    private var isSubmitting: Bool {
+        if case .submitting = state.importRequestState { return true }
+        return false
+    }
+
+    private var requestForm: some View {
+        Form {
+            Section("X記事URL") {
+                TextField(
+                    "https://x.com/ユーザー名/status/記事ID",
+                    text: $sourceURL,
+                    axis: .vertical
+                )
+                .keyboardType(.URL)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .lineLimit(2 ... 4)
+                .accessibilityIdentifier("article-import-url")
+
+                if !sourceURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   (try? XArticleImportRequest.normalizedSourceURL(sourceURL)) == nil {
+                    Label(
+                        "Xのstatus URLを入力してください。",
+                        systemImage: "exclamationmark.triangle.fill"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                }
+            }
+
+            Section("実行PC") {
+                switch state.importHostsState {
+                case .idle, .loading:
+                    HStack {
+                        ProgressView()
+                        Text("実行可能なPCを確認しています")
+                            .foregroundStyle(.secondary)
+                    }
+                case .failed(let message):
+                    Text(message)
+                        .foregroundStyle(.red)
+                    Button("再試行") {
+                        Task { await state.loadImportHosts() }
+                    }
+                case .loaded:
+                    if readyHosts.isEmpty {
+                        Label(
+                            "X Agentを実行できるオンラインPCがありません。",
+                            systemImage: "desktopcomputer.trianglebadge.exclamationmark"
+                        )
+                        .foregroundStyle(.secondary)
+                    } else {
+                        Picker("PC", selection: $selectedHostId) {
+                            Text("選択してください")
+                                .tag(nil as String?)
+                            ForEach(readyHosts) { host in
+                                Text(host.displayName)
+                                    .tag(Optional(host.id))
+                            }
+                        }
+                        .accessibilityIdentifier("article-import-host")
+                    }
+
+                    ForEach(state.importHosts.filter { !$0.canImportXArticle }) { host in
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(host.displayName)
+                                .font(.caption)
+                            Text(hostUnavailableReason(host))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+
+            Section("保存内容") {
+                Picker("翻訳", selection: $translationMode) {
+                    Text("選択してください")
+                        .tag(nil as XArticleTranslationMode?)
+                    ForEach(XArticleTranslationMode.allCases) { mode in
+                        Text(mode.label)
+                            .tag(Optional(mode))
+                    }
+                }
+                .accessibilityIdentifier("article-import-translation")
+
+                if translationMode == .japanese {
+                    Text("原文を保存したあと、記事全体の日本語訳も作成します。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else if translationMode == .originalOnly {
+                    Text("Xの記事本文だけを保存します。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if case .failed(let message) = state.importRequestState {
+                Section {
+                    Label(message, systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.red)
+                }
+            }
+        }
+        .disabled(isSubmitting)
+    }
+
+    private func submittedContent(_ task: XArticleImportTask) -> some View {
+        ContentUnavailableView {
+            Label("読み取りを依頼しました", systemImage: "checkmark.circle.fill")
+        } description: {
+            Text("X Agentで記事を収集中です。保存とアップロードが終わると通知が届き、記事タブから読めます。")
+        } actions: {
+            Text("リクエストID: \(task.id)")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .textSelection(.enabled)
+        }
+    }
+
+    private func submit() {
+        guard let selectedHostId, let translationMode else { return }
+        Task {
+            await state.submitImportRequest(
+                hostId: selectedHostId,
+                sourceURL: sourceURL,
+                translationMode: translationMode
+            )
+        }
+    }
+
+    private func hostUnavailableReason(_ host: XArticleImportHost) -> String {
+        if host.status != .online {
+            return host.status.label
+        }
+        return "不足: \(host.missingImportTags.joined(separator: ", "))"
     }
 }
 
