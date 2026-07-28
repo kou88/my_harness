@@ -809,6 +809,7 @@ private struct ZoomableArticleImageViewer: View {
     @State private var committedScale: CGFloat = 1
     @State private var offset: CGSize = .zero
     @State private var committedOffset: CGSize = .zero
+    @State private var isMagnifying = false
 
     var body: some View {
         GeometryReader { proxy in
@@ -829,7 +830,7 @@ private struct ZoomableArticleImageViewer: View {
                             .scaleEffect(scale)
                             .offset(offset)
                             .contentShape(Rectangle())
-                            .gesture(zoomAndPanGesture)
+                            .gesture(zoomAndPanGesture(in: proxy.size))
                             .onTapGesture(count: 2) {
                                 toggleZoom()
                             }
@@ -866,29 +867,58 @@ private struct ZoomableArticleImageViewer: View {
         .statusBarHidden()
     }
 
-    private var zoomAndPanGesture: some Gesture {
+    private func zoomAndPanGesture(in viewportSize: CGSize) -> some Gesture {
         SimultaneousGesture(
             MagnifyGesture()
                 .onChanged { value in
-                    scale = min(max(committedScale * value.magnification, 1), 5)
+                    isMagnifying = true
+                    let nextScale = min(max(committedScale * value.magnification, 1), 5)
+                    let focalPoint = CGPoint(
+                        x: (value.startAnchor.x - 0.5) * viewportSize.width,
+                        y: (value.startAnchor.y - 0.5) * viewportSize.height
+                    )
+
+                    offset = offsetKeepingFocalPoint(
+                        focalPoint,
+                        initialOffset: committedOffset,
+                        initialScale: committedScale,
+                        nextScale: nextScale
+                    )
+                    scale = nextScale
                 }
                 .onEnded { _ in
                     committedScale = scale
+                    committedOffset = offset
+                    isMagnifying = false
                     if scale == 1 {
                         resetPosition()
                     }
                 },
             DragGesture()
                 .onChanged { value in
-                    guard scale > 1 else { return }
+                    guard !isMagnifying, scale > 1 else { return }
                     offset = CGSize(
                         width: committedOffset.width + value.translation.width,
                         height: committedOffset.height + value.translation.height
                     )
                 }
                 .onEnded { _ in
+                    guard !isMagnifying, scale > 1 else { return }
                     committedOffset = offset
                 }
+        )
+    }
+
+    private func offsetKeepingFocalPoint(
+        _ focalPoint: CGPoint,
+        initialOffset: CGSize,
+        initialScale: CGFloat,
+        nextScale: CGFloat
+    ) -> CGSize {
+        let scaleRatio = nextScale / initialScale
+        return CGSize(
+            width: focalPoint.x - scaleRatio * (focalPoint.x - initialOffset.width),
+            height: focalPoint.y - scaleRatio * (focalPoint.y - initialOffset.height)
         )
     }
 
