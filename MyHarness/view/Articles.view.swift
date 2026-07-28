@@ -679,7 +679,10 @@ private struct ArticleReaderView: View {
             }
         }
         .fullScreenCover(item: $presentedImage) { image in
-            ZoomableArticleImageViewer(image: image)
+            ZoomableImageViewer(
+                sourceURL: image.url,
+                accessibilityLabel: image.accessibilityLabel
+            )
         }
     }
 }
@@ -798,151 +801,6 @@ private struct ArticleImagePresentation: Identifiable {
         id = url.absoluteString
         self.url = url
         self.accessibilityLabel = accessibilityLabel
-    }
-}
-
-private struct ZoomableArticleImageViewer: View {
-    let image: ArticleImagePresentation
-
-    @Environment(\.dismiss) private var dismiss
-    @State private var scale: CGFloat = 1
-    @State private var committedScale: CGFloat = 1
-    @State private var offset: CGSize = .zero
-    @State private var committedOffset: CGSize = .zero
-    @State private var isMagnifying = false
-
-    var body: some View {
-        GeometryReader { proxy in
-            ZStack {
-                Color.black
-                    .ignoresSafeArea()
-
-                AsyncImage(url: image.url) { phase in
-                    switch phase {
-                    case .empty:
-                        ProgressView()
-                            .tint(.white)
-                    case .success(let loadedImage):
-                        loadedImage
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: proxy.size.width, height: proxy.size.height)
-                            .scaleEffect(scale)
-                            .offset(offset)
-                            .contentShape(Rectangle())
-                            .gesture(zoomAndPanGesture(in: proxy.size))
-                            .onTapGesture(count: 2) {
-                                toggleZoom()
-                            }
-                    case .failure:
-                        ContentUnavailableView {
-                            Label("画像を読み込めません", systemImage: "photo")
-                        } description: {
-                            Text(image.accessibilityLabel)
-                        }
-                        .foregroundStyle(.white)
-                    @unknown default:
-                        EmptyView()
-                    }
-                }
-                .accessibilityLabel(image.accessibilityLabel)
-            }
-            .overlay(alignment: .topTrailing) {
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.headline.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 48, height: 48)
-                        .background(.black.opacity(0.55), in: Circle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("画像を閉じる")
-                .padding(.top, 12)
-                .padding(.trailing, 16)
-            }
-        }
-        .background(.black)
-        .statusBarHidden()
-    }
-
-    private func zoomAndPanGesture(in viewportSize: CGSize) -> some Gesture {
-        SimultaneousGesture(
-            MagnifyGesture()
-                .onChanged { value in
-                    isMagnifying = true
-                    let nextScale = min(max(committedScale * value.magnification, 1), 5)
-                    let focalPoint = CGPoint(
-                        x: (value.startAnchor.x - 0.5) * viewportSize.width,
-                        y: (value.startAnchor.y - 0.5) * viewportSize.height
-                    )
-
-                    offset = offsetKeepingFocalPoint(
-                        focalPoint,
-                        initialOffset: committedOffset,
-                        initialScale: committedScale,
-                        nextScale: nextScale
-                    )
-                    scale = nextScale
-                }
-                .onEnded { _ in
-                    committedScale = scale
-                    committedOffset = offset
-                    isMagnifying = false
-                    if scale == 1 {
-                        resetPosition()
-                    }
-                },
-            DragGesture()
-                .onChanged { value in
-                    guard !isMagnifying, scale > 1 else { return }
-                    offset = CGSize(
-                        width: committedOffset.width + value.translation.width,
-                        height: committedOffset.height + value.translation.height
-                    )
-                }
-                .onEnded { _ in
-                    guard !isMagnifying, scale > 1 else { return }
-                    committedOffset = offset
-                }
-        )
-    }
-
-    private func offsetKeepingFocalPoint(
-        _ focalPoint: CGPoint,
-        initialOffset: CGSize,
-        initialScale: CGFloat,
-        nextScale: CGFloat
-    ) -> CGSize {
-        let scaleRatio = nextScale / initialScale
-        return CGSize(
-            width: focalPoint.x - scaleRatio * (focalPoint.x - initialOffset.width),
-            height: focalPoint.y - scaleRatio * (focalPoint.y - initialOffset.height)
-        )
-    }
-
-    private func toggleZoom() {
-        if scale > 1 {
-            withAnimation(.snappy) {
-                scale = 1
-                committedScale = 1
-                offset = .zero
-                committedOffset = .zero
-            }
-        } else {
-            withAnimation(.snappy) {
-                scale = 2.5
-                committedScale = 2.5
-            }
-        }
-    }
-
-    private func resetPosition() {
-        withAnimation(.snappy) {
-            offset = .zero
-            committedOffset = .zero
-        }
     }
 }
 
