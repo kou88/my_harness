@@ -559,6 +559,7 @@ private struct ArticleReaderView: View {
 
     @Environment(\.openURL) private var openURL
     @State private var language: ArticleReaderLanguage
+    @State private var presentedImage: ArticleImagePresentation?
 
     init(post: BlogPost) {
         self.post = post
@@ -589,22 +590,32 @@ private struct ArticleReaderView: View {
                 }
 
                 if let coverImageUrl = post.coverImageUrl, let url = URL(string: coverImageUrl) {
-                    AsyncImage(url: url) { phase in
-                        switch phase {
-                        case .empty:
-                            ProgressView()
-                                .frame(maxWidth: .infinity, minHeight: 180)
-                        case .success(let image):
-                            image
-                                .resizable()
-                                .scaledToFit()
-                                .clipShape(RoundedRectangle(cornerRadius: 14))
-                        case .failure:
-                            EmptyView()
-                        @unknown default:
-                            EmptyView()
+                    Button {
+                        presentedImage = ArticleImagePresentation(
+                            url: url,
+                            accessibilityLabel: "\(title)のカバー画像"
+                        )
+                    } label: {
+                        AsyncImage(url: url) { phase in
+                            switch phase {
+                            case .empty:
+                                ProgressView()
+                                    .frame(maxWidth: .infinity, minHeight: 180)
+                            case .success(let image):
+                                image
+                                    .resizable()
+                                    .scaledToFit()
+                                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                            case .failure:
+                                EmptyView()
+                            @unknown default:
+                                EmptyView()
+                            }
                         }
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("\(title)のカバー画像")
+                    .accessibilityHint("ダブルタップで全画面表示します")
                 }
 
                 VStack(alignment: .leading, spacing: 10) {
@@ -628,7 +639,12 @@ private struct ArticleReaderView: View {
 
                 VStack(alignment: .leading, spacing: 18) {
                     ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
-                        ArticleBlockView(block: block)
+                        ArticleBlockView(block: block) { url, label in
+                            presentedImage = ArticleImagePresentation(
+                                url: url,
+                                accessibilityLabel: label
+                            )
+                        }
                     }
                 }
                 .textSelection(.enabled)
@@ -662,11 +678,15 @@ private struct ArticleReaderView: View {
                 }
             }
         }
+        .fullScreenCover(item: $presentedImage) { image in
+            ZoomableArticleImageViewer(image: image)
+        }
     }
 }
 
 private struct ArticleBlockView: View {
     let block: BlogPostBlock
+    let onImageTap: (URL, String) -> Void
 
     var body: some View {
         switch block {
@@ -703,23 +723,30 @@ private struct ArticleBlockView: View {
         case .image(let url, let alt, let caption):
             VStack(alignment: .leading, spacing: 6) {
                 if let imageURL = URL(string: url) {
-                    AsyncImage(url: imageURL) { phase in
-                        switch phase {
-                        case .empty:
-                            ProgressView()
-                                .frame(maxWidth: .infinity, minHeight: 140)
-                        case .success(let image):
-                            image
-                                .resizable()
-                                .scaledToFit()
-                                .clipShape(RoundedRectangle(cornerRadius: 12))
-                        case .failure:
-                            Label(alt.isEmpty ? "画像を読み込めません" : alt, systemImage: "photo")
-                                .foregroundStyle(.secondary)
-                        @unknown default:
-                            EmptyView()
+                    Button {
+                        onImageTap(imageURL, alt.isEmpty ? "記事内の画像" : alt)
+                    } label: {
+                        AsyncImage(url: imageURL) { phase in
+                            switch phase {
+                            case .empty:
+                                ProgressView()
+                                    .frame(maxWidth: .infinity, minHeight: 140)
+                            case .success(let image):
+                                image
+                                    .resizable()
+                                    .scaledToFit()
+                                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                            case .failure:
+                                Label(alt.isEmpty ? "画像を読み込めません" : alt, systemImage: "photo")
+                                    .foregroundStyle(.secondary)
+                            @unknown default:
+                                EmptyView()
+                            }
                         }
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(alt.isEmpty ? "記事内の画像" : alt)
+                    .accessibilityHint("ダブルタップで全画面表示します")
                 }
                 if let caption, !caption.isEmpty {
                     Text(caption)
@@ -758,6 +785,133 @@ private struct ArticleBlockView: View {
                 segment.link = url
             }
             result.append(segment)
+        }
+    }
+}
+
+private struct ArticleImagePresentation: Identifiable {
+    let id: String
+    let url: URL
+    let accessibilityLabel: String
+
+    init(url: URL, accessibilityLabel: String) {
+        id = url.absoluteString
+        self.url = url
+        self.accessibilityLabel = accessibilityLabel
+    }
+}
+
+private struct ZoomableArticleImageViewer: View {
+    let image: ArticleImagePresentation
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var scale: CGFloat = 1
+    @State private var committedScale: CGFloat = 1
+    @State private var offset: CGSize = .zero
+    @State private var committedOffset: CGSize = .zero
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack {
+                Color.black
+                    .ignoresSafeArea()
+
+                AsyncImage(url: image.url) { phase in
+                    switch phase {
+                    case .empty:
+                        ProgressView()
+                            .tint(.white)
+                    case .success(let loadedImage):
+                        loadedImage
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: proxy.size.width, height: proxy.size.height)
+                            .scaleEffect(scale)
+                            .offset(offset)
+                            .contentShape(Rectangle())
+                            .gesture(zoomAndPanGesture)
+                            .onTapGesture(count: 2) {
+                                toggleZoom()
+                            }
+                    case .failure:
+                        ContentUnavailableView {
+                            Label("画像を読み込めません", systemImage: "photo")
+                        } description: {
+                            Text(image.accessibilityLabel)
+                        }
+                        .foregroundStyle(.white)
+                    @unknown default:
+                        EmptyView()
+                    }
+                }
+                .accessibilityLabel(image.accessibilityLabel)
+            }
+            .overlay(alignment: .topTrailing) {
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 48, height: 48)
+                        .background(.black.opacity(0.55), in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("画像を閉じる")
+                .padding(.top, 12)
+                .padding(.trailing, 16)
+            }
+        }
+        .background(.black)
+        .statusBarHidden()
+    }
+
+    private var zoomAndPanGesture: some Gesture {
+        SimultaneousGesture(
+            MagnifyGesture()
+                .onChanged { value in
+                    scale = min(max(committedScale * value.magnification, 1), 5)
+                }
+                .onEnded { _ in
+                    committedScale = scale
+                    if scale == 1 {
+                        resetPosition()
+                    }
+                },
+            DragGesture()
+                .onChanged { value in
+                    guard scale > 1 else { return }
+                    offset = CGSize(
+                        width: committedOffset.width + value.translation.width,
+                        height: committedOffset.height + value.translation.height
+                    )
+                }
+                .onEnded { _ in
+                    committedOffset = offset
+                }
+        )
+    }
+
+    private func toggleZoom() {
+        if scale > 1 {
+            withAnimation(.snappy) {
+                scale = 1
+                committedScale = 1
+                offset = .zero
+                committedOffset = .zero
+            }
+        } else {
+            withAnimation(.snappy) {
+                scale = 2.5
+                committedScale = 2.5
+            }
+        }
+    }
+
+    private func resetPosition() {
+        withAnimation(.snappy) {
+            offset = .zero
+            committedOffset = .zero
         }
     }
 }
