@@ -11,6 +11,7 @@ struct AppRootView: View {
     @State private var actionInboxState: ActionInboxState
     @State private var productOpsState: ProductOpsState
     @State private var blogPostState: BlogPostState
+    @State private var aiChatState: AIChatState
     @State private var lastForegroundRefreshAt = Date.distantPast
     @State private var pushRegistrationErrorMessage: String?
 
@@ -40,6 +41,11 @@ struct AppRootView: View {
             apiClient: dependencies.actionInbox.apiClient,
             configurationErrorMessage: dependencies.actionInbox.configurationErrorMessage,
             importCandidateRepository: dependencies.sharedXImportCandidates
+        ))
+        _aiChatState = State(initialValue: AIChatState(
+            apiClient: dependencies.actionInbox.aiClient,
+            authSession: dependencies.actionInbox.authSession,
+            configurationErrorMessage: dependencies.actionInbox.configurationErrorMessage
         ))
         _pushRegistrationErrorMessage = State(
             initialValue: ActionPushNotificationCoordinator.shared.registrationErrorMessage
@@ -98,6 +104,20 @@ struct AppRootView: View {
             }
             .badge(blogPostState.importCandidates.count)
             .tag(AppTab.articles)
+
+            NavigationStack(
+                path: Binding(
+                    get: { router.aiPath },
+                    set: { router.aiPath = $0 }
+                )
+            ) {
+                AIConversationListView(state: aiChatState)
+                    .navigationDestination(for: AppRoute.self, destination: routeContent)
+            }
+            .tabItem {
+                Label("AI", systemImage: "sparkles")
+            }
+            .tag(AppTab.ai)
         }
         .environment(router)
         .onOpenURL { url in
@@ -112,6 +132,9 @@ struct AppRootView: View {
                 await actionInboxState.loadIfPossible()
                 await productOpsState.loadRecommendationsIfPossible()
                 await blogPostState.loadIfPossible()
+                if router.selectedTab == .ai {
+                    await aiChatState.restoreAfterForeground()
+                }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .actionPushRegistrationFailed)) { notification in
@@ -133,6 +156,9 @@ struct AppRootView: View {
                 await productOpsState.loadRecommendationsIfPossible()
                 if router.selectedTab == .articles {
                     await blogPostState.loadIfPossible()
+                }
+                if router.selectedTab == .ai {
+                    await aiChatState.restoreAfterForeground()
                 }
             }
         }
@@ -207,6 +233,8 @@ struct AppRootView: View {
             ActionHistoryView(state: actionInboxState, mode: .completed)
         case .article(let id):
             ArticleDetailView(id: id, state: blogPostState)
+        case .aiConversation(let id):
+            AIConversationDetailView(id: id, state: aiChatState)
         }
     }
 

@@ -8,6 +8,7 @@ let package = Package(
         .library(name: "MyHarnessNotificationDomain", targets: ["MyHarnessNotificationDomain"]),
         .library(name: "MyHarnessProductOpsDomain", targets: ["MyHarnessProductOpsDomain"]),
         .library(name: "MyHarnessBlogPostDomain", targets: ["MyHarnessBlogPostDomain"]),
+        .library(name: "MyHarnessAIDomain", targets: ["MyHarnessAIDomain"]),
     ],
     targets: [
         .target(
@@ -60,6 +61,10 @@ let package = Package(
             ],
             sources: ["BlogPost.domain.swift"]
         ),
+        .target(
+            name: "MyHarnessAIDomain",
+            path: "MyHarness/domain/ai"
+        ),
         .testTarget(
             name: "MyHarnessNotificationDomainTests",
             dependencies: ["MyHarnessNotificationDomain"]
@@ -71,6 +76,10 @@ let package = Package(
         .testTarget(
             name: "MyHarnessBlogPostDomainTests",
             dependencies: ["MyHarnessBlogPostDomain"]
+        ),
+        .testTarget(
+            name: "MyHarnessAIDomainTests",
+            dependencies: ["MyHarnessAIDomain"]
         ),
     ]
 )
