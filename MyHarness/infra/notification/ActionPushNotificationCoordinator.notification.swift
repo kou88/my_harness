@@ -476,7 +476,7 @@ final class ActionPushNotificationCoordinator {
     func foregroundPresentationOptions(userInfo: [AnyHashable: Any]) -> UNNotificationPresentationOptions {
         let topic = PushNotificationRouting.topic(from: userInfo)
         guard preferences.allows(topic) else { return [] }
-        if topic == .article {
+        if topic == .article || topic == .ai {
             NotificationCenter.default.post(name: .actionInboxShouldReload, object: nil)
         }
         return [.banner, .sound, .badge]

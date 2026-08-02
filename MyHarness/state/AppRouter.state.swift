@@ -9,6 +9,7 @@ final class AppRouter {
     var nextActionsPath: [AppRoute] = []
     var todayPath: [AppRoute] = []
     var articlesPath: [AppRoute] = []
+    var aiPath: [AppRoute] = []
     var pendingProductOpsDeepLink: ProductOpsDeepLinkDestination?
 
     func push(_ route: AppRoute) {
@@ -22,6 +23,9 @@ final class AppRouter {
         case .articles:
             selectedTab = .articles
             articlesPath.append(route)
+        case .ai:
+            selectedTab = .ai
+            aiPath.append(route)
         }
     }
 
@@ -81,6 +85,15 @@ final class AppRouter {
         case "articles":
             selectedTab = .articles
             articlesPath = nonEmptyId(tail.first).map { [.article(id: $0)] } ?? []
+        case "ai":
+            selectedTab = .ai
+            let conversationId: String?
+            if tail.first == "conversations" {
+                conversationId = nonEmptyId(tail.dropFirst().first)
+            } else {
+                conversationId = nonEmptyId(tail.first)
+            }
+            aiPath = conversationId.map { [.aiConversation(id: $0)] } ?? []
         case "development":
             if let id = nonEmptyId(tail.first) {
                 showProductOpsDetail(.mission(id: id, kind: .development))
@@ -176,6 +189,7 @@ enum AppTab: Hashable {
     case nextActions
     case today
     case articles
+    case ai
 }
 
 enum AppRoute: Hashable {
@@ -190,6 +204,7 @@ enum AppRoute: Hashable {
     case actionHistory
     case completedActions
     case article(id: String)
+    case aiConversation(id: String)
 
     var preferredTab: AppTab {
         switch self {
@@ -197,6 +212,8 @@ enum AppRoute: Hashable {
             return .today
         case .article:
             return .articles
+        case .aiConversation:
+            return .ai
         case .actionSuggestionDetail,
              .actionExecution,
              .need,
@@ -220,6 +237,8 @@ enum AppRoute: Hashable {
              .codexResult(let id):
             return id
         case .article(let id):
+            return id
+        case .aiConversation(let id):
             return id
         case .needList,
              .developmentBacklog,

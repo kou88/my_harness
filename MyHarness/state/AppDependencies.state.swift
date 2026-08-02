@@ -151,6 +151,7 @@ struct AppDependencies {
 struct ActionInboxFeatureDependencies {
     let authSession: CognitoAuthSession?
     let apiClient: ActionInboxAPIClient?
+    let aiClient: AIAPIClient?
     let widgetRepository: ActionSuggestionWidgetSnapshotRepository
     let configurationErrorMessage: String?
 
@@ -160,9 +161,11 @@ struct ActionInboxFeatureDependencies {
             let config = try ActionInboxConfig.load()
             let authSession = CognitoAuthSession(config: config)
             let apiClient = ActionInboxAPIClient(config: config, authSession: authSession)
+            let aiClient = AIAPIClient(config: config, authSession: authSession)
             return ActionInboxFeatureDependencies(
                 authSession: authSession,
                 apiClient: apiClient,
+                aiClient: aiClient,
                 widgetRepository: widgetRepository,
                 configurationErrorMessage: nil
             )
@@ -170,6 +173,7 @@ struct ActionInboxFeatureDependencies {
             return ActionInboxFeatureDependencies(
                 authSession: nil,
                 apiClient: nil,
+                aiClient: nil,
                 widgetRepository: widgetRepository,
                 configurationErrorMessage: error.localizedDescription
             )

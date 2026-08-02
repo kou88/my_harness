@@ -8,6 +8,7 @@ import Testing
     #expect(preferences.allows(.missionUpdate))
     #expect(preferences.allows(.recommendation))
     #expect(preferences.allows(.article))
+    #expect(preferences.allows(.ai))
     #expect(preferences.allows(.legacy))
 }
 
@@ -21,6 +22,7 @@ import Testing
     #expect(!preferences.allows(.missionUpdate))
     #expect(!preferences.allows(.recommendation))
     #expect(!preferences.allows(.article))
+    #expect(!preferences.allows(.ai))
     #expect(!preferences.allows(.legacy))
 }
 
@@ -40,6 +42,19 @@ import Testing
     #expect(PushNotificationRouting.topic(from: ["eventType": "development_mission_failed"]) == .missionUpdate)
     #expect(PushNotificationRouting.topic(from: ["event_type": "venture_recommendations_ready"]) == .recommendation)
     #expect(PushNotificationRouting.topic(from: ["eventType": "blog_post_import_completed"]) == .article)
+    #expect(PushNotificationRouting.topic(from: ["eventType": "ai_run_completed"]) == .ai)
+}
+
+@Test func routesAiRunAndApprovalPushesToTheConversation() {
+    let conversationId = "4037e551-2d12-4f17-86f0-8f7e8f20545c"
+    let url = PushNotificationRouting.deepLinkURL(from: [
+        "eventType": "ai_approval_required",
+        "entityType": "ai_approval",
+        "entityId": "28747265-1250-42ad-80d9-0d20c4d53b80",
+        "route": "myharness://ai/conversations/\(conversationId)"
+    ])
+
+    #expect(url.absoluteString == "myharness://ai/conversations/\(conversationId)")
 }
 
 @Test func routesImportedBlogPostToArticleDetail() {

@@ -20,6 +20,8 @@ struct PushNotificationPreferences: Codable, Hashable {
             return recommendationsEnabled
         case .article:
             return true
+        case .ai:
+            return true
         case .legacy:
             return true
         }
@@ -50,6 +52,7 @@ enum PushNotificationTopic: Hashable {
     case missionUpdate
     case recommendation
     case article
+    case ai
     case legacy
 }
 
@@ -78,7 +81,8 @@ enum PushNotificationRouting {
         "monitoring-alert",
         "monitoring_alert",
         "monitoring-alerts",
-        "articles"
+        "articles",
+        "ai"
     ]
 
     static func topic(from userInfo: [AnyHashable: Any]) -> PushNotificationTopic {
@@ -88,6 +92,9 @@ enum PushNotificationRouting {
         }
         if eventType == "blog_post_import_completed" {
             return .article
+        }
+        if eventType?.hasPrefix("ai_") == true {
+            return .ai
         }
         if let eventType,
            eventType == "execution_completed"
@@ -100,6 +107,8 @@ enum PushNotificationRouting {
         switch entityType(from: userInfo) {
         case "blog_post":
             return .article
+        case "ai_approval", "ai_run":
+            return .ai
         case "venture_recommendation_set":
             return .recommendation
         case "execution",
