@@ -183,25 +183,43 @@ final class AIChatState {
         let input = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !input.isEmpty || !uploadedAttachments.isEmpty || !regenerateMessageId.isEmpty else { return }
         isSending = true
+        defer { isSending = false }
         let attachmentIds = uploadedAttachments.map(\.id)
+
+        let accepted: AITurnAccepted
         do {
-            let accepted = try await apiClient.createTurn(
+            accepted = try await apiClient.createTurn(
                 conversationId: conversation.id,
                 input: input,
                 attachmentIds: attachmentIds,
                 branchFromMessageId: branchFromMessageId,
                 regenerateMessageId: regenerateMessageId
             )
-            composerText = ""
-            uploadedAttachments = []
-            liveAssistantText = ""
+        } catch where AIAsyncCancellation.matches(error) {
+            return
+        } catch {
+            errorMessage = error.localizedDescription
+            return
+        }
+
+        composerText = ""
+        uploadedAttachments = []
+        liveAssistantText = ""
+        do {
             try await refreshDetailForAcceptedRun(accepted)
-            startStreaming(runId: accepted.runId, afterSeq: detail?.events.map(\.seq).max() ?? 0)
+            errorMessage = nil
+        } catch where AIAsyncCancellation.matches(error) {
+            guard !Task.isCancelled else { return }
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
         }
-        isSending = false
+
+        let lastAcceptedRunSeq = detail?.events
+            .filter { $0.runId == accepted.runId }
+            .map(\.seq)
+            .max() ?? 0
+        startStreaming(runId: accepted.runId, afterSeq: lastAcceptedRunSeq)
     }
 
     func regenerate(messageId: String) async {

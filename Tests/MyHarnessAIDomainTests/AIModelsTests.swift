@@ -40,6 +40,12 @@ import Testing
     #expect(AIConversationMode.work.label == "作業")
 }
 
+@Test func classifiesOnlyExpectedAsyncCancellationErrors() {
+    #expect(AIAsyncCancellation.matches(CancellationError()))
+    #expect(AIAsyncCancellation.matches(URLError(.cancelled)))
+    #expect(!AIAsyncCancellation.matches(URLError(.notConnectedToInternet)))
+}
+
 @Test func decodesPublishedModelAndMessageContracts() throws {
     let decoder = JSONDecoder()
     decoder.dateDecodingStrategy = .iso8601
