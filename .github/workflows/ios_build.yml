@@ -37,11 +37,16 @@ jobs:
         run: |
           xcodebuild -version
 
+      - name: Install CocoaPods dependencies
+        run: |
+          set -euo pipefail
+          pod install
+
       - name: Build for simulator
         run: |
           set -euo pipefail
           xcodebuild \
-            -project MyHarness.xcodeproj \
+            -workspace MyHarness.xcworkspace \
             -scheme MyHarness \
             -configuration Debug \
             -destination 'generic/platform=iOS Simulator' \

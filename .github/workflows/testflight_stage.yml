@@ -48,6 +48,11 @@ jobs:
         run: |
           xcodebuild -version
 
+      - name: Install CocoaPods dependencies
+        run: |
+          set -euo pipefail
+          pod install
+
       - name: Decode App Store Connect API key
         env:
           ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}
@@ -394,7 +399,7 @@ jobs:
         run: |
           set -euo pipefail
           xcodebuild \
-            -project MyHarness.xcodeproj \
+            -workspace MyHarness.xcworkspace \
             -scheme MyHarness \
             -configuration Release \
             -destination 'generic/platform=iOS' \
