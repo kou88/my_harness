@@ -9,6 +9,7 @@ let package = Package(
         .library(name: "MyHarnessProductOpsDomain", targets: ["MyHarnessProductOpsDomain"]),
         .library(name: "MyHarnessBlogPostDomain", targets: ["MyHarnessBlogPostDomain"]),
         .library(name: "MyHarnessAIDomain", targets: ["MyHarnessAIDomain"]),
+        .library(name: "MyHarnessTelevisionDomain", targets: ["MyHarnessTelevisionDomain"]),
     ],
     targets: [
         .target(
@@ -65,6 +66,10 @@ let package = Package(
             name: "MyHarnessAIDomain",
             path: "MyHarness/domain/ai"
         ),
+        .target(
+            name: "MyHarnessTelevisionDomain",
+            path: "MyHarness/domain/television"
+        ),
         .testTarget(
             name: "MyHarnessNotificationDomainTests",
             dependencies: ["MyHarnessNotificationDomain"]
@@ -80,6 +85,10 @@ let package = Package(
         .testTarget(
             name: "MyHarnessAIDomainTests",
             dependencies: ["MyHarnessAIDomain"]
+        ),
+        .testTarget(
+            name: "MyHarnessTelevisionDomainTests",
+            dependencies: ["MyHarnessTelevisionDomain"]
         ),
     ]
 )

@@ -11,6 +11,7 @@
 		12A0B1C2D3E4F56789012345 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17A0B1C2D3E4F56789012345 /* ShareViewController.swift */; };
 		13A0B1C2D3E4F56789012345 /* BlogPost.domain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AA0B1C2D3E4F56789012345 /* BlogPost.domain.swift */; };
 		14A0B1C2D3E4F56789012345 /* SharedXImportCandidateRepository.repository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BA0B1C2D3E4F56789012345 /* SharedXImportCandidateRepository.repository.swift */; };
+		72F811381A1386A901735843 /* libPods-MyHarness.a in Frameworks */ = {isa = PBXBuildFile; fileRef = CC833407C6326AFB4D55081B /* libPods-MyHarness.a */; };
 		A1B2C3D4E5F6071829345678 /* MyHarnessWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = B2C3D4E5F607182934567890 /* MyHarnessWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		AABBCCDDEEFF001122334455 /* MyHarnessWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBCCDDEEFF00112233445566 /* MyHarnessWidget.swift */; };
 /* End PBXBuildFile section */
@@ -55,8 +56,11 @@
 		19A0B1C2D3E4F56789012345 /* MyHarnessShareExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MyHarnessShareExtension.entitlements; sourceTree = "<group>"; };
 		1AA0B1C2D3E4F56789012345 /* BlogPost.domain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = BlogPost.domain.swift; path = MyHarness/domain/model/BlogPost.domain.swift; sourceTree = SOURCE_ROOT; };
 		1BA0B1C2D3E4F56789012345 /* SharedXImportCandidateRepository.repository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SharedXImportCandidateRepository.repository.swift; path = MyHarness/infra/repository/system/SharedXImportCandidateRepository.repository.swift; sourceTree = SOURCE_ROOT; };
+		1D821CA84D360AF9C13BD95F /* Pods-MyHarness.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-MyHarness.release.xcconfig"; path = "Target Support Files/Pods-MyHarness/Pods-MyHarness.release.xcconfig"; sourceTree = "<group>"; };
+		3EDCA894BE256BE33F8E71B6 /* Pods-MyHarness.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-MyHarness.debug.xcconfig"; path = "Target Support Files/Pods-MyHarness/Pods-MyHarness.debug.xcconfig"; sourceTree = "<group>"; };
 		B2C3D4E5F607182934567890 /* MyHarnessWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MyHarnessWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		BBCCDDEEFF00112233445566 /* MyHarnessWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyHarnessWidget.swift; sourceTree = "<group>"; };
+		CC833407C6326AFB4D55081B /* libPods-MyHarness.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-MyHarness.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 		CCDDEEFF0011223344556677 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		DDEEFF001122334455667788 /* MyHarnessWidget.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MyHarnessWidget.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -64,6 +68,8 @@
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		0A1B2C3D4E5F678901234567 /* MyHarness */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = MyHarness;
 			sourceTree = "<group>";
 		};
@@ -74,6 +80,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				72F811381A1386A901735843 /* libPods-MyHarness.a in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -94,6 +101,18 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		1CA0B1C2D3E4F56789012345 /* MyHarnessShareExtension */ = {
+			isa = PBXGroup;
+			children = (
+				17A0B1C2D3E4F56789012345 /* ShareViewController.swift */,
+				18A0B1C2D3E4F56789012345 /* Info.plist */,
+				19A0B1C2D3E4F56789012345 /* MyHarnessShareExtension.entitlements */,
+				1AA0B1C2D3E4F56789012345 /* BlogPost.domain.swift */,
+				1BA0B1C2D3E4F56789012345 /* SharedXImportCandidateRepository.repository.swift */,
+			);
+			path = MyHarnessShareExtension;
+			sourceTree = "<group>";
+		};
 		2A3B4C5D6E7F890101234567 = {
 			isa = PBXGroup;
 			children = (
@@ -101,6 +120,8 @@
 				C2D3E4F50617283940516273 /* MyHarnessWidget */,
 				1CA0B1C2D3E4F56789012345 /* MyHarnessShareExtension */,
 				3A4B5C6D7E8F901201234567 /* Products */,
+				45186DD48534C935D4BEA40C /* Pods */,
+				9D86852F6DCE12F5EF1EC562 /* Frameworks */,
 			);
 			sourceTree = "<group>";
 		};
@@ -114,6 +135,24 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
+		45186DD48534C935D4BEA40C /* Pods */ = {
+			isa = PBXGroup;
+			children = (
+				3EDCA894BE256BE33F8E71B6 /* Pods-MyHarness.debug.xcconfig */,
+				1D821CA84D360AF9C13BD95F /* Pods-MyHarness.release.xcconfig */,
+			);
+			name = Pods;
+			path = Pods;
+			sourceTree = "<group>";
+		};
+		9D86852F6DCE12F5EF1EC562 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				CC833407C6326AFB4D55081B /* libPods-MyHarness.a */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		C2D3E4F50617283940516273 /* MyHarnessWidget */ = {
 			isa = PBXGroup;
 			children = (
@@ -124,46 +163,9 @@
 			path = MyHarnessWidget;
 			sourceTree = "<group>";
 		};
-		1CA0B1C2D3E4F56789012345 /* MyHarnessShareExtension */ = {
-			isa = PBXGroup;
-			children = (
-				17A0B1C2D3E4F56789012345 /* ShareViewController.swift */,
-				18A0B1C2D3E4F56789012345 /* Info.plist */,
-				19A0B1C2D3E4F56789012345 /* MyHarnessShareExtension.entitlements */,
-				1AA0B1C2D3E4F56789012345 /* BlogPost.domain.swift */,
-				1BA0B1C2D3E4F56789012345 /* SharedXImportCandidateRepository.repository.swift */,
-			);
-			path = MyHarnessShareExtension;
-			sourceTree = "<group>";
-		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		4A5B6C7D8E9F012301234567 /* MyHarness */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 5A6B7C8D9E0F123401234567 /* Build configuration list for PBXNativeTarget "MyHarness" */;
-			buildPhases = (
-				6A7B8C9D0E1F234501234567 /* Sources */,
-				1A2B3C4D5E6F789001234567 /* Frameworks */,
-				7A8B9C0D1E2F345601234567 /* Resources */,
-				D5E6F708192A3B4C5D6E7F80 /* Embed Foundation Extensions */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				F7A8192A3B4C5D6E7F8091A2 /* PBXTargetDependency */,
-				21A0B1C2D3E4F56789012345 /* PBXTargetDependency */,
-			);
-			fileSystemSynchronizedGroups = (
-				0A1B2C3D4E5F678901234567 /* MyHarness */,
-			);
-			name = MyHarness;
-			packageProductDependencies = (
-			);
-			productName = MyHarness;
-			productReference = 0062E0D32F1B4F2A9B6A2C03 /* MyHarness.app */;
-			productType = "com.apple.product-type.application";
-		};
 		1DA0B1C2D3E4F56789012345 /* MyHarnessShareExtension */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 24A0B1C2D3E4F56789012345 /* Build configuration list for PBXNativeTarget "MyHarnessShareExtension" */;
@@ -177,11 +179,34 @@
 			dependencies = (
 			);
 			name = MyHarnessShareExtension;
-			packageProductDependencies = (
-			);
 			productName = MyHarnessShareExtension;
 			productReference = 16A0B1C2D3E4F56789012345 /* MyHarnessShareExtension.appex */;
 			productType = "com.apple.product-type.app-extension";
+		};
+		4A5B6C7D8E9F012301234567 /* MyHarness */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5A6B7C8D9E0F123401234567 /* Build configuration list for PBXNativeTarget "MyHarness" */;
+			buildPhases = (
+				B7B472A1B2C6FECB87C55FF6 /* [CP] Check Pods Manifest.lock */,
+				6A7B8C9D0E1F234501234567 /* Sources */,
+				1A2B3C4D5E6F789001234567 /* Frameworks */,
+				7A8B9C0D1E2F345601234567 /* Resources */,
+				D5E6F708192A3B4C5D6E7F80 /* Embed Foundation Extensions */,
+				6BFAF557A0A4CF1B491869E0 /* [CP] Embed Pods Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				F7A8192A3B4C5D6E7F8091A2 /* PBXTargetDependency */,
+				21A0B1C2D3E4F56789012345 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				0A1B2C3D4E5F678901234567 /* MyHarness */,
+			);
+			name = MyHarness;
+			productName = MyHarness;
+			productReference = 0062E0D32F1B4F2A9B6A2C03 /* MyHarness.app */;
+			productType = "com.apple.product-type.application";
 		};
 		D4E5F6071829345678901234 /* MyHarnessWidget */ = {
 			isa = PBXNativeTarget;
@@ -196,8 +221,6 @@
 			dependencies = (
 			);
 			name = MyHarnessWidget;
-			packageProductDependencies = (
-			);
 			productName = MyHarnessWidget;
 			productReference = B2C3D4E5F607182934567890 /* MyHarnessWidget.appex */;
 			productType = "com.apple.product-type.app-extension";
@@ -212,6 +235,9 @@
 				LastSwiftUpdateCheck = 2640;
 				LastUpgradeCheck = 2640;
 				TargetAttributes = {
+					1DA0B1C2D3E4F56789012345 = {
+						CreatedOnToolsVersion = 26.4.1;
+					};
 					4A5B6C7D8E9F012301234567 = {
 						CreatedOnToolsVersion = 26.4.1;
 						SystemCapabilities = {
@@ -221,9 +247,6 @@
 						};
 					};
 					D4E5F6071829345678901234 = {
-						CreatedOnToolsVersion = 26.4.1;
-					};
-					1DA0B1C2D3E4F56789012345 = {
 						CreatedOnToolsVersion = 26.4.1;
 					};
 				};
@@ -272,6 +295,48 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		6BFAF557A0A4CF1B491869E0 /* [CP] Embed Pods Frameworks */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+				"${PODS_ROOT}/Target Support Files/Pods-MyHarness/Pods-MyHarness-frameworks-${CONFIGURATION}-input-files.xcfilelist",
+			);
+			name = "[CP] Embed Pods Frameworks";
+			outputFileListPaths = (
+				"${PODS_ROOT}/Target Support Files/Pods-MyHarness/Pods-MyHarness-frameworks-${CONFIGURATION}-output-files.xcfilelist",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-MyHarness/Pods-MyHarness-frameworks.sh\"\n";
+			showEnvVarsInLog = 0;
+		};
+		B7B472A1B2C6FECB87C55FF6 /* [CP] Check Pods Manifest.lock */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"${PODS_PODFILE_DIR_PATH}/Podfile.lock",
+				"${PODS_ROOT}/Manifest.lock",
+			);
+			name = "[CP] Check Pods Manifest.lock";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(DERIVED_FILE_DIR)/Pods-MyHarness-checkManifestLockResult.txt",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
+			showEnvVarsInLog = 0;
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		20A0B1C2D3E4F56789012345 /* Sources */ = {
@@ -411,7 +476,7 @@
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -472,7 +537,7 @@
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
@@ -492,11 +557,12 @@
 		};
 		CA0B1C2D3E4F567801234567 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 3EDCA894BE256BE33F8E71B6 /* Pods-MyHarness.debug.xcconfig */;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_ACCENT_COLOR_NAME = AccentColor;
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ACTION_API_BASE_URL = "https://api.kou88.dev";
 				APS_ENVIRONMENT = development;
+				ASSETCATALOG_COMPILER_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = MyHarness/MyHarness.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COGNITO_CLIENT_ID = 3r8q22c8t8li22bpa3524ngj2;
@@ -527,11 +593,12 @@
 		};
 		DA0B1C2D3E4F567801234567 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 1D821CA84D360AF9C13BD95F /* Pods-MyHarness.release.xcconfig */;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_ACCENT_COLOR_NAME = AccentColor;
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ACTION_API_BASE_URL = "https://api.kou88.dev";
 				APS_ENVIRONMENT = production;
+				ASSETCATALOG_COMPILER_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = MyHarness/MyHarness.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COGNITO_CLIENT_ID = 3r8q22c8t8li22bpa3524ngj2;
@@ -632,20 +699,20 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		9A0B1C2D3E4F567801234567 /* Build configuration list for PBXProject "MyHarness" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				AA0B1C2D3E4F567801234567 /* Debug */,
-				BA0B1C2D3E4F567801234567 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
 		5A6B7C8D9E0F123401234567 /* Build configuration list for PBXNativeTarget "MyHarness" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				CA0B1C2D3E4F567801234567 /* Debug */,
 				DA0B1C2D3E4F567801234567 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		9A0B1C2D3E4F567801234567 /* Build configuration list for PBXProject "MyHarness" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AA0B1C2D3E4F567801234567 /* Debug */,
+				BA0B1C2D3E4F567801234567 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
