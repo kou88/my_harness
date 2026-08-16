@@ -118,6 +118,14 @@ struct AppRootView: View {
                 Label("AI", systemImage: "sparkles")
             }
             .tag(AppTab.ai)
+
+            NavigationStack {
+                TelevisionView(serverURL: KonomiTVConfiguration.serverURL)
+            }
+            .tabItem {
+                Label("テレビ", systemImage: "tv")
+            }
+            .tag(AppTab.television)
         }
         .environment(router)
         .onOpenURL { url in
