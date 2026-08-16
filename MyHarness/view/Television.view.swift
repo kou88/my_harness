@@ -1,5 +1,4 @@
 import SwiftUI
-import WebKit
 
 enum KonomiTVConfiguration {
     static var serverURL: URL {
@@ -13,188 +12,340 @@ enum KonomiTVConfiguration {
     }
 }
 
+@MainActor
 struct TelevisionView: View {
-    let serverURL: URL
+    private let endpoints: KonomiTVEndpointBuilder
 
-    @Environment(\.openURL) private var openURL
-    @State private var reloadGeneration = 0
-    @State private var isLoading = true
-    @State private var failureMessage: String?
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var state: TelevisionState
+    @StateObject private var playerController: TelevisionPlayerController
+    @State private var isFullScreen = false
+
+    init(serverURL: URL) {
+        let endpoints = KonomiTVEndpointBuilder(baseURL: serverURL)
+        self.endpoints = endpoints
+        _state = State(initialValue: TelevisionState(client: .live(serverURL: serverURL)))
+        _playerController = StateObject(wrappedValue: TelevisionPlayerController())
+    }
 
     var body: some View {
-        ZStack {
-            KonomiTVWebView(
-                serverURL: serverURL,
-                reloadGeneration: reloadGeneration,
-                isLoading: $isLoading,
-                failureMessage: $failureMessage
-            )
-            .ignoresSafeArea(edges: .bottom)
-
-            if let failureMessage {
-                connectionError(message: failureMessage)
-            }
-        }
-        .overlay(alignment: .top) {
-            if isLoading && failureMessage == nil {
-                ProgressView()
-                    .controlSize(.small)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(.regularMaterial, in: Capsule())
-                    .padding(.top, 8)
-                    .accessibilityLabel("テレビを読み込んでいます")
-            }
+        VStack(spacing: 0) {
+            player
+            channelContent
         }
         .navigationTitle("テレビ")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                Button("再読み込み", systemImage: "arrow.clockwise") {
-                    retry()
-                }
-
-                Button("Safariで開く", systemImage: "safari") {
-                    openURL(serverURL)
-                }
+            ToolbarItem(placement: .topBarTrailing) {
+                qualityPicker
+            }
+        }
+        .task {
+            guard state.channels.isEmpty else { return }
+            await state.loadChannels()
+        }
+        .onChange(of: state.quality) { _, _ in
+            guard let channel = state.selectedChannel else { return }
+            startPlayback(channel)
+        }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase != .active else { return }
+            playerController.stop()
+        }
+        .onDisappear {
+            playerController.stop()
+        }
+        .fullScreenCover(isPresented: $isFullScreen) {
+            if let channel = state.selectedChannel {
+                FullScreenTelevisionPlayer(
+                    channel: channel,
+                    controller: playerController
+                )
             }
         }
     }
 
-    private func connectionError(message: String) -> some View {
-        ContentUnavailableView {
-            Label("テレビに接続できません", systemImage: "tv.slash")
-        } description: {
-            Text(message)
-        } actions: {
-            HStack {
+    private var player: some View {
+        ZStack {
+            Color.black
+
+            if !isFullScreen {
+                TelevisionVideoSurface(controller: playerController)
+            }
+
+            playerStatusOverlay
+
+            if state.selectedChannel != nil {
+                playerControls
+            }
+        }
+        .aspectRatio(16 / 9, contentMode: .fit)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("テレビ映像")
+    }
+
+    @ViewBuilder
+    private var playerStatusOverlay: some View {
+        switch (state.selectedChannel, playerController.playbackState) {
+        case (nil, _):
+            VStack(spacing: 10) {
+                Image(systemName: "tv")
+                    .font(.system(size: 36))
+                Text("チャンネルを選択")
+                    .font(.headline)
+            }
+            .foregroundStyle(.white.opacity(0.84))
+
+        case (_, .opening), (_, .buffering):
+            ProgressView("受信中…")
+                .tint(.white)
+                .foregroundStyle(.white)
+
+        case (_, .failed(let message)):
+            VStack(spacing: 10) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                Text(message)
+                    .font(.footnote)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(3)
                 Button("再試行") {
-                    retry()
+                    playerController.retry()
                 }
                 .buttonStyle(.borderedProminent)
+            }
+            .foregroundStyle(.white)
+            .padding(24)
 
-                Button("Safariで開く") {
-                    openURL(serverURL)
+        case (_, .idle):
+            Button {
+                guard let channel = state.selectedChannel else { return }
+                startPlayback(channel)
+            } label: {
+                Label("再生", systemImage: "play.fill")
+                    .font(.headline)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
+            }
+            .buttonStyle(.borderedProminent)
+
+        case (_, .paused):
+            Button {
+                playerController.togglePlayPause()
+            } label: {
+                Image(systemName: "play.circle.fill")
+                    .font(.system(size: 54))
+                    .foregroundStyle(.white)
+            }
+            .accessibilityLabel("再生")
+
+        case (_, .playing):
+            EmptyView()
+        }
+    }
+
+    private var playerControls: some View {
+        VStack {
+            Spacer()
+            HStack(spacing: 18) {
+                Text(state.selectedChannel?.name ?? "")
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+
+                Spacer()
+
+                Button {
+                    playerController.togglePlayPause()
+                } label: {
+                    Image(systemName: playerController.playbackState == .paused ? "play.fill" : "pause.fill")
                 }
-                .buttonStyle(.bordered)
+                .accessibilityLabel(playerController.playbackState == .paused ? "再生" : "一時停止")
+
+                Button {
+                    playerController.toggleMute()
+                } label: {
+                    Image(systemName: playerController.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                }
+                .accessibilityLabel(playerController.isMuted ? "ミュート解除" : "ミュート")
+
+                Button {
+                    isFullScreen = true
+                } label: {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                }
+                .accessibilityLabel("フルスクリーン")
             }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
+            .background(.linearGradient(
+                colors: [.clear, .black.opacity(0.78)],
+                startPoint: .top,
+                endPoint: .bottom
+            ))
         }
-        .padding(24)
-        .background(.regularMaterial)
     }
 
-    private func retry() {
-        failureMessage = nil
-        isLoading = true
-        reloadGeneration += 1
-    }
-}
-
-private struct KonomiTVWebView: UIViewRepresentable {
-    let serverURL: URL
-    let reloadGeneration: Int
-    @Binding var isLoading: Bool
-    @Binding var failureMessage: String?
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(parent: self)
-    }
-
-    func makeUIView(context: Context) -> WKWebView {
-        let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .default()
-        configuration.allowsInlineMediaPlayback = true
-        configuration.allowsAirPlayForMediaPlayback = true
-        configuration.allowsPictureInPictureMediaPlayback = true
-        configuration.mediaTypesRequiringUserActionForPlayback = []
-
-        let webView = WKWebView(frame: .zero, configuration: configuration)
-        webView.navigationDelegate = context.coordinator
-        webView.uiDelegate = context.coordinator
-        webView.allowsBackForwardNavigationGestures = true
-        webView.scrollView.contentInsetAdjustmentBehavior = .never
-
-        context.coordinator.loadedServerURL = serverURL
-        context.coordinator.handledReloadGeneration = reloadGeneration
-        webView.load(URLRequest(url: serverURL))
-        return webView
-    }
-
-    func updateUIView(_ webView: WKWebView, context: Context) {
-        context.coordinator.parent = self
-
-        if context.coordinator.loadedServerURL != serverURL {
-            context.coordinator.loadedServerURL = serverURL
-            context.coordinator.handledReloadGeneration = reloadGeneration
-            webView.load(URLRequest(url: serverURL))
-            return
-        }
-
-        guard context.coordinator.handledReloadGeneration != reloadGeneration else { return }
-        context.coordinator.handledReloadGeneration = reloadGeneration
-
-        if webView.url == nil {
-            webView.load(URLRequest(url: serverURL))
+    @ViewBuilder
+    private var channelContent: some View {
+        if state.channels.isEmpty {
+            switch state.loadState {
+            case .idle, .loading:
+                ProgressView("チャンネルを取得中…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .failed(let message):
+                ContentUnavailableView {
+                    Label("チャンネルを取得できません", systemImage: "wifi.exclamationmark")
+                } description: {
+                    Text(message)
+                } actions: {
+                    Button("再試行") {
+                        Task { await state.loadChannels() }
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            case .loaded:
+                ContentUnavailableView(
+                    "視聴できるチャンネルがありません",
+                    systemImage: "tv.slash",
+                    description: Text("KonomiTVのチャンネル設定を確認してください。")
+                )
+            }
         } else {
-            webView.reload()
-        }
-    }
+            List {
+                Section("地上波") {
+                    ForEach(state.channels) { channel in
+                        channelRow(channel)
+                    }
+                }
 
-    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
-        var parent: KonomiTVWebView
-        var loadedServerURL: URL?
-        var handledReloadGeneration = 0
-
-        init(parent: KonomiTVWebView) {
-            self.parent = parent
-        }
-
-        func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation?) {
-            parent.isLoading = true
-            parent.failureMessage = nil
-        }
-
-        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
-            parent.isLoading = false
-            parent.failureMessage = nil
-        }
-
-        func webView(
-            _ webView: WKWebView,
-            didFailProvisionalNavigation navigation: WKNavigation?,
-            withError error: any Error
-        ) {
-            report(error)
-        }
-
-        func webView(
-            _ webView: WKWebView,
-            didFail navigation: WKNavigation?,
-            withError error: any Error
-        ) {
-            report(error)
-        }
-
-        func webView(
-            _ webView: WKWebView,
-            createWebViewWith configuration: WKWebViewConfiguration,
-            for navigationAction: WKNavigationAction,
-            windowFeatures: WKWindowFeatures
-        ) -> WKWebView? {
-            if navigationAction.targetFrame == nil {
-                webView.load(navigationAction.request)
+                Section {
+                    Link(
+                        "再生エンジン: MobileVLCKit 3.6.0（LGPL 2.1+）",
+                        destination: URL(string: "https://code.videolan.org/videolan/VLCKit")!
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
             }
-            return nil
-        }
-
-        private func report(_ error: any Error) {
-            let nsError = error as NSError
-            guard nsError.code != NSURLErrorCancelled else { return }
-
-            parent.isLoading = false
-            parent.failureMessage = "同じWi-Fiに接続してから再試行してください。\n\(error.localizedDescription)"
+            .listStyle(.plain)
+            .refreshable {
+                await state.loadChannels()
+            }
         }
     }
+
+    private func channelRow(_ channel: TelevisionChannel) -> some View {
+        Button {
+            state.select(channel)
+            startPlayback(channel)
+        } label: {
+            HStack(alignment: .top, spacing: 12) {
+                channelLogo(channel)
+
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(channel.name)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.primary)
+                        Spacer()
+                        if state.selectedChannel?.id == channel.id {
+                            Label("視聴中", systemImage: "play.fill")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(.tint)
+                        }
+                    }
+
+                    if let program = channel.currentProgram {
+                        TimelineView(.periodic(from: .now, by: 30)) { context in
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(program.title)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.primary)
+                                    .lineLimit(2)
+                                ProgressView(value: program.progress(at: context.date))
+                                    .controlSize(.mini)
+                                Text(programTimeText(program))
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    } else {
+                        Text("番組情報なし")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    if let following = channel.followingProgram {
+                        Text("次: \(following.title)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+            }
+            .padding(.vertical, 4)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(channel.name)、\(channel.currentProgram?.title ?? "番組情報なし")")
+    }
+
+    private func channelLogo(_ channel: TelevisionChannel) -> some View {
+        AsyncImage(url: endpoints.logoURL(for: channel)) { phase in
+            switch phase {
+            case .success(let image):
+                image
+                    .resizable()
+                    .scaledToFit()
+            case .empty:
+                ProgressView()
+                    .controlSize(.mini)
+            case .failure:
+                Text("\(channel.remoteControlID)")
+                    .font(.headline.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            @unknown default:
+                EmptyView()
+            }
+        }
+        .frame(width: 48, height: 36)
+        .padding(4)
+        .background(.white, in: RoundedRectangle(cornerRadius: 7))
+        .overlay {
+            RoundedRectangle(cornerRadius: 7)
+                .stroke(.quaternary, lineWidth: 0.5)
+        }
+    }
+
+    private var qualityPicker: some View {
+        Menu {
+            Picker("画質", selection: $state.quality) {
+                ForEach(TelevisionStreamQuality.allCases) { quality in
+                    Text(quality.label).tag(quality)
+                }
+            }
+        } label: {
+            Label(state.quality.label, systemImage: "slider.horizontal.3")
+        }
+        .accessibilityLabel("画質 \(state.quality.label)")
+    }
+
+    private func startPlayback(_ channel: TelevisionChannel) {
+        playerController.play(url: endpoints.liveStreamURL(for: channel, quality: state.quality))
+    }
+
+    private func programTimeText(_ program: TelevisionProgram) -> String {
+        "\(Self.programTimeFormatter.string(from: program.startTime))–\(Self.programTimeFormatter.string(from: program.endTime))"
+    }
+
+    private static let programTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "ja_JP")
+        formatter.timeZone = TimeZone(identifier: "Asia/Tokyo")
+        formatter.dateFormat = "HH:mm"
+        return formatter
+    }()
 }
 
 #Preview {

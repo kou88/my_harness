@@ -2,6 +2,7 @@
 DerivedData/
 .derived-data/
 .build/
+Pods/
 *.xcuserstate
 *.xcworkspace/xcuserdata/
 *.xcodeproj/xcuserdata/
