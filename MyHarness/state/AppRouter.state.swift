@@ -26,6 +26,8 @@ final class AppRouter {
         case .ai:
             selectedTab = .ai
             aiPath.append(route)
+        case .television:
+            selectedTab = .television
         }
     }
 
@@ -94,6 +96,8 @@ final class AppRouter {
                 conversationId = nonEmptyId(tail.first)
             }
             aiPath = conversationId.map { [.aiConversation(id: $0)] } ?? []
+        case "tv", "television":
+            selectedTab = .television
         case "development":
             if let id = nonEmptyId(tail.first) {
                 showProductOpsDetail(.mission(id: id, kind: .development))
@@ -190,6 +194,7 @@ enum AppTab: Hashable {
     case today
     case articles
     case ai
+    case television
 }
 
 enum AppRoute: Hashable {
