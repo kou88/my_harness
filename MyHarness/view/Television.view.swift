@@ -21,11 +21,18 @@ struct TelevisionView: View {
     @StateObject private var playerController: TelevisionPlayerController
     @State private var isFullScreen = false
 
-    init(serverURL: URL) {
+    init(
+        serverURL: URL,
+        onRestoreUserInterface: @escaping @MainActor () -> Void = {}
+    ) {
         let endpoints = KonomiTVEndpointBuilder(baseURL: serverURL)
+        let client = KonomiTVAPIClient.live(serverURL: serverURL)
         self.endpoints = endpoints
-        _state = State(initialValue: TelevisionState(client: .live(serverURL: serverURL)))
-        _playerController = StateObject(wrappedValue: TelevisionPlayerController())
+        _state = State(initialValue: TelevisionState(client: client))
+        _playerController = StateObject(wrappedValue: TelevisionPlayerController(
+            apiClient: client,
+            onRestoreUserInterface: onRestoreUserInterface
+        ))
     }
 
     var body: some View {
@@ -49,11 +56,10 @@ struct TelevisionView: View {
             startPlayback(channel)
         }
         .onChange(of: scenePhase) { _, phase in
-            guard phase != .active else { return }
-            playerController.stop()
+            playerController.handleScenePhase(phase)
         }
         .onDisappear {
-            playerController.stop()
+            playerController.stopUnlessPictureInPictureIsActive()
         }
         .fullScreenCover(isPresented: $isFullScreen) {
             if let channel = state.selectedChannel {
@@ -168,6 +174,18 @@ struct TelevisionView: View {
                 .accessibilityLabel(playerController.isMuted ? "ミュート解除" : "ミュート")
 
                 Button {
+                    playerController.togglePictureInPicture()
+                } label: {
+                    Image(systemName: playerController.isPictureInPictureActive
+                        ? "pip.exit"
+                        : "pip.enter")
+                }
+                .disabled(!playerController.isPictureInPicturePossible)
+                .accessibilityLabel(playerController.isPictureInPictureActive
+                    ? "ピクチャ・イン・ピクチャを終了"
+                    : "ピクチャ・イン・ピクチャを開始")
+
+                Button {
                     isFullScreen = true
                 } label: {
                     Image(systemName: "arrow.up.left.and.arrow.down.right")
@@ -219,10 +237,7 @@ struct TelevisionView: View {
                 }
 
                 Section {
-                    Link(
-                        "再生エンジン: MobileVLCKit 3.6.0（LGPL 2.1+）",
-                        destination: URL(string: "https://code.videolan.org/videolan/VLCKit")!
-                    )
+                    Text("再生エンジン: AVPlayer / LL-HLS")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 }
@@ -331,7 +346,7 @@ struct TelevisionView: View {
     }
 
     private func startPlayback(_ channel: TelevisionChannel) {
-        playerController.play(url: endpoints.liveStreamURL(for: channel, quality: state.quality))
+        playerController.play(channel: channel, quality: state.quality)
     }
 
     private func programTimeText(_ program: TelevisionProgram) -> String {

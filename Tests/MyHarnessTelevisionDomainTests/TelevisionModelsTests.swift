@@ -92,9 +92,26 @@ final class TelevisionModelsTests: XCTestCase {
             endpoints.channelsURL().absoluteString,
             "https://192-168-11-54.local.konomi.tv:7000/api/channels"
         )
+        let clientID = "2ca638d9-7e67-4386-9f7f-3ceec183b595"
         XCTAssertEqual(
-            endpoints.liveStreamURL(for: channel, quality: .high).absoluteString,
-            "https://192-168-11-54.local.konomi.tv:7000/api/streams/live/gr011/720p/mpegts"
+            endpoints.liveStreamConnectionURL(for: channel, quality: .high).absoluteString,
+            "https://192-168-11-54.local.konomi.tv:7000/api/streams/live/gr011/720p/ll-hls"
+        )
+        XCTAssertEqual(
+            endpoints.liveStreamPlaylistURL(
+                for: channel,
+                quality: .high,
+                clientID: clientID
+            ).absoluteString,
+            "https://192-168-11-54.local.konomi.tv:7000/api/streams/live/gr011/720p/ll-hls/2ca638d9-7e67-4386-9f7f-3ceec183b595/primary-audio/playlist.m3u8"
+        )
+        XCTAssertEqual(
+            endpoints.liveStreamDisconnectURL(
+                for: channel,
+                quality: .high,
+                clientID: clientID
+            ).absoluteString,
+            "https://192-168-11-54.local.konomi.tv:7000/api/streams/live/gr011/720p/ll-hls/2ca638d9-7e67-4386-9f7f-3ceec183b595"
         )
         XCTAssertEqual(
             endpoints.logoURL(for: channel).absoluteString,

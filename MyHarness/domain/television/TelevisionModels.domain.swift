@@ -79,6 +79,20 @@ struct TelevisionChannelGroups: Decodable, Equatable, Sendable {
     }
 }
 
+struct TelevisionLiveStreamSession: Equatable, Sendable {
+    let clientID: String
+    let playlistURL: URL
+    let disconnectURL: URL
+}
+
+struct TelevisionLiveStreamClientResponse: Decodable, Equatable, Sendable {
+    let clientID: String
+
+    enum CodingKeys: String, CodingKey {
+        case clientID = "client_id"
+    }
+}
+
 struct KonomiTVEndpointBuilder: Sendable {
     let baseURL: URL
 
@@ -93,7 +107,7 @@ struct KonomiTVEndpointBuilder: Sendable {
             .appendingPathComponent("logo")
     }
 
-    func liveStreamURL(
+    func liveStreamConnectionURL(
         for channel: TelevisionChannel,
         quality: TelevisionStreamQuality
     ) -> URL {
@@ -101,7 +115,27 @@ struct KonomiTVEndpointBuilder: Sendable {
             .appendingPathComponent("api/streams/live")
             .appendingPathComponent(channel.displayChannelID)
             .appendingPathComponent(quality.rawValue)
-            .appendingPathComponent("mpegts")
+            .appendingPathComponent("ll-hls")
+    }
+
+    func liveStreamPlaylistURL(
+        for channel: TelevisionChannel,
+        quality: TelevisionStreamQuality,
+        clientID: String
+    ) -> URL {
+        liveStreamConnectionURL(for: channel, quality: quality)
+            .appendingPathComponent(clientID)
+            .appendingPathComponent("primary-audio")
+            .appendingPathComponent("playlist.m3u8")
+    }
+
+    func liveStreamDisconnectURL(
+        for channel: TelevisionChannel,
+        quality: TelevisionStreamQuality,
+        clientID: String
+    ) -> URL {
+        liveStreamConnectionURL(for: channel, quality: quality)
+            .appendingPathComponent(clientID)
     }
 }
 

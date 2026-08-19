@@ -120,7 +120,12 @@ struct AppRootView: View {
             .tag(AppTab.ai)
 
             NavigationStack {
-                TelevisionView(serverURL: KonomiTVConfiguration.serverURL)
+                TelevisionView(
+                    serverURL: KonomiTVConfiguration.serverURL,
+                    onRestoreUserInterface: {
+                        router.selectedTab = .television
+                    }
+                )
             }
             .tabItem {
                 Label("テレビ", systemImage: "tv")
