@@ -35,6 +35,7 @@ extension KonomiTVAPIClient {
     @MainActor
     static func automatic(
         localServerURL: URL,
+        expectedGatewayBaseURL: URL,
         remoteAccess: TelevisionRemoteAccessConfiguration
     ) -> KonomiTVAPIClient {
         let localConfiguration = URLSessionConfiguration.ephemeral
@@ -50,8 +51,13 @@ extension KonomiTVAPIClient {
                 serverURL: localServerURL,
                 session: URLSession(configuration: localConfiguration)
             ),
+            expectedGatewayBaseURL: expectedGatewayBaseURL,
             remoteAccess: remoteAccess,
-            session: URLSession(configuration: remoteConfiguration)
+            session: URLSession(
+                configuration: remoteConfiguration,
+                delegate: TelevisionAuthenticatedRequestSessionDelegate(),
+                delegateQueue: nil
+            )
         )
 
         return KonomiTVAPIClient(
@@ -85,6 +91,7 @@ private actor TelevisionConnectionCoordinator {
     }
 
     private let localClient: KonomiTVAPIClient
+    private let expectedGatewayBaseURL: URL
     private let remoteAccess: TelevisionRemoteAccessConfiguration
     private let session: URLSession
     private var browsingSession: ActiveGatewaySession?
@@ -93,10 +100,12 @@ private actor TelevisionConnectionCoordinator {
 
     init(
         localClient: KonomiTVAPIClient,
+        expectedGatewayBaseURL: URL,
         remoteAccess: TelevisionRemoteAccessConfiguration,
         session: URLSession
     ) {
         self.localClient = localClient
+        self.expectedGatewayBaseURL = expectedGatewayBaseURL
         self.remoteAccess = remoteAccess
         self.session = session
     }
@@ -260,7 +269,10 @@ private actor TelevisionConnectionCoordinator {
             TelevisionGatewayBootstrapEnvelope.self,
             from: bootstrapData
         ).data
-        try TelevisionRemoteEndpointValidator.validateBootstrap(bootstrap)
+        try TelevisionRemoteEndpointValidator.validateBootstrap(
+            bootstrap,
+            expectedGatewayBaseURL: expectedGatewayBaseURL
+        )
 
         var createRequest = URLRequest(
             url: TelevisionRemoteEndpointBuilder.createSessionURL(
@@ -319,9 +331,9 @@ private actor TelevisionConnectionCoordinator {
                 guard let httpResponse = response as? HTTPURLResponse else {
                     throw TelevisionRemoteAPIError.invalidResponse
                 }
-                if httpResponse.statusCode == 204
-                    || httpResponse.statusCode == 404
-                    || httpResponse.statusCode == 410 {
+                if TelevisionGatewaySessionDeletionPolicy.isTerminalSuccess(
+                    statusCode: httpResponse.statusCode
+                ) {
                     return
                 }
                 let error = TelevisionRemoteAPIError.sessionReleaseFailed(httpResponse.statusCode)

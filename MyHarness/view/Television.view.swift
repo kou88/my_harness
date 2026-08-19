@@ -11,6 +11,21 @@ enum KonomiTVConfiguration {
         }
         return url
     }
+
+    static var expectedGatewayBaseURL: URL {
+        guard let rawValue = Bundle.main.object(forInfoDictionaryKey: "TelevisionGatewayBaseURL") as? String,
+              let url = URL(string: rawValue),
+              url.scheme == "https",
+              url.host != nil,
+              url.user == nil,
+              url.password == nil,
+              url.query == nil,
+              url.fragment == nil,
+              url.path.isEmpty || url.path == "/" else {
+            fatalError("MyHarnessInfo.plist の TelevisionGatewayBaseURL に有効な HTTPS origin が必要です。")
+        }
+        return url
+    }
 }
 
 @MainActor

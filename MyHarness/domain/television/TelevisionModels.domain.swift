@@ -244,10 +244,16 @@ enum TelevisionRemoteEndpointValidator {
 
     static func validateBootstrap(
         _ bootstrap: TelevisionGatewayBootstrap,
+        expectedGatewayBaseURL: URL,
         now: Date = Date()
     ) throws {
-        guard isSafeHTTPSBaseURL(bootstrap.gatewayBaseURL),
+        guard isSafeHTTPSBaseURL(expectedGatewayBaseURL),
+              expectedGatewayBaseURL.path.isEmpty || expectedGatewayBaseURL.path == "/",
+              isSafeHTTPSBaseURL(bootstrap.gatewayBaseURL),
               bootstrap.gatewayBaseURL.path.isEmpty || bootstrap.gatewayBaseURL.path == "/" else {
+            throw TelevisionRemoteEndpointValidationError.invalidGatewayURL
+        }
+        guard origin(of: bootstrap.gatewayBaseURL) == origin(of: expectedGatewayBaseURL) else {
             throw TelevisionRemoteEndpointValidationError.invalidGatewayURL
         }
         guard bootstrap.expiresAt > now, !bootstrap.ticket.isEmpty else {
@@ -309,6 +315,15 @@ enum TelevisionRemoteEndpointValidator {
         components.port ?? 443
     }
 
+    private static func origin(of url: URL) -> String? {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let scheme = components.scheme?.lowercased(),
+              let host = components.host?.lowercased() else {
+            return nil
+        }
+        return "\(scheme)://\(host):\(effectivePort(components))"
+    }
+
     private static func isUUIDv4(_ value: String) -> Bool {
         guard UUID(uuidString: value) != nil, value.count == 36 else { return false }
         let versionIndex = value.index(value.startIndex, offsetBy: 14)
@@ -322,6 +337,27 @@ enum TelevisionRemoteEndpointValidator {
             && value.unicodeScalars.allSatisfy {
                 CharacterSet.alphanumerics.contains($0) || $0 == "-" || $0 == "_"
             }
+    }
+}
+
+final class TelevisionAuthenticatedRequestSessionDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping @Sendable (URLRequest?) -> Void
+    ) {
+        completionHandler(nil)
+    }
+}
+
+enum TelevisionGatewaySessionDeletionPolicy {
+    static func isTerminalSuccess(statusCode: Int) -> Bool {
+        statusCode == 204
+            || statusCode == 401
+            || statusCode == 404
+            || statusCode == 410
     }
 }
 
