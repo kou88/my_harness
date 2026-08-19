@@ -28,6 +28,8 @@ final class TelevisionPlayerController: NSObject, ObservableObject {
     private let player = AVPlayer()
     private var currentRequest: PlaybackRequest?
     private var currentSession: TelevisionLiveStreamSession?
+    private var playbackTask: Task<Void, Never>?
+    private var sessionsPendingRelease: [TelevisionLiveStreamSession] = []
     private var playbackGeneration = UUID()
     private var itemStatusObservation: NSKeyValueObservation?
     private var timeControlObservation: NSKeyValueObservation?
@@ -83,11 +85,23 @@ final class TelevisionPlayerController: NSObject, ObservableObject {
         resetPlayerItem()
         playbackState = .opening
 
-        Task { [weak self] in
+        let precedingTask = playbackTask
+        playbackTask = Task { [weak self] in
             guard let self else { return }
+            await precedingTask?.value
 
             if let previousSession {
-                try? await apiClient.stopLiveStream(previousSession)
+                sessionsPendingRelease.append(previousSession)
+            }
+
+            do {
+                try await releasePendingSessions()
+            } catch {
+                guard playbackGeneration == generation else { return }
+                playbackState = .failed(
+                    "前のチャンネルを解放できませんでした。\n\(error.localizedDescription)"
+                )
+                return
             }
 
             guard playbackGeneration == generation else { return }
@@ -95,7 +109,8 @@ final class TelevisionPlayerController: NSObject, ObservableObject {
             do {
                 let session = try await apiClient.startLiveStream(channel, quality)
                 guard playbackGeneration == generation else {
-                    try? await apiClient.stopLiveStream(session)
+                    sessionsPendingRelease.append(session)
+                    try? await releasePendingSessions()
                     return
                 }
 
@@ -184,10 +199,22 @@ final class TelevisionPlayerController: NSObject, ObservableObject {
         resetPlayerItem()
         playbackState = .idle
 
-        if let session {
-            Task { [apiClient] in
-                try? await apiClient.stopLiveStream(session)
+        let precedingTask = playbackTask
+        playbackTask = Task { [weak self] in
+            guard let self else { return }
+            await precedingTask?.value
+            if let session {
+                sessionsPendingRelease.append(session)
             }
+            try? await releasePendingSessions()
+            await apiClient.release()
+        }
+    }
+
+    private func releasePendingSessions() async throws {
+        while let session = sessionsPendingRelease.first {
+            try await apiClient.stopLiveStream(session)
+            sessionsPendingRelease.removeFirst()
         }
     }
 

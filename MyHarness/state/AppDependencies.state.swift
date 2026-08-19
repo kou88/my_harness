@@ -152,6 +152,7 @@ struct ActionInboxFeatureDependencies {
     let authSession: CognitoAuthSession?
     let apiClient: ActionInboxAPIClient?
     let aiClient: AIAPIClient?
+    let televisionRemoteAccess: TelevisionRemoteAccessConfiguration
     let widgetRepository: ActionSuggestionWidgetSnapshotRepository
     let configurationErrorMessage: String?
 
@@ -166,6 +167,10 @@ struct ActionInboxFeatureDependencies {
                 authSession: authSession,
                 apiClient: apiClient,
                 aiClient: aiClient,
+                televisionRemoteAccess: .available(
+                    apiBaseURL: config.apiBaseURL,
+                    authSession: authSession
+                ),
                 widgetRepository: widgetRepository,
                 configurationErrorMessage: nil
             )
@@ -174,6 +179,7 @@ struct ActionInboxFeatureDependencies {
                 authSession: nil,
                 apiClient: nil,
                 aiClient: nil,
+                televisionRemoteAccess: .unavailable(message: error.localizedDescription),
                 widgetRepository: widgetRepository,
                 configurationErrorMessage: error.localizedDescription
             )

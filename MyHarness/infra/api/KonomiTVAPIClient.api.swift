@@ -2,11 +2,14 @@ import Foundation
 
 struct KonomiTVAPIClient: Sendable {
     var fetchChannels: @Sendable () async throws -> TelevisionChannelGroups
+    var fetchChannelLogo: @Sendable (_ channel: TelevisionChannel) async throws -> Data
     var startLiveStream: @Sendable (
         _ channel: TelevisionChannel,
         _ quality: TelevisionStreamQuality
     ) async throws -> TelevisionLiveStreamSession
     var stopLiveStream: @Sendable (_ session: TelevisionLiveStreamSession) async throws -> Void
+    var connectionKind: @Sendable () async -> TelevisionConnectionKind?
+    var release: @Sendable () async -> Void
 }
 
 extension KonomiTVAPIClient {
@@ -23,6 +26,16 @@ extension KonomiTVAPIClient {
                     throw KonomiTVAPIError.unexpectedStatus(httpResponse.statusCode)
                 }
                 return try KonomiTVJSONDecoder.make().decode(TelevisionChannelGroups.self, from: data)
+            },
+            fetchChannelLogo: { channel in
+                let (data, response) = try await session.data(from: endpoints.logoURL(for: channel))
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    throw KonomiTVAPIError.invalidResponse
+                }
+                guard httpResponse.statusCode == 200 else {
+                    throw KonomiTVAPIError.unexpectedStatus(httpResponse.statusCode)
+                }
+                return data
             },
             startLiveStream: { channel, quality in
                 var request = URLRequest(url: endpoints.liveStreamConnectionURL(for: channel, quality: quality))
@@ -49,7 +62,8 @@ extension KonomiTVAPIClient {
                         for: channel,
                         quality: quality,
                         clientID: client.clientID
-                    )
+                    ),
+                    transport: .localNetwork
                 )
             },
             stopLiveStream: { liveStreamSession in
@@ -62,7 +76,9 @@ extension KonomiTVAPIClient {
                 guard httpResponse.statusCode == 204 || httpResponse.statusCode == 422 else {
                     throw KonomiTVAPIError.unexpectedStatus(httpResponse.statusCode)
                 }
-            }
+            },
+            connectionKind: { .localNetwork },
+            release: {}
         )
     }
 }

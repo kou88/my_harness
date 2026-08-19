@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 enum KonomiTVConfiguration {
     static var serverURL: URL {
@@ -14,7 +15,7 @@ enum KonomiTVConfiguration {
 
 @MainActor
 struct TelevisionView: View {
-    private let endpoints: KonomiTVEndpointBuilder
+    private let client: KonomiTVAPIClient
 
     @Environment(\.scenePhase) private var scenePhase
     @State private var state: TelevisionState
@@ -22,15 +23,13 @@ struct TelevisionView: View {
     @State private var isFullScreen = false
 
     init(
-        serverURL: URL,
+        apiClient: KonomiTVAPIClient,
         onRestoreUserInterface: @escaping @MainActor () -> Void = {}
     ) {
-        let endpoints = KonomiTVEndpointBuilder(baseURL: serverURL)
-        let client = KonomiTVAPIClient.live(serverURL: serverURL)
-        self.endpoints = endpoints
-        _state = State(initialValue: TelevisionState(client: client))
+        self.client = apiClient
+        _state = State(initialValue: TelevisionState(client: apiClient))
         _playerController = StateObject(wrappedValue: TelevisionPlayerController(
-            apiClient: client,
+            apiClient: apiClient,
             onRestoreUserInterface: onRestoreUserInterface
         ))
     }
@@ -237,7 +236,15 @@ struct TelevisionView: View {
                 }
 
                 Section {
-                    Text("再生エンジン: AVPlayer / LL-HLS")
+                    VStack(alignment: .leading, spacing: 4) {
+                        if let connectionKind = state.connectionKind {
+                            Label(
+                                "接続: \(connectionKind.label)（LAN優先で自動選択）",
+                                systemImage: connectionKind == .localNetwork ? "wifi" : "network"
+                            )
+                        }
+                        Text("再生エンジン: AVPlayer / LL-HLS")
+                    }
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 }
@@ -306,23 +313,11 @@ struct TelevisionView: View {
     }
 
     private func channelLogo(_ channel: TelevisionChannel) -> some View {
-        AsyncImage(url: endpoints.logoURL(for: channel)) { phase in
-            switch phase {
-            case .success(let image):
-                image
-                    .resizable()
-                    .scaledToFit()
-            case .empty:
-                ProgressView()
-                    .controlSize(.mini)
-            case .failure:
-                Text("\(channel.remoteControlID)")
-                    .font(.headline.monospacedDigit())
-                    .foregroundStyle(.secondary)
-            @unknown default:
-                EmptyView()
-            }
-        }
+        TelevisionChannelLogo(
+            channel: channel,
+            connectionKind: state.connectionKind,
+            apiClient: client
+        )
         .frame(width: 48, height: 36)
         .padding(4)
         .background(.white, in: RoundedRectangle(cornerRadius: 7))
@@ -365,6 +360,51 @@ struct TelevisionView: View {
 
 #Preview {
     NavigationStack {
-        TelevisionView(serverURL: URL(string: "https://192-168-11-54.local.konomi.tv:7000/")!)
+        TelevisionView(apiClient: .live(
+            serverURL: URL(string: "https://192-168-11-54.local.konomi.tv:7000/")!
+        ))
+    }
+}
+
+private struct TelevisionChannelLogo: View {
+    let channel: TelevisionChannel
+    let connectionKind: TelevisionConnectionKind?
+    let apiClient: KonomiTVAPIClient
+
+    @State private var image: UIImage?
+    @State private var isLoading = true
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+            } else if isLoading {
+                ProgressView()
+                    .controlSize(.mini)
+            } else {
+                channelNumber
+            }
+        }
+        .task(id: "\(channel.id)-\(connectionKind?.label ?? "未接続")") {
+            isLoading = true
+            defer { isLoading = false }
+            do {
+                let data = try await apiClient.fetchChannelLogo(channel)
+                guard !Task.isCancelled else { return }
+                image = UIImage(data: data)
+            } catch is CancellationError {
+                return
+            } catch {
+                image = nil
+            }
+        }
+    }
+
+    private var channelNumber: some View {
+        Text("\(channel.remoteControlID)")
+            .font(.headline.monospacedDigit())
+            .foregroundStyle(.secondary)
     }
 }

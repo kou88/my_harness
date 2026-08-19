@@ -118,4 +118,97 @@ final class TelevisionModelsTests: XCTestCase {
             "https://192-168-11-54.local.konomi.tv:7000/api/channels/NID32736-SID1024/logo"
         )
     }
+
+    func testDecodesAndValidatesRemoteGatewayContract() throws {
+        let json = """
+        {
+          "data": {
+            "ticket": "signed-bootstrap-ticket",
+            "gatewayBaseURL": "https://tv.kou88.dev/",
+            "expiresAt": "2026-08-20T12:01:00.000Z"
+          }
+        }
+        """
+        let envelope = try KonomiTVJSONDecoder.make().decode(
+            TelevisionGatewayBootstrapEnvelope.self,
+            from: Data(json.utf8)
+        )
+        let now = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-08-20T12:00:00Z"))
+
+        XCTAssertNoThrow(
+            try TelevisionRemoteEndpointValidator.validateBootstrap(envelope.data, now: now)
+        )
+
+        let gatewaySession = TelevisionGatewaySessionResponse(
+            sessionID: "2ca638d9-7e67-4386-9f7f-3ceec183b595",
+            sessionToken: String(repeating: "a", count: 43),
+            playbackBaseURL: try XCTUnwrap(URL(
+                string: "https://tv.kou88.dev/v1/playback/\(String(repeating: "b", count: 43))/"
+            )),
+            expiresAt: now.addingTimeInterval(3_600)
+        )
+        XCTAssertNoThrow(try TelevisionRemoteEndpointValidator.validateSession(
+            gatewaySession,
+            gatewayBaseURL: envelope.data.gatewayBaseURL,
+            now: now
+        ))
+    }
+
+    func testRejectsGatewayPlaybackURLOnAnotherOrigin() throws {
+        let now = Date(timeIntervalSince1970: 2_000)
+        let response = TelevisionGatewaySessionResponse(
+            sessionID: "2ca638d9-7e67-4386-9f7f-3ceec183b595",
+            sessionToken: String(repeating: "a", count: 43),
+            playbackBaseURL: try XCTUnwrap(URL(
+                string: "https://attacker.example/v1/playback/\(String(repeating: "b", count: 43))/"
+            )),
+            expiresAt: now.addingTimeInterval(60)
+        )
+
+        XCTAssertThrowsError(try TelevisionRemoteEndpointValidator.validateSession(
+            response,
+            gatewayBaseURL: try XCTUnwrap(URL(string: "https://tv.kou88.dev/")),
+            now: now
+        )) { error in
+            XCTAssertEqual(
+                error as? TelevisionRemoteEndpointValidationError,
+                .invalidPlaybackURL
+            )
+        }
+    }
+
+    func testBuildsOnlyFixedRemoteEndpoints() throws {
+        let apiBaseURL = try XCTUnwrap(URL(string: "https://api.kou88.dev/"))
+        let gatewayBaseURL = try XCTUnwrap(URL(string: "https://tv.kou88.dev/"))
+        let endpoints = TelevisionRemoteEndpointBuilder(apiBaseURL: apiBaseURL)
+
+        XCTAssertEqual(
+            endpoints.bootstrapURL().absoluteString,
+            "https://api.kou88.dev/api/tv/bootstrap"
+        )
+        XCTAssertEqual(
+            TelevisionRemoteEndpointBuilder.createSessionURL(
+                gatewayBaseURL: gatewayBaseURL
+            ).absoluteString,
+            "https://tv.kou88.dev/v1/sessions"
+        )
+        XCTAssertEqual(
+            TelevisionRemoteEndpointBuilder.deleteSessionURL(
+                gatewayBaseURL: gatewayBaseURL,
+                sessionID: "2ca638d9-7e67-4386-9f7f-3ceec183b595"
+            ).absoluteString,
+            "https://tv.kou88.dev/v1/sessions/2ca638d9-7e67-4386-9f7f-3ceec183b595"
+        )
+    }
+
+    func testRejectsInsecureRemoteAPIBaseURL() throws {
+        let url = try XCTUnwrap(URL(string: "http://api.kou88.dev/"))
+
+        XCTAssertThrowsError(try TelevisionRemoteEndpointValidator.validateAPIBaseURL(url)) { error in
+            XCTAssertEqual(
+                error as? TelevisionRemoteEndpointValidationError,
+                .invalidAPIURL
+            )
+        }
+    }
 }
