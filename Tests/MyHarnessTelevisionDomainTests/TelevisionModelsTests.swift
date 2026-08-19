@@ -136,7 +136,11 @@ final class TelevisionModelsTests: XCTestCase {
         let now = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-08-20T12:00:00Z"))
 
         XCTAssertNoThrow(
-            try TelevisionRemoteEndpointValidator.validateBootstrap(envelope.data, now: now)
+            try TelevisionRemoteEndpointValidator.validateBootstrap(
+                envelope.data,
+                expectedGatewayBaseURL: try XCTUnwrap(URL(string: "https://tv.kou88.dev")),
+                now: now
+            )
         )
 
         let gatewaySession = TelevisionGatewaySessionResponse(
@@ -209,6 +213,79 @@ final class TelevisionModelsTests: XCTestCase {
                 error as? TelevisionRemoteEndpointValidationError,
                 .invalidAPIURL
             )
+        }
+    }
+
+    func testRejectsBootstrapGatewayOutsidePinnedOrigin() throws {
+        let now = Date(timeIntervalSince1970: 2_000)
+        let bootstrap = TelevisionGatewayBootstrap(
+            ticket: "signed-bootstrap-ticket",
+            gatewayBaseURL: try XCTUnwrap(URL(string: "https://attacker.example/")),
+            expiresAt: now.addingTimeInterval(60)
+        )
+
+        XCTAssertThrowsError(try TelevisionRemoteEndpointValidator.validateBootstrap(
+            bootstrap,
+            expectedGatewayBaseURL: try XCTUnwrap(URL(string: "https://tv.kou88.dev")),
+            now: now
+        )) { error in
+            XCTAssertEqual(
+                error as? TelevisionRemoteEndpointValidationError,
+                .invalidGatewayURL
+            )
+        }
+    }
+
+    func testAuthenticatedSessionDelegateRejectsCrossOriginRedirect() throws {
+        let originalURL = try XCTUnwrap(URL(string: "https://tv.kou88.dev/v1/sessions"))
+        let redirectedURL = try XCTUnwrap(URL(string: "https://attacker.example/collect"))
+        let task = URLSession.shared.dataTask(with: originalURL)
+        let response = try XCTUnwrap(HTTPURLResponse(
+            url: originalURL,
+            statusCode: 302,
+            httpVersion: "HTTP/1.1",
+            headerFields: ["Location": redirectedURL.absoluteString]
+        ))
+        let delegate = TelevisionAuthenticatedRequestSessionDelegate()
+        let recorder = RedirectRequestRecorder(initialRequest: URLRequest(url: redirectedURL))
+
+        delegate.urlSession(
+            URLSession.shared,
+            task: task,
+            willPerformHTTPRedirection: response,
+            newRequest: URLRequest(url: redirectedURL)
+        ) { request in
+            recorder.record(request)
+        }
+
+        XCTAssertNil(recorder.request)
+        task.cancel()
+    }
+
+    func testExpiredGatewayCredentialDoesNotBlockLaterSessions() {
+        XCTAssertTrue(TelevisionGatewaySessionDeletionPolicy.isTerminalSuccess(statusCode: 204))
+        XCTAssertTrue(TelevisionGatewaySessionDeletionPolicy.isTerminalSuccess(statusCode: 401))
+        XCTAssertTrue(TelevisionGatewaySessionDeletionPolicy.isTerminalSuccess(statusCode: 404))
+        XCTAssertTrue(TelevisionGatewaySessionDeletionPolicy.isTerminalSuccess(statusCode: 410))
+        XCTAssertFalse(TelevisionGatewaySessionDeletionPolicy.isTerminalSuccess(statusCode: 500))
+    }
+}
+
+private final class RedirectRequestRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedRequest: URLRequest?
+
+    init(initialRequest: URLRequest?) {
+        storedRequest = initialRequest
+    }
+
+    var request: URLRequest? {
+        lock.withLock { storedRequest }
+    }
+
+    func record(_ request: URLRequest?) {
+        lock.withLock {
+            storedRequest = request
         }
     }
 }

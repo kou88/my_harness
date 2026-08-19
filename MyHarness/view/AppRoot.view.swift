@@ -20,6 +20,7 @@ struct AppRootView: View {
         self.dependencies = dependencies
         televisionAPIClient = .automatic(
             localServerURL: KonomiTVConfiguration.serverURL,
+            expectedGatewayBaseURL: KonomiTVConfiguration.expectedGatewayBaseURL,
             remoteAccess: dependencies.actionInbox.televisionRemoteAccess
         )
         _todayState = State(initialValue: TodayState(useCases: dependencies.useCases))
