@@ -35,6 +35,7 @@ final class TelevisionPlayerController: NSObject, ObservableObject {
     private var pictureInPictureController: AVPictureInPictureController?
     private weak var pictureInPicturePlayerLayer: AVPlayerLayer?
     private var isPictureInPictureStarting = false
+    private var currentScenePhase: ScenePhase = .active
     private var backgroundCleanupTask: Task<Void, Never>?
     private var notificationObservers: [NSObjectProtocol] = []
     private let onRestoreUserInterface: @MainActor () -> Void
@@ -145,14 +146,24 @@ final class TelevisionPlayerController: NSObject, ObservableObject {
     }
 
     func handleScenePhase(_ phase: ScenePhase) {
+        currentScenePhase = phase
         backgroundCleanupTask?.cancel()
         backgroundCleanupTask = nil
 
         guard phase == .background else { return }
+
+        // canStartPictureInPictureAutomaticallyFromInline を有効にした上で、
+        // ホーム画面への遷移時にも明示的に開始を要求する。
+        // 手動で一時停止している場合は、ユーザーの意図を尊重して開始しない。
+        startPictureInPictureAutomaticallyIfPossible()
+
         backgroundCleanupTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(2))
+            // PiP の開始コールバックを待ちつつ、開始できなかった配信は
+            // チューナーを占有し続けないよう確実に解放する。
+            try? await Task.sleep(for: .seconds(5))
             guard !Task.isCancelled, let self else { return }
-            guard !isPictureInPictureActive, !isPictureInPictureStarting else { return }
+            guard pictureInPictureController?.isPictureInPictureActive != true else { return }
+            isPictureInPictureStarting = false
             stop()
         }
     }
@@ -178,6 +189,26 @@ final class TelevisionPlayerController: NSObject, ObservableObject {
                 try? await apiClient.stopLiveStream(session)
             }
         }
+    }
+
+    private func startPictureInPictureAutomaticallyIfPossible() {
+        guard currentSession != nil else { return }
+        switch playbackState {
+        case .opening, .buffering, .playing:
+            break
+        case .idle, .paused, .failed:
+            return
+        }
+
+        guard let pictureInPictureController,
+              pictureInPictureController.isPictureInPicturePossible,
+              !pictureInPictureController.isPictureInPictureActive,
+              !isPictureInPictureStarting else {
+            return
+        }
+
+        isPictureInPictureStarting = true
+        pictureInPictureController.startPictureInPicture()
     }
 
     private func installPlayerItem(url: URL) {
@@ -346,8 +377,12 @@ extension TelevisionPlayerController: AVPictureInPictureControllerDelegate {
         _ pictureInPictureController: AVPictureInPictureController
     ) {
         Task { @MainActor [weak self] in
-            self?.isPictureInPictureStarting = false
-            self?.isPictureInPictureActive = false
+            guard let self else { return }
+            isPictureInPictureStarting = false
+            isPictureInPictureActive = false
+            if currentScenePhase == .background {
+                stop()
+            }
         }
     }
 
