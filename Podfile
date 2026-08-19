@@ -3,7 +3,6 @@ platform :ios, '17.0'
 install! 'cocoapods', deterministic_uuids: true
 
 target 'MyHarness' do
-  pod 'MobileVLCKit', '3.6.0'
 end
 
 post_install do |installer|
