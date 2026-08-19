@@ -4,6 +4,19 @@ import SwiftUI
 struct ActionInboxView: View {
     @Environment(AppRouter.self) private var router
     let state: ActionInboxState
+    let productOpsState: ProductOpsState
+    @State private var presentedSheet: ActionInboxSheet?
+
+    private enum ActionInboxSheet: Identifiable {
+        case needMemo
+
+        var id: String {
+            switch self {
+            case .needMemo:
+                return "needMemo"
+            }
+        }
+    }
 
     var body: some View {
         List {
@@ -25,13 +38,13 @@ struct ActionInboxView: View {
                         .disabled(state.isRegisteringPush)
 
                         Button(role: .destructive) {
-                            Task { await state.signOut() }
+                            Task { await signOut() }
                         } label: {
                             Label("ログアウト", systemImage: "rectangle.portrait.and.arrow.right")
                         }
                     } else {
                         Button {
-                            Task { await state.signIn() }
+                            Task { await signIn() }
                         } label: {
                             Label("ログイン", systemImage: "person.crop.circle.badge.checkmark")
                         }
@@ -44,15 +57,25 @@ struct ActionInboxView: View {
             }
         }
         .refreshable {
-            await state.loadIfPossible()
+            await loadAllIfPossible()
         }
         .safeAreaInset(edge: .bottom) {
             if let message = state.message {
                 ActionMessageBar(text: message, systemImage: "info.circle")
+            } else if let message = productOpsState.message {
+                ActionMessageBar(text: message, systemImage: "info.circle")
             }
         }
         .task {
-            await state.loadIfPossible()
+            await loadAllIfPossible()
+        }
+        .sheet(item: $presentedSheet) { sheet in
+            switch sheet {
+            case .needMemo:
+                NavigationStack {
+                    NeedMemoSheet(state: productOpsState)
+                }
+            }
         }
     }
 
@@ -76,13 +99,78 @@ struct ActionInboxView: View {
                 ActionInboxLoginButton(
                     isSigningIn: state.isSigningIn,
                     action: {
-                        Task { await state.signIn() }
+                        Task { await signIn() }
                     }
                 )
             }
             .listRowSeparator(.hidden)
             .listRowInsets(EdgeInsets(top: 0, leading: 24, bottom: 0, trailing: 24))
         } else {
+            needCandidateSection
+            actionInboxSection
+        }
+    }
+
+    @ViewBuilder
+    private var needCandidateSection: some View {
+        Section {
+            Button {
+                presentedSheet = .needMemo
+            } label: {
+                Label("ニーズ候補をメモ", systemImage: "square.and.pencil")
+                    .font(.subheadline.weight(.semibold))
+            }
+
+            switch productOpsState.candidatesState {
+            case .idle, .loading:
+                HStack {
+                    Spacer()
+                    ProgressView()
+                    Spacer()
+                }
+                .listRowSeparator(.hidden)
+            case .failed(let message):
+                ContentUnavailableView {
+                    Label("候補を読み込めません", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(message)
+                }
+                .listRowSeparator(.hidden)
+            case .loaded(let candidates):
+                if candidates.isEmpty {
+                    Text("候補はありません")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(candidates) { candidate in
+                        NeedCandidateRow(
+                            candidate: candidate,
+                            isWorking: productOpsState.isMutatingNeed(id: candidate.need.id),
+                            onPursue: {
+                                Task {
+                                    if await productOpsState.pursue(candidate: candidate) != nil {
+                                        await state.loadIfPossible()
+                                    }
+                                }
+                            },
+                            onHold: {
+                                Task { await productOpsState.hold(candidate: candidate, decisionNote: nil) }
+                            },
+                            onReject: {
+                                Task { await productOpsState.reject(candidate: candidate, decisionNote: nil) }
+                            }
+                        )
+                    }
+                }
+            }
+        } header: {
+            Text("ニーズ候補")
+        }
+    }
+
+    @ViewBuilder
+    private var actionInboxSection: some View {
+        Section {
             switch state.inboxState {
             case .idle, .loading:
                 HStack {
@@ -100,12 +188,9 @@ struct ActionInboxView: View {
                 .listRowSeparator(.hidden)
             case .loaded(let payload):
                 if payload.items.isEmpty {
-                    ActionInboxPlaceholder(
-                        title: "おすすめはありません",
-                        systemImage: "sparkles"
-                    )
-                        .listRowSeparator(.hidden)
-                        .listRowInsets(EdgeInsets(top: 0, leading: 24, bottom: 0, trailing: 24))
+                    Text("Action Suggestionsはありません")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 } else {
                     ActionInboxSummaryRow(
                         pendingCount: state.pendingCount,
@@ -124,6 +209,145 @@ struct ActionInboxView: View {
                     }
                 }
             }
+        } header: {
+            Text("Action Inbox")
+        }
+    }
+
+    private func loadAllIfPossible() async {
+        await productOpsState.loadRecommendationsIfPossible()
+        await state.loadIfPossible()
+    }
+
+    private func signIn() async {
+        await state.signIn()
+        await productOpsState.loadRecommendationsIfPossible()
+    }
+
+    private func signOut() async {
+        await state.signOut()
+        productOpsState.reset()
+    }
+}
+
+private struct NeedCandidateRow: View {
+    let candidate: NeedCandidate
+    let isWorking: Bool
+    let onPursue: () -> Void
+    let onHold: () -> Void
+    let onReject: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 8) {
+                ProductOpsTokenView(
+                    ProductOpsDisplay.score(candidate.policyFit.totalScore),
+                    systemImage: "scope"
+                )
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(candidate.need.displaySummary)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    if !candidate.policyFit.reason.isEmpty {
+                        Text(candidate.policyFit.reason)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+
+            HStack(spacing: 6) {
+                ProductOpsTokenView("\(candidate.evidenceSummary.supportingCount)", systemImage: "hand.thumbsup")
+                ProductOpsTokenView("\(candidate.evidenceSummary.contradictingCount)", systemImage: "hand.thumbsdown")
+                ProductOpsTokenView("\(candidate.evidenceSummary.exampleCount)", systemImage: "quote.bubble")
+                if let priority = candidate.need.priority {
+                    ProductOpsTokenView(priority)
+                }
+            }
+
+            if let mvp = candidate.need.mvp, !mvp.isEmpty {
+                Text(mvp)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            HStack(spacing: 8) {
+                Button(action: onPursue) {
+                    Label("追う", systemImage: "checkmark.circle")
+                }
+                .buttonStyle(.borderedProminent)
+
+                Button(action: onHold) {
+                    Label("保留", systemImage: "clock")
+                }
+                .buttonStyle(.bordered)
+
+                Button(role: .destructive, action: onReject) {
+                    Label("却下", systemImage: "xmark.circle")
+                }
+                .buttonStyle(.bordered)
+            }
+            .font(.caption.weight(.semibold))
+            .controlSize(.small)
+            .disabled(isWorking)
+        }
+        .padding(.vertical, 6)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+private struct NeedMemoSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let state: ProductOpsState
+    @State private var memo = ""
+
+    var body: some View {
+        Form {
+            Section("メモ") {
+                TextEditor(text: $memo)
+                    .frame(minHeight: 180)
+                    .overlay(alignment: .topLeading) {
+                        if memo.isEmpty {
+                            Text("拾った困りごと、仮説、会話メモ")
+                                .foregroundStyle(.tertiary)
+                                .padding(.top, 8)
+                                .padding(.leading, 4)
+                        }
+                    }
+            }
+        }
+        .navigationTitle("ニーズ候補をメモ")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("閉じる") {
+                    dismiss()
+                }
+            }
+            ToolbarItem(placement: .confirmationAction) {
+                Button {
+                    Task { await save() }
+                } label: {
+                    if state.isPostingMemo {
+                        ProgressView()
+                    } else {
+                        Text("保存")
+                    }
+                }
+                .disabled(state.isPostingMemo || memo.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+    }
+
+    private func save() async {
+        if await state.createNeedFromMemo(memo) != nil {
+            dismiss()
         }
     }
 }
@@ -207,7 +431,7 @@ extension ActionInboxPlaceholder where Action == EmptyView {
     }
 }
 
-private struct ActionInboxLoginButton: View {
+struct ActionInboxLoginButton: View {
     let isSigningIn: Bool
     let action: () -> Void
 
@@ -367,6 +591,10 @@ struct ActionSuggestionDetailView: View {
                     Label("詳細を読み込めません", systemImage: "exclamationmark.triangle")
                 } description: {
                     Text(message)
+                } actions: {
+                    Button("次にやるへ戻る") {
+                        router.handleDeepLink(PushNotificationRouting.nextActionsURL)
+                    }
                 }
                 .listRowSeparator(.hidden)
             case .loaded(let suggestion):
@@ -403,7 +631,7 @@ struct ActionSuggestionDetailView: View {
                 confirmingAction = nil
             }
         } message: {
-            Text("version \(state.currentSuggestion?.version ?? 0) を使って送信します。古い通知や古い画面からの誤操作はAPI側で拒否されます。")
+            Text("version \(state.currentSuggestion?.version ?? 0) を使って判断を保存します。古い通知や古い画面からの誤操作はAPI側で拒否されます。")
         }
     }
 

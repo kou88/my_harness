@@ -6,17 +6,28 @@ import Observation
 final class AppRouter {
     var presentedSheet: AppSheet?
     var selectedTab: AppTab = .today
+    var nextActionsPath: [AppRoute] = []
     var todayPath: [AppRoute] = []
-    var suggestionsPath: [AppRoute] = []
+    var articlesPath: [AppRoute] = []
+    var aiPath: [AppRoute] = []
+    var pendingProductOpsDeepLink: ProductOpsDeepLinkDestination?
 
     func push(_ route: AppRoute) {
         switch route.preferredTab {
+        case .nextActions:
+            selectedTab = .nextActions
+            nextActionsPath.append(route)
         case .today:
             selectedTab = .today
             todayPath.append(route)
-        case .suggestions:
-            selectedTab = .suggestions
-            suggestionsPath.append(route)
+        case .articles:
+            selectedTab = .articles
+            articlesPath.append(route)
+        case .ai:
+            selectedTab = .ai
+            aiPath.append(route)
+        case .television:
+            selectedTab = .television
         }
     }
 
@@ -31,9 +42,72 @@ final class AppRouter {
         switch head {
         case "open":
             selectedTab = .today
+            todayPath = []
+        case "next-actions":
+            showNextActions()
         case "suggestions":
-            selectedTab = .suggestions
-            suggestionsPath = tail.first.map { [.actionSuggestionDetail(id: $0)] } ?? []
+            if let id = nonEmptyId(tail.first) {
+                selectedTab = .nextActions
+                nextActionsPath = [.actionSuggestionDetail(id: id)]
+            } else {
+                showNextActions()
+            }
+        case "proposal", "proposals":
+            showProductOpsDetail(nonEmptyId(tail.first).map(ProductOpsDeepLinkDestination.proposal))
+        case "mission", "missions":
+            showProductOpsDetail(nonEmptyId(tail.first).map {
+                ProductOpsDeepLinkDestination.mission(id: $0, kind: .generic)
+            })
+        case "development-missions":
+            showProductOpsDetail(nonEmptyId(tail.first).map {
+                ProductOpsDeepLinkDestination.mission(id: $0, kind: .development)
+            })
+        case "research", "research-missions":
+            showProductOpsDetail(nonEmptyId(tail.first).map {
+                ProductOpsDeepLinkDestination.mission(id: $0, kind: .research)
+            })
+        case "message", "message-missions":
+            showProductOpsDetail(nonEmptyId(tail.first).map {
+                ProductOpsDeepLinkDestination.mission(id: $0, kind: .message)
+            })
+        case "verification", "verification-missions":
+            showProductOpsDetail(nonEmptyId(tail.first).map {
+                ProductOpsDeepLinkDestination.mission(id: $0, kind: .verification)
+            })
+        case "knowledge", "knowledge-change", "knowledge_change", "knowledge-change-missions":
+            showProductOpsDetail(nonEmptyId(tail.first).map {
+                ProductOpsDeepLinkDestination.mission(id: $0, kind: .knowledgeChange)
+            })
+        case "decision-brief", "decision_brief", "decision-brief-missions":
+            showProductOpsDetail(nonEmptyId(tail.first).map {
+                ProductOpsDeepLinkDestination.mission(id: $0, kind: .decisionBrief)
+            })
+        case "monitoring-alert", "monitoring_alert", "monitoring-alerts":
+            showProductOpsDetail(nonEmptyId(tail.first).map(ProductOpsDeepLinkDestination.monitoringAlert))
+        case "articles":
+            selectedTab = .articles
+            articlesPath = nonEmptyId(tail.first).map { [.article(id: $0)] } ?? []
+        case "ai":
+            selectedTab = .ai
+            let conversationId: String?
+            if tail.first == "conversations" {
+                conversationId = nonEmptyId(tail.dropFirst().first)
+            } else {
+                conversationId = nonEmptyId(tail.first)
+            }
+            aiPath = conversationId.map { [.aiConversation(id: $0)] } ?? []
+        case "tv", "television":
+            selectedTab = .television
+        case "development":
+            if let id = nonEmptyId(tail.first) {
+                showProductOpsDetail(.mission(id: id, kind: .development))
+            } else {
+                selectedTab = .nextActions
+                nextActionsPath = [.developmentBacklog]
+            }
+        case "policy":
+            selectedTab = .nextActions
+            nextActionsPath = [.venturePolicy]
         case "executions":
             routeSuggestionReference(.actionExecution(id: tail.first ?? ""))
         case "needs":
@@ -47,15 +121,80 @@ final class AppRouter {
         }
     }
 
+    func consumePendingProductOpsDeepLink() -> ProductOpsDeepLinkDestination? {
+        defer { pendingProductOpsDeepLink = nil }
+        return pendingProductOpsDeepLink
+    }
+
+    private func showNextActions() {
+        selectedTab = .nextActions
+        nextActionsPath = []
+        pendingProductOpsDeepLink = nil
+    }
+
+    private func showProductOpsDetail(_ destination: ProductOpsDeepLinkDestination?) {
+        showNextActions()
+        pendingProductOpsDeepLink = destination
+    }
+
+    private func nonEmptyId(_ value: String?) -> String? {
+        guard let value, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        return value
+    }
+
     private func routeSuggestionReference(_ route: AppRoute) {
-        selectedTab = .suggestions
-        suggestionsPath = route.referenceId.isEmpty ? [] : [route]
+        selectedTab = .nextActions
+        nextActionsPath = route.referenceId.isEmpty ? [] : [route]
+    }
+}
+
+enum ProductOpsMissionDeepLinkKind: String, Hashable {
+    case generic
+    case development
+    case research
+    case message
+    case verification
+    case knowledgeChange
+    case decisionBrief
+
+    var label: String {
+        switch self {
+        case .generic: return "Mission"
+        case .development: return "Codex実装"
+        case .research: return "調査"
+        case .message: return "文案"
+        case .verification: return "検証"
+        case .knowledgeChange: return "Knowledge"
+        case .decisionBrief: return "判断材料"
+        }
+    }
+}
+
+enum ProductOpsDeepLinkDestination: Identifiable, Hashable {
+    case proposal(String)
+    case mission(id: String, kind: ProductOpsMissionDeepLinkKind)
+    case monitoringAlert(String)
+
+    var id: String {
+        switch self {
+        case .proposal(let id):
+            return "proposal-\(id)"
+        case .mission(let id, let kind):
+            return "mission-\(kind.rawValue)-\(id)"
+        case .monitoringAlert(let id):
+            return "monitoring-alert-\(id)"
+        }
     }
 }
 
 enum AppTab: Hashable {
+    case nextActions
     case today
-    case suggestions
+    case articles
+    case ai
+    case television
 }
 
 enum AppRoute: Hashable {
@@ -64,13 +203,32 @@ enum AppRoute: Hashable {
     case actionExecution(id: String)
     case need(id: String)
     case codexResult(id: String)
+    case needList
+    case developmentBacklog
+    case venturePolicy
+    case actionHistory
+    case completedActions
+    case article(id: String)
+    case aiConversation(id: String)
 
     var preferredTab: AppTab {
         switch self {
         case .oneShotTasks:
             return .today
-        case .actionSuggestionDetail, .actionExecution, .need, .codexResult:
-            return .suggestions
+        case .article:
+            return .articles
+        case .aiConversation:
+            return .ai
+        case .actionSuggestionDetail,
+             .actionExecution,
+             .need,
+             .codexResult,
+             .needList,
+             .developmentBacklog,
+             .venturePolicy,
+             .actionHistory,
+             .completedActions:
+            return .nextActions
         }
     }
 
@@ -83,6 +241,16 @@ enum AppRoute: Hashable {
              .need(let id),
              .codexResult(let id):
             return id
+        case .article(let id):
+            return id
+        case .aiConversation(let id):
+            return id
+        case .needList,
+             .developmentBacklog,
+             .venturePolicy,
+             .actionHistory,
+             .completedActions:
+            return ""
         }
     }
 }

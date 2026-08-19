@@ -6,6 +6,7 @@ struct AppDependencies {
     let modelContainer: ModelContainer
     let useCases: AppUseCases
     let actionInbox: ActionInboxFeatureDependencies
+    let sharedXImportCandidates: SharedXImportCandidateRepository
 
     static func live() throws -> AppDependencies {
         try make(isStoredInMemoryOnly: false, seedPreviewData: false)
@@ -21,6 +22,7 @@ struct AppDependencies {
     ) throws -> AppDependencies {
         let schema = Schema([
             RoutineItemModel.self,
+            OneShotPinModel.self,
             DayEntryModel.self,
             HarnessSettingsModel.self
         ])
@@ -50,6 +52,7 @@ struct AppDependencies {
             loadToday: LoadTodayUseCase(readStore: todayReadStore),
             createRoutineItem: CreateRoutineItemUseCase(repository: itemRepository),
             updateRoutineItem: UpdateRoutineItemUseCase(repository: itemRepository),
+            updateOneShotPin: UpdateOneShotPinUseCase(repository: itemRepository),
             deleteRoutineItem: DeleteRoutineItemUseCase(repository: itemRepository),
             reorderRoutineItems: ReorderRoutineItemsUseCase(repository: itemRepository),
             loadWeekdayTaskGroups: LoadWeekdayTaskGroupsUseCase(repository: itemRepository),
@@ -72,12 +75,19 @@ struct AppDependencies {
         )
 
         let actionInboxDependencies = ActionInboxFeatureDependencies.make()
+        let sharedXImportCandidates = try SharedXImportCandidateRepository(
+            appGroupIdentifier: HarnessAppGroup.identifier
+        )
         let dependencies = AppDependencies(
             modelContainer: container,
             useCases: useCases,
-            actionInbox: actionInboxDependencies
+            actionInbox: actionInboxDependencies,
+            sharedXImportCandidates: sharedXImportCandidates
         )
-        ActionPushNotificationCoordinator.shared.configure(apiClient: actionInboxDependencies.apiClient)
+        ActionPushNotificationCoordinator.shared.configure(
+            apiClient: actionInboxDependencies.apiClient,
+            registerStoredToken: false
+        )
 
         if seedPreviewData {
             try seedPreviewDataIfNeeded(context: container.mainContext, calendar: calendar)
@@ -91,14 +101,15 @@ struct AppDependencies {
         calendar: CalendarProviding
     ) throws {
         let items = [
-            RoutineItem(title: "明日の服を出す", scheduleKind: .routine, sortOrder: 0),
+            RoutineItem(title: "明日の服を出す", scheduleKind: .routine, isPinned: false, sortOrder: 0),
             RoutineItem(
                 title: "ごみ出し準備",
                 scheduleKind: .routine,
+                isPinned: false,
                 sortOrder: 1,
                 repeatWeekdays: [.monday, .thursday]
             ),
-            RoutineItem(title: "机を戻す", scheduleKind: .routine, sortOrder: 2)
+            RoutineItem(title: "机を戻す", scheduleKind: .routine, isPinned: false, sortOrder: 2)
         ]
 
         for item in items {
@@ -140,6 +151,7 @@ struct AppDependencies {
 struct ActionInboxFeatureDependencies {
     let authSession: CognitoAuthSession?
     let apiClient: ActionInboxAPIClient?
+    let aiClient: AIAPIClient?
     let widgetRepository: ActionSuggestionWidgetSnapshotRepository
     let configurationErrorMessage: String?
 
@@ -149,9 +161,11 @@ struct ActionInboxFeatureDependencies {
             let config = try ActionInboxConfig.load()
             let authSession = CognitoAuthSession(config: config)
             let apiClient = ActionInboxAPIClient(config: config, authSession: authSession)
+            let aiClient = AIAPIClient(config: config, authSession: authSession)
             return ActionInboxFeatureDependencies(
                 authSession: authSession,
                 apiClient: apiClient,
+                aiClient: aiClient,
                 widgetRepository: widgetRepository,
                 configurationErrorMessage: nil
             )
@@ -159,6 +173,7 @@ struct ActionInboxFeatureDependencies {
             return ActionInboxFeatureDependencies(
                 authSession: nil,
                 apiClient: nil,
+                aiClient: nil,
                 widgetRepository: widgetRepository,
                 configurationErrorMessage: error.localizedDescription
             )

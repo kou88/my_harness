@@ -25,7 +25,7 @@ jobs:
         github.event.pull_request.head.repo.full_name == github.repository &&
         github.event.pull_request.head.ref == 'develop'
       )
-    runs-on: [self-hosted, macOS, ARM64]
+    runs-on: macos-26
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -48,6 +48,11 @@ jobs:
         run: |
           xcodebuild -version
 
+      - name: Install CocoaPods dependencies
+        run: |
+          set -euo pipefail
+          pod install
+
       - name: Decode App Store Connect API key
         env:
           ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}
@@ -56,12 +61,90 @@ jobs:
           echo "$ASC_KEY_P8_BASE64" | openssl base64 -d -A > "$RUNNER_TEMP/AuthKey.p8"
           echo "ASC_KEY_P8_PATH=$RUNNER_TEMP/AuthKey.p8" >> "$GITHUB_ENV"
 
+      - name: Resolve next TestFlight build number
+        env:
+          ASC_KEY_ID: ${{ vars.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ vars.ASC_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          ruby <<'RUBY'
+          require 'base64'
+          require 'json'
+          require 'net/http'
+          require 'openssl'
+          require 'uri'
+
+          key_id = ENV.fetch('ASC_KEY_ID')
+          issuer_id = ENV.fetch('ASC_ISSUER_ID')
+          key = OpenSSL::PKey::EC.new(File.read(ENV.fetch('ASC_KEY_P8_PATH')))
+
+          base64url = lambda do |value|
+            Base64.urlsafe_encode64(value).delete('=')
+          end
+          header = base64url.call(JSON.generate({ alg: 'ES256', kid: key_id, typ: 'JWT' }))
+          payload = base64url.call(JSON.generate({
+            iss: issuer_id,
+            exp: Time.now.to_i + 20 * 60,
+            aud: 'appstoreconnect-v1'
+          }))
+          signing_input = "#{header}.#{payload}"
+          signature_der = key.dsa_sign_asn1(OpenSSL::Digest::SHA256.digest(signing_input))
+          signature_asn1 = OpenSSL::ASN1.decode(signature_der)
+          raw_signature = signature_asn1.value.map do |integer|
+            integer.value.to_i.to_s(16).rjust(64, '0')
+          end.join
+          token = "#{signing_input}.#{base64url.call([raw_signature].pack('H*'))}"
+
+          get_json = lambda do |uri|
+            request = Net::HTTP::Get.new(uri)
+            request['Authorization'] = "Bearer #{token}"
+            response = Net::HTTP.start(uri.hostname, uri.port, use_ssl: true) do |http|
+              http.request(request)
+            end
+            unless response.is_a?(Net::HTTPSuccess)
+              warn "App Store Connect request failed: HTTP #{response.code}"
+              exit 1
+            end
+            JSON.parse(response.body)
+          end
+
+          apps_uri = URI('https://api.appstoreconnect.apple.com/v1/apps')
+          apps_uri.query = URI.encode_www_form(
+            'filter[bundleId]' => 'com.kou888.myharness',
+            'fields[apps]' => 'bundleId',
+            'limit' => '2'
+          )
+          app = get_json.call(apps_uri).fetch('data').find do |entry|
+            entry.dig('attributes', 'bundleId') == 'com.kou888.myharness'
+          end
+          abort 'App Store Connect app not found for com.kou888.myharness' unless app
+
+          builds_uri = URI('https://api.appstoreconnect.apple.com/v1/builds')
+          builds_uri.query = URI.encode_www_form(
+            'filter[app]' => app.fetch('id'),
+            'fields[builds]' => 'version,uploadedDate',
+            'sort' => '-uploadedDate',
+            'limit' => '200'
+          )
+          builds = get_json.call(builds_uri).fetch('data')
+          abort 'No existing TestFlight build found' if builds.empty?
+
+          highest_number = builds.map do |build|
+            Integer(build.dig('attributes', 'version'), 10)
+          end.max
+          next_number = highest_number + 1
+          File.open(ENV.fetch('GITHUB_ENV'), 'a') do |file|
+            file.puts "TESTFLIGHT_BUILD_NUMBER=#{next_number}"
+          end
+          puts "Next TestFlight build number: #{next_number}"
+          RUBY
+
       - name: Install signing assets
         env:
+          ASC_KEY_ID: ${{ vars.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ vars.ASC_ISSUER_ID }}
           BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
           P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
-          BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_PROVISION_PROFILE_BASE64 }}
-          BUILD_WIDGET_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_WIDGET_PROVISION_PROFILE_BASE64 }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
         run: |
           set -euo pipefail
@@ -75,11 +158,91 @@ jobs:
           CERT_PATH="$RUNNER_TEMP/build_certificate.p12"
           APP_PROFILE_PATH="$RUNNER_TEMP/app.mobileprovision"
           WIDGET_PROFILE_PATH="$RUNNER_TEMP/widget.mobileprovision"
+          SHARE_PROFILE_PATH="$RUNNER_TEMP/share.mobileprovision"
           USER_HOME="$(dscl . -read /Users/$(whoami) NFSHomeDirectory | awk '{print $2}')"
 
           echo "$BUILD_CERTIFICATE_BASE64" | openssl base64 -d -A > "$CERT_PATH"
-          echo "$BUILD_PROVISION_PROFILE_BASE64" | openssl base64 -d -A > "$APP_PROFILE_PATH"
-          echo "$BUILD_WIDGET_PROVISION_PROFILE_BASE64" | openssl base64 -d -A > "$WIDGET_PROFILE_PATH"
+
+          download_profile() {
+            local profile_name="$1"
+            local output_path="$2"
+            PROFILE_NAME="$profile_name" PROFILE_PATH="$output_path" ruby <<'RUBY'
+          require 'base64'
+          require 'json'
+          require 'net/http'
+          require 'openssl'
+          require 'time'
+          require 'uri'
+
+          key_id = ENV.fetch('ASC_KEY_ID')
+          issuer_id = ENV.fetch('ASC_ISSUER_ID')
+          key_path = ENV.fetch('ASC_KEY_P8_PATH')
+          profile_name = ENV.fetch('PROFILE_NAME')
+          profile_path = ENV.fetch('PROFILE_PATH')
+
+          key = OpenSSL::PKey::EC.new(File.read(key_path))
+
+          base64url = lambda do |value|
+            Base64.urlsafe_encode64(value).delete('=')
+          end
+
+          header = base64url.call(JSON.generate({ alg: 'ES256', kid: key_id, typ: 'JWT' }))
+          payload = base64url.call(
+            JSON.generate(
+              {
+                iss: issuer_id,
+                exp: Time.now.to_i + 20 * 60,
+                aud: 'appstoreconnect-v1'
+              }
+            )
+          )
+          signing_input = "#{header}.#{payload}"
+          signature_der = key.dsa_sign_asn1(OpenSSL::Digest::SHA256.digest(signing_input))
+          signature_asn1 = OpenSSL::ASN1.decode(signature_der)
+          raw_signature = signature_asn1.value.map do |integer|
+            integer.value.to_i.to_s(16).rjust(64, '0')
+          end.join
+          token = "#{signing_input}.#{base64url.call([raw_signature].pack('H*'))}"
+
+          uri = URI('https://api.appstoreconnect.apple.com/v1/profiles')
+          uri.query = URI.encode_www_form(
+            'filter[name]' => profile_name,
+            'fields[profiles]' => 'name,profileContent,profileState,profileType,uuid,expirationDate',
+            'limit' => '10'
+          )
+
+          request = Net::HTTP::Get.new(uri)
+          request['Authorization'] = "Bearer #{token}"
+          response = Net::HTTP.start(uri.hostname, uri.port, use_ssl: true) do |http|
+            http.request(request)
+          end
+
+          unless response.is_a?(Net::HTTPSuccess)
+            warn "Profile fetch failed for #{profile_name}: HTTP #{response.code}"
+            exit 1
+          end
+
+          body = JSON.parse(response.body)
+          profile = body.fetch('data').find do |entry|
+            entry.fetch('attributes').fetch('name') == profile_name
+          end
+
+          unless profile
+            warn "Profile not found: #{profile_name}"
+            exit 1
+          end
+
+          attributes = profile.fetch('attributes')
+          profile_content = attributes.fetch('profileContent')
+          File.binwrite(profile_path, Base64.decode64(profile_content))
+
+          puts "Fetched profile: #{attributes.fetch('name')} (#{attributes.fetch('uuid')}, #{attributes.fetch('profileState')})"
+          RUBY
+          }
+
+          download_profile "my-harness-app-store-push-v2" "$APP_PROFILE_PATH"
+          download_profile "my-harness-widget-app-store" "$WIDGET_PROFILE_PATH"
+          download_profile "my-harness-share-app-store" "$SHARE_PROFILE_PATH"
 
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
@@ -100,6 +263,7 @@ jobs:
             local name
             local team_id
             local supports_push
+            local supports_app_group
             uuid=$(/usr/libexec/PlistBuddy -c "Print :UUID" "$plist_path")
             name=$(/usr/libexec/PlistBuddy -c "Print :Name" "$plist_path")
             team_id=$(/usr/libexec/PlistBuddy -c "Print :TeamIdentifier:0" "$plist_path")
@@ -108,34 +272,52 @@ jobs:
             else
               supports_push=0
             fi
+            if /usr/libexec/PlistBuddy -c "Print :Entitlements:com.apple.security.application-groups" "$plist_path" 2>/dev/null | grep -Fq "group.com.kou888.myharness"; then
+              supports_app_group=1
+            else
+              supports_app_group=0
+            fi
             cp "$profile_path" "$USER_HOME/Library/MobileDevice/Provisioning Profiles/$uuid.mobileprovision"
-            printf '%s|%s|%s|%s\n' "$uuid" "$name" "$team_id" "$supports_push"
+            printf '%s|%s|%s|%s|%s\n' "$uuid" "$name" "$team_id" "$supports_push" "$supports_app_group"
           }
 
           APP_INFO="$(extract_profile "$APP_PROFILE_PATH" APP)"
           WIDGET_INFO="$(extract_profile "$WIDGET_PROFILE_PATH" WIDGET)"
+          SHARE_INFO="$(extract_profile "$SHARE_PROFILE_PATH" SHARE)"
 
-          IFS='|' read -r APP_PROFILE_UUID APP_PROFILE_NAME APP_TEAM_ID APP_PROFILE_SUPPORTS_PUSH <<< "$APP_INFO"
-          IFS='|' read -r WIDGET_PROFILE_UUID WIDGET_PROFILE_NAME WIDGET_TEAM_ID WIDGET_PROFILE_SUPPORTS_PUSH <<< "$WIDGET_INFO"
+          IFS='|' read -r APP_PROFILE_UUID APP_PROFILE_NAME APP_TEAM_ID APP_PROFILE_SUPPORTS_PUSH APP_PROFILE_SUPPORTS_APP_GROUP <<< "$APP_INFO"
+          IFS='|' read -r WIDGET_PROFILE_UUID WIDGET_PROFILE_NAME WIDGET_TEAM_ID WIDGET_PROFILE_SUPPORTS_PUSH WIDGET_PROFILE_SUPPORTS_APP_GROUP <<< "$WIDGET_INFO"
+          IFS='|' read -r SHARE_PROFILE_UUID SHARE_PROFILE_NAME SHARE_TEAM_ID SHARE_PROFILE_SUPPORTS_PUSH SHARE_PROFILE_SUPPORTS_APP_GROUP <<< "$SHARE_INFO"
 
           {
             echo "APP_PROFILE_UUID=$APP_PROFILE_UUID"
             echo "APP_PROFILE_NAME=$APP_PROFILE_NAME"
             echo "APP_TEAM_ID=$APP_TEAM_ID"
             echo "APP_PROFILE_SUPPORTS_PUSH=$APP_PROFILE_SUPPORTS_PUSH"
+            echo "APP_PROFILE_SUPPORTS_APP_GROUP=$APP_PROFILE_SUPPORTS_APP_GROUP"
             echo "WIDGET_PROFILE_UUID=$WIDGET_PROFILE_UUID"
             echo "WIDGET_PROFILE_NAME=$WIDGET_PROFILE_NAME"
             echo "WIDGET_TEAM_ID=$WIDGET_TEAM_ID"
+            echo "WIDGET_PROFILE_SUPPORTS_APP_GROUP=$WIDGET_PROFILE_SUPPORTS_APP_GROUP"
+            echo "SHARE_PROFILE_UUID=$SHARE_PROFILE_UUID"
+            echo "SHARE_PROFILE_NAME=$SHARE_PROFILE_NAME"
+            echo "SHARE_TEAM_ID=$SHARE_TEAM_ID"
+            echo "SHARE_PROFILE_SUPPORTS_APP_GROUP=$SHARE_PROFILE_SUPPORTS_APP_GROUP"
             echo "TEAM_ID=$APP_TEAM_ID"
           } >> "$GITHUB_ENV"
 
-          if [ "$APP_TEAM_ID" != "$WIDGET_TEAM_ID" ]; then
-            echo "::error::App and widget profiles belong to different teams."
+          if [ "$APP_TEAM_ID" != "$WIDGET_TEAM_ID" ] || [ "$APP_TEAM_ID" != "$SHARE_TEAM_ID" ]; then
+            echo "::error::App, widget, and share extension profiles belong to different teams."
+            exit 1
+          fi
+          if [ "$APP_PROFILE_SUPPORTS_APP_GROUP" != "1" ] || [ "$WIDGET_PROFILE_SUPPORTS_APP_GROUP" != "1" ] || [ "$SHARE_PROFILE_SUPPORTS_APP_GROUP" != "1" ]; then
+            echo "::error::App, widget, and share extension profiles must include group.com.kou888.myharness."
             exit 1
           fi
 
           echo "App profile: $APP_PROFILE_NAME ($APP_PROFILE_UUID)"
           echo "Widget profile: $WIDGET_PROFILE_NAME ($WIDGET_PROFILE_UUID)"
+          echo "Share profile: $SHARE_PROFILE_NAME ($SHARE_PROFILE_UUID)"
           echo "Team ID: $APP_TEAM_ID"
           security find-identity -v -p codesigning
 
@@ -162,6 +344,8 @@ jobs:
           perl -0pi -e 's/(DA0B1C2D3E4F567801234567 \/\* Release \*\/ = \{.*?buildSettings = \{.*?DEVELOPMENT_TEAM = )"";/${1}$ENV{APP_TEAM_ID};/s' "$PBXPROJ"
           perl -0pi -e 's/(E4F5A6B7C8D9E0F112345678 \/\* Debug \*\/ = \{.*?buildSettings = \{.*?DEVELOPMENT_TEAM = )"";/${1}$ENV{APP_TEAM_ID};/s' "$PBXPROJ"
           perl -0pi -e 's/(F5A6B7C8D9E0F11212345678 \/\* Release \*\/ = \{.*?buildSettings = \{.*?DEVELOPMENT_TEAM = )"";/${1}$ENV{APP_TEAM_ID};/s' "$PBXPROJ"
+          perl -0pi -e 's/(22A0B1C2D3E4F56789012345 \/\* Debug \*\/ = \{.*?buildSettings = \{.*?DEVELOPMENT_TEAM = )"";/${1}$ENV{APP_TEAM_ID};/s' "$PBXPROJ"
+          perl -0pi -e 's/(23A0B1C2D3E4F56789012345 \/\* Release \*\/ = \{.*?buildSettings = \{.*?DEVELOPMENT_TEAM = )"";/${1}$ENV{APP_TEAM_ID};/s' "$PBXPROJ"
 
           perl -pi -e "s/CODE_SIGN_STYLE = Automatic;/CODE_SIGN_STYLE = Manual;/g" "$PBXPROJ"
           perl -pi -e "s/CODE_SIGN_IDENTITY = \"?Apple Development\"?;/CODE_SIGN_IDENTITY = \"Apple Distribution\";/g" "$PBXPROJ"
@@ -170,6 +354,8 @@ jobs:
           perl -0pi -e 's/(DA0B1C2D3E4F567801234567 \/\* Release \*\/ = \{.*?buildSettings = \{)/${1}\n\t\t\t\tPROVISIONING_PROFILE_SPECIFIER = "$ENV{APP_PROFILE_NAME}";/s' "$PBXPROJ"
           perl -0pi -e 's/(E4F5A6B7C8D9E0F112345678 \/\* Debug \*\/ = \{.*?buildSettings = \{)/${1}\n\t\t\t\tPROVISIONING_PROFILE_SPECIFIER = "$ENV{WIDGET_PROFILE_NAME}";/s' "$PBXPROJ"
           perl -0pi -e 's/(F5A6B7C8D9E0F11212345678 \/\* Release \*\/ = \{.*?buildSettings = \{)/${1}\n\t\t\t\tPROVISIONING_PROFILE_SPECIFIER = "$ENV{WIDGET_PROFILE_NAME}";/s' "$PBXPROJ"
+          perl -0pi -e 's/(22A0B1C2D3E4F56789012345 \/\* Debug \*\/ = \{.*?buildSettings = \{)/${1}\n\t\t\t\tPROVISIONING_PROFILE_SPECIFIER = "$ENV{SHARE_PROFILE_NAME}";/s' "$PBXPROJ"
+          perl -0pi -e 's/(23A0B1C2D3E4F56789012345 \/\* Release \*\/ = \{.*?buildSettings = \{)/${1}\n\t\t\t\tPROVISIONING_PROFILE_SPECIFIER = "$ENV{SHARE_PROFILE_NAME}";/s' "$PBXPROJ"
 
           grep -n "DEVELOPMENT_TEAM\\|CODE_SIGN_STYLE\\|PROVISIONING_PROFILE_SPECIFIER\\|CODE_SIGN_IDENTITY" "$PBXPROJ" | head -120
 
@@ -197,6 +383,8 @@ jobs:
               <string>$APP_PROFILE_NAME</string>
               <key>com.kou888.myharness.widget</key>
               <string>$WIDGET_PROFILE_NAME</string>
+              <key>com.kou888.myharness.share</key>
+              <string>$SHARE_PROFILE_NAME</string>
             </dict>
             <key>stripSwiftSymbols</key>
             <true/>
@@ -211,12 +399,12 @@ jobs:
         run: |
           set -euo pipefail
           xcodebuild \
-            -project MyHarness.xcodeproj \
+            -workspace MyHarness.xcworkspace \
             -scheme MyHarness \
             -configuration Release \
             -destination 'generic/platform=iOS' \
             -archivePath "$RUNNER_TEMP/MyHarness.xcarchive" \
-            CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
+            CURRENT_PROJECT_VERSION="$TESTFLIGHT_BUILD_NUMBER" \
             CODE_SIGN_IDENTITY="Apple Distribution" \
             archive
 
@@ -249,3 +437,4 @@ jobs:
           security delete-keychain "$RUNNER_TEMP/my-harness-signing.keychain-db" || true
           rm -f "$USER_HOME/Library/MobileDevice/Provisioning Profiles/${APP_PROFILE_UUID:-}.mobileprovision" || true
           rm -f "$USER_HOME/Library/MobileDevice/Provisioning Profiles/${WIDGET_PROFILE_UUID:-}.mobileprovision" || true
+          rm -f "$USER_HOME/Library/MobileDevice/Provisioning Profiles/${SHARE_PROFILE_UUID:-}.mobileprovision" || true

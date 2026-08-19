@@ -1,8 +1,10 @@
 .DS_Store
 DerivedData/
+.derived-data/
+.build/
+Pods/
 *.xcuserstate
 *.xcworkspace/xcuserdata/
 *.xcodeproj/xcuserdata/
 *.xcodeproj/project.xcworkspace/xcuserdata/
 *.xcodeproj/xcshareddata/WorkspaceSettings.xcsettings
-

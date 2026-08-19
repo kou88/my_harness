@@ -42,7 +42,7 @@ struct TodayView: View {
                     .listRowSeparator(.hidden)
             }
 
-            if state.routineRows.isEmpty, !state.isLoading {
+            if state.pinnedOneShotRowsForRoutineScreen.isEmpty, state.routineRows.isEmpty, !state.isLoading {
                 ContentUnavailableView(
                     state.oneShotCount > 0 ? "ルーチン項目がありません" : "項目がありません",
                     systemImage: "checklist",
@@ -51,10 +51,51 @@ struct TodayView: View {
                 .listRowSeparator(.hidden)
             }
 
+            ForEach(state.pinnedOneShotRowsForRoutineScreen) { row in
+                TodayItemRow(
+                    row: row,
+                    showsMoveHandle: true,
+                    onTogglePin: {
+                        Task { await state.togglePin(for: row.id) }
+                    },
+                    onToggle: {
+                        Task { await state.toggleCompletion(for: row.id) }
+                    }
+                )
+                .dropDestination(for: String.self) { itemIds, _ in
+                    guard
+                        let itemId = itemIds.first,
+                        let sourceId = UUID(uuidString: itemId)
+                    else {
+                        return false
+                    }
+                    Task { await state.movePinnedOneShotRowForRoutineScreen(id: sourceId, before: row.id) }
+                    return true
+                }
+                .swipeActions(edge: .trailing) {
+                    Button(role: .destructive) {
+                        Task { await state.deleteItem(id: row.id) }
+                    } label: {
+                        Label("削除", systemImage: "trash")
+                    }
+
+                    Button {
+                        router.presentedSheet = .editItem(row.item)
+                    } label: {
+                        Label("編集", systemImage: "pencil")
+                    }
+                    .tint(.blue)
+                }
+            }
+            .onMove { offsets, destination in
+                Task { await state.movePinnedOneShotRowsForRoutineScreen(from: offsets, to: destination) }
+            }
+
             ForEach(state.routineRows) { row in
                 TodayItemRow(
                     row: row,
                     showsMoveHandle: true,
+                    onTogglePin: nil,
                     onToggle: {
                         Task { await state.toggleCompletion(for: row.id) }
                     }
@@ -146,6 +187,7 @@ struct TodayView: View {
 private struct TodayItemRow: View {
     let row: TodayItemRowState
     let showsMoveHandle: Bool
+    let onTogglePin: (() -> Void)?
     let onToggle: () -> Void
 
     var body: some View {
@@ -167,6 +209,17 @@ private struct TodayItemRow: View {
 
             Spacer(minLength: 0)
 
+            if row.item.scheduleKind == .oneShot, let onTogglePin {
+                Button(action: onTogglePin) {
+                    Image(systemName: row.item.isPinned ? "pin.fill" : "pin")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(row.item.isPinned ? .primary : .secondary)
+                        .frame(width: 34, height: 34)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(row.item.isPinned ? "ピン留めを外す" : "ピン留め")
+            }
+
             if showsMoveHandle {
                 Image(systemName: "line.3.horizontal")
                     .font(.title3)
@@ -181,11 +234,26 @@ private struct TodayItemRow: View {
         .padding(.vertical, 6)
         .contentShape(Rectangle())
         .onTapGesture(perform: onToggle)
+        .modifier(ItemRowDragModifier(id: row.id.uuidString, isEnabled: showsMoveHandle))
         .accessibilityElement(children: .combine)
         .accessibilityLabel(row.item.title)
         .accessibilityHint("タップして完了状態を切り替え")
         .accessibilityAction {
             onToggle()
+        }
+    }
+}
+
+struct ItemRowDragModifier: ViewModifier {
+    let id: String
+    let isEnabled: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if isEnabled {
+            content.draggable(id)
+        } else {
+            content
         }
     }
 }
@@ -264,11 +332,24 @@ struct OneShotTasksView: View {
             ForEach(state.visibleOneShotRows) { row in
                 TodayItemRow(
                     row: row,
-                    showsMoveHandle: false,
+                    showsMoveHandle: true,
+                    onTogglePin: {
+                        Task { await state.togglePin(for: row.id) }
+                    },
                     onToggle: {
                         Task { await state.toggleCompletion(for: row.id) }
                     }
                 )
+                .dropDestination(for: String.self) { itemIds, _ in
+                    guard
+                        let itemId = itemIds.first,
+                        let sourceId = UUID(uuidString: itemId)
+                    else {
+                        return false
+                    }
+                    Task { await state.moveOneShotRow(id: sourceId, before: row.id) }
+                    return true
+                }
                 .swipeActions(edge: .trailing) {
                     Button(role: .destructive) {
                         Task { await state.deleteItem(id: row.id) }
@@ -283,6 +364,9 @@ struct OneShotTasksView: View {
                     }
                     .tint(.blue)
                 }
+            }
+            .onMove { offsets, destination in
+                Task { await state.moveOneShotRows(from: offsets, to: destination) }
             }
         }
         .listStyle(.plain)

@@ -5,6 +5,8 @@ import UserNotifications
 extension Notification.Name {
     static let actionInboxDeepLink = Notification.Name("my_harness.action_inbox.deep_link")
     static let actionInboxShouldReload = Notification.Name("my_harness.action_inbox.should_reload")
+    static let actionPushRegistrationFailed = Notification.Name("my_harness.action_push.registration_failed")
+    static let actionPushRegistrationStatusChanged = Notification.Name("my_harness.action_push.registration_status_changed")
 }
 
 enum ActionSuggestionNotification {
@@ -38,16 +40,29 @@ final class ActionPushNotificationCoordinator {
     private enum Key {
         static let deviceToken = "my_harness.action_inbox.apns_token"
         static let pushDeviceId = "my_harness.action_inbox.push_device_id"
+        static let registrationError = "my_harness.action_inbox.push_registration_error"
+        static let pendingDeepLink = "my_harness.action_inbox.pending_deep_link"
+        static let pushEnabled = "my_harness.action_inbox.push_enabled"
+        static let missionEventsEnabled = "my_harness.action_inbox.mission_events_enabled"
+        static let recommendationsEnabled = "my_harness.action_inbox.recommendations_enabled"
+        static let automaticAuthorizationRequested = "my_harness.action_inbox.automatic_authorization_requested"
     }
 
     private let center = UNUserNotificationCenter.current()
     private let defaults = UserDefaults.standard
     private var apiClient: ActionInboxAPIClient?
 
-    func configure(apiClient: ActionInboxAPIClient?) {
+    func configure(apiClient: ActionInboxAPIClient?, registerStoredToken: Bool = true) {
         self.apiClient = apiClient
         registerNotificationCategories()
-        Task { try? await registerStoredDeviceTokenIfPossible() }
+        guard registerStoredToken, preferences.pushEnabled else { return }
+        Task {
+            do {
+                try await registerStoredDeviceTokenIfPossible()
+            } catch {
+                reportRegistrationFailure(error)
+            }
+        }
     }
 
     func registerNotificationCategories() {
@@ -93,45 +108,139 @@ final class ActionPushNotificationCoordinator {
         center.setNotificationCategories([lowRisk, review, dangerous])
     }
 
+    var registrationErrorMessage: String? {
+        defaults.string(forKey: Key.registrationError)
+    }
+
+    var preferences: PushNotificationPreferences {
+        PushNotificationPreferences(
+            pushEnabled: storedBool(forKey: Key.pushEnabled),
+            missionEventsEnabled: storedMissionEventsEnabled(),
+            recommendationsEnabled: storedBool(forKey: Key.recommendationsEnabled)
+        )
+    }
+
+    var pendingDeepLinkURL: URL? {
+        guard let value = defaults.string(forKey: Key.pendingDeepLink) else { return nil }
+        return URL(string: value)
+    }
+
+    func permissionState() async -> NotificationPermissionState {
+        let settings = await center.notificationSettings()
+        return NotificationPermissionState(status: settings.authorizationStatus)
+    }
+
+    func updatePreferences(_ updated: PushNotificationPreferences) async throws {
+        let wasEnabled = preferences.pushEnabled
+        defaults.set(updated.pushEnabled, forKey: Key.pushEnabled)
+        defaults.set(updated.missionEventsEnabled, forKey: Key.missionEventsEnabled)
+        defaults.set(updated.recommendationsEnabled, forKey: Key.recommendationsEnabled)
+
+        if updated.pushEnabled, !wasEnabled {
+            try await requestAuthorizationAndRegister()
+        } else if !updated.pushEnabled {
+            await unregisterPushDevice()
+        }
+    }
+
+    func synchronizeAfterSignIn(_ serverPreferences: PushNotificationPreferences) async throws {
+        await applyServerPreferences(serverPreferences)
+        guard serverPreferences.pushEnabled else { return }
+
+        let permission = await permissionState()
+        switch permission {
+        case .notDetermined:
+            guard !defaults.bool(forKey: Key.automaticAuthorizationRequested) else { return }
+            defaults.set(true, forKey: Key.automaticAuthorizationRequested)
+            try await requestAuthorizationAndRegister()
+        case .authorized, .provisional, .ephemeral:
+            beginRemoteRegistration()
+        case .denied, .unknown:
+            postRegistrationStatusChanged()
+        }
+    }
+
+    func registrationState(permission: NotificationPermissionState) -> PushDeviceRegistrationState {
+        guard preferences.pushEnabled else { return .disabled }
+        switch permission {
+        case .denied:
+            return .permissionDenied
+        case .notDetermined, .unknown:
+            return .permissionRequired
+        case .authorized, .provisional, .ephemeral:
+            break
+        }
+        if registrationErrorMessage != nil { return .failed }
+        if defaults.string(forKey: Key.pushDeviceId) != nil { return .registered }
+        return .registering
+    }
+
+    func openSystemNotificationSettings() {
+        guard let url = URL(string: UIApplication.openNotificationSettingsURLString) else { return }
+        UIApplication.shared.open(url)
+    }
+
+    func clearPendingDeepLink() {
+        defaults.removeObject(forKey: Key.pendingDeepLink)
+    }
+
     func requestAuthorizationAndRegister() async throws {
+        defaults.set(true, forKey: Key.automaticAuthorizationRequested)
         let granted = try await center.requestAuthorization(options: [.alert, .sound, .badge])
         let settings = await center.notificationSettings()
         guard granted || settings.authorizationStatus == .provisional else {
             throw PushError.permissionDenied
         }
-        UIApplication.shared.registerForRemoteNotifications()
+        defaults.set(true, forKey: Key.pushEnabled)
+        beginRemoteRegistration()
     }
 
     func didRegisterForRemoteNotifications(deviceToken: Data) {
         let token = deviceToken.map { String(format: "%02x", $0) }.joined()
         defaults.set(token, forKey: Key.deviceToken)
-        Task { try? await registerStoredDeviceTokenIfPossible() }
+        postRegistrationStatusChanged()
+        Task {
+            do {
+                try await registerStoredDeviceTokenIfPossible()
+            } catch {
+                reportRegistrationFailure(error)
+            }
+        }
     }
 
     func didFailToRegisterForRemoteNotifications(error: Error) {
         defaults.removeObject(forKey: Key.deviceToken)
+        reportRegistrationFailure(error)
     }
 
     func handle(response: UNNotificationResponse) async {
         let userInfo = response.notification.request.content.userInfo
-        guard let suggestionId = suggestionId(from: userInfo) else { return }
+        let deepLink = PushNotificationRouting.deepLinkURL(from: userInfo)
+
+        guard response.actionIdentifier != UNNotificationDismissActionIdentifier else {
+            return
+        }
+
+        guard preferences.allows(PushNotificationRouting.topic(from: userInfo)) else {
+            return
+        }
 
         if response.actionIdentifier == UNNotificationDefaultActionIdentifier
-            || response.actionIdentifier == ActionSuggestionNotification.detailAction
-            || response.notification.request.content.categoryIdentifier == ActionSuggestionNotification.reviewCategory
-            || response.notification.request.content.categoryIdentifier == ActionSuggestionNotification.dangerousCategory {
-            openSuggestion(id: suggestionId)
+            || response.actionIdentifier == ActionSuggestionNotification.detailAction {
+            openDeepLink(deepLink)
             return
         }
 
         guard
+            entityType(from: userInfo) == "action_suggestion",
             response.notification.request.content.categoryIdentifier == ActionSuggestionNotification.lowRiskCategory,
+            let suggestionId = suggestionId(from: userInfo),
             let decision = decision(for: response.actionIdentifier),
             canRunDirectDecision(userInfo: userInfo),
             let expectedVersion = expectedVersion(from: userInfo),
             let apiClient
         else {
-            openSuggestion(id: suggestionId)
+            openDeepLink(deepLink)
             return
         }
 
@@ -145,18 +254,23 @@ final class ActionPushNotificationCoordinator {
             )
             NotificationCenter.default.post(name: .actionInboxShouldReload, object: nil)
         } catch {
-            openSuggestion(id: suggestionId)
+            openDeepLink(deepLink)
         }
     }
 
     func openSuggestion(id: String) {
-        guard let url = URL(string: "myharness://suggestions/\(id)") else { return }
+        openDeepLink(URL(string: "myharness://suggestions/\(id)"))
+    }
+
+    private func openDeepLink(_ url: URL?) {
+        guard let url else { return }
+        defaults.set(url.absoluteString, forKey: Key.pendingDeepLink)
         NotificationCenter.default.post(name: .actionInboxDeepLink, object: url)
-        UIApplication.shared.open(url)
     }
 
     private func registerStoredDeviceTokenIfPossible() async throws {
         guard
+            preferences.pushEnabled,
             let token = defaults.string(forKey: Key.deviceToken),
             let apiClient
         else {
@@ -167,9 +281,60 @@ final class ActionPushNotificationCoordinator {
             environment: pushEnvironment,
             appVersion: try appVersion()
         )
-        if let pushDeviceId {
-            defaults.set(pushDeviceId, forKey: Key.pushDeviceId)
+        defaults.set(pushDeviceId, forKey: Key.pushDeviceId)
+        defaults.removeObject(forKey: Key.registrationError)
+        postRegistrationStatusChanged()
+    }
+
+    private func applyServerPreferences(_ serverPreferences: PushNotificationPreferences) async {
+        defaults.set(serverPreferences.pushEnabled, forKey: Key.pushEnabled)
+        defaults.set(serverPreferences.missionEventsEnabled, forKey: Key.missionEventsEnabled)
+        defaults.set(serverPreferences.recommendationsEnabled, forKey: Key.recommendationsEnabled)
+        if !serverPreferences.pushEnabled {
+            await unregisterPushDevice()
         }
+        postRegistrationStatusChanged()
+    }
+
+    private func unregisterPushDevice() async {
+        UIApplication.shared.unregisterForRemoteNotifications()
+        guard let pushDeviceId = defaults.string(forKey: Key.pushDeviceId), let apiClient else {
+            defaults.removeObject(forKey: Key.pushDeviceId)
+            return
+        }
+        do {
+            try await apiClient.deletePushDevice(id: pushDeviceId)
+            defaults.removeObject(forKey: Key.pushDeviceId)
+            defaults.removeObject(forKey: Key.registrationError)
+        } catch {
+            reportRegistrationFailure(error)
+        }
+    }
+
+    private func beginRemoteRegistration() {
+        defaults.removeObject(forKey: Key.pushDeviceId)
+        defaults.removeObject(forKey: Key.registrationError)
+        UIApplication.shared.registerForRemoteNotifications()
+        postRegistrationStatusChanged()
+    }
+
+    private func storedBool(forKey key: String) -> Bool {
+        guard defaults.object(forKey: key) != nil else { return true }
+        return defaults.bool(forKey: key)
+    }
+
+    private func storedMissionEventsEnabled() -> Bool {
+        if defaults.object(forKey: Key.missionEventsEnabled) != nil {
+            return defaults.bool(forKey: Key.missionEventsEnabled)
+        }
+        let legacyKey = "my_harness.action_inbox.mission_updates_enabled"
+        if defaults.object(forKey: legacyKey) != nil {
+            let value = defaults.bool(forKey: legacyKey)
+            defaults.set(value, forKey: Key.missionEventsEnabled)
+            defaults.removeObject(forKey: legacyKey)
+            return value
+        }
+        return true
     }
 
     private var pushEnvironment: ActionInboxAPIClient.PushEnvironment {
@@ -250,6 +415,24 @@ final class ActionPushNotificationCoordinator {
         )
     }
 
+    private func entityType(from userInfo: [AnyHashable: Any]) -> String? {
+        stringValue(userInfo["entityType"] ?? userInfo["entity_type"])
+    }
+
+    private func reportRegistrationFailure(_ error: Error) {
+        let message = "Push通知の端末登録に失敗しました: \(error.localizedDescription)"
+        defaults.set(message, forKey: Key.registrationError)
+        NotificationCenter.default.post(
+            name: .actionPushRegistrationFailed,
+            object: message
+        )
+        postRegistrationStatusChanged()
+    }
+
+    private func postRegistrationStatusChanged() {
+        NotificationCenter.default.post(name: .actionPushRegistrationStatusChanged, object: nil)
+    }
+
     private func expectedVersion(from userInfo: [AnyHashable: Any]) -> Int? {
         intValue(userInfo["expectedVersion"] ?? userInfo["expected_version"] ?? userInfo["version"])
     }
@@ -289,6 +472,15 @@ final class ActionPushNotificationCoordinator {
         }
         return nil
     }
+
+    func foregroundPresentationOptions(userInfo: [AnyHashable: Any]) -> UNNotificationPresentationOptions {
+        let topic = PushNotificationRouting.topic(from: userInfo)
+        guard preferences.allows(topic) else { return [] }
+        if topic == .article || topic == .ai {
+            NotificationCenter.default.post(name: .actionInboxShouldReload, object: nil)
+        }
+        return [.banner, .sound, .badge]
+    }
 }
 
 @MainActor
@@ -320,7 +512,9 @@ final class MyHarnessAppDelegate: NSObject, UIApplicationDelegate, UNUserNotific
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
-        [.banner, .sound, .badge]
+        ActionPushNotificationCoordinator.shared.foregroundPresentationOptions(
+            userInfo: notification.request.content.userInfo
+        )
     }
 
     func userNotificationCenter(

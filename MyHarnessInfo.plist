@@ -45,10 +45,18 @@
 	<string>$(COGNITO_SCOPES)</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>KonomiTVBaseURL</key>
+	<string>https://192-168-11-54.local.konomi.tv:7000/</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.productivity</string>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>twitter</string>
+	</array>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>同一LAN内のテレビサーバーへ接続して、テレビ番組を視聴します。</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

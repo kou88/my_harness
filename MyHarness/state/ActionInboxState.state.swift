@@ -33,6 +33,7 @@ final class ActionInboxState {
         self.apiClient = apiClient
         self.widgetRepository = widgetRepository
         self.configurationErrorMessage = configurationErrorMessage
+        self.message = ActionPushNotificationCoordinator.shared.registrationErrorMessage
     }
 
     var isConfigured: Bool {
@@ -86,7 +87,10 @@ final class ActionInboxState {
 
         do {
             try await authSession.signIn()
-            ActionPushNotificationCoordinator.shared.configure(apiClient: apiClient)
+            apiClient?.invalidateBootstrap()
+            try await apiClient?.bootstrapCurrentUser()
+            ActionPushNotificationCoordinator.shared.configure(apiClient: apiClient, registerStoredToken: false)
+            await synchronizePushAfterSignIn()
             await load()
             message = nil
         } catch {
@@ -97,6 +101,7 @@ final class ActionInboxState {
     func signOut() async {
         do {
             try authSession?.signOut()
+            apiClient?.invalidateBootstrap()
             inboxState = .idle
             detailState = .idle
             try await widgetRepository.publish(.empty)
@@ -147,6 +152,25 @@ final class ActionInboxState {
         await reloadAfterOperation(id: suggestion.id)
     }
 
+    func decideItem(
+        id: String,
+        version: Int,
+        hostId: String?,
+        decision: ActionSuggestionDecision,
+        decisionNote: String?
+    ) async {
+        await runVersionedOperation(successMessage: "\(decision.label)しました") {
+            try await apiClient?.decideSuggestion(
+                id: id,
+                decision: decision,
+                expectedVersion: version,
+                decisionNote: cleanedNote(decisionNote),
+                hostId: hostId
+            )
+        }
+        await loadIfPossible()
+    }
+
     func adoptResult(suggestion: ActionSuggestion, decisionNote: String?) async {
         await runVersionedOperation(successMessage: "結果を採用しました") {
             try await apiClient?.adoptResult(
@@ -188,12 +212,51 @@ final class ActionInboxState {
         defer { isRegisteringPush = false }
 
         do {
-            ActionPushNotificationCoordinator.shared.configure(apiClient: apiClient)
-            try await ActionPushNotificationCoordinator.shared.requestAuthorizationAndRegister()
+            guard let apiClient else { return }
+            ActionPushNotificationCoordinator.shared.configure(apiClient: apiClient, registerStoredToken: false)
+            var preferences = try await apiClient.fetchNotificationPreferences()
+            if !preferences.pushEnabled {
+                preferences.pushEnabled = true
+                preferences = try await apiClient.updateNotificationPreferences(preferences)
+            }
+            let coordinator = ActionPushNotificationCoordinator.shared
+            let wasEnabled = coordinator.preferences.pushEnabled
+            try await coordinator.updatePreferences(preferences)
+            if wasEnabled {
+                try await coordinator.requestAuthorizationAndRegister()
+            }
             message = "通知登録を開始しました"
         } catch {
             message = "通知登録に失敗しました: \(error.localizedDescription)"
         }
+    }
+
+    func synchronizePushAfterSignIn() async {
+        guard isSignedIn, let apiClient else { return }
+        do {
+            let preferences = try await apiClient.fetchNotificationPreferences()
+            try await ActionPushNotificationCoordinator.shared.synchronizeAfterSignIn(preferences)
+            let permission = await ActionPushNotificationCoordinator.shared.permissionState()
+            let registration = ActionPushNotificationCoordinator.shared.registrationState(permission: permission)
+            switch registration {
+            case .registered:
+                message = "Push通知の端末登録は完了しています"
+            case .permissionDenied:
+                message = "Push通知が拒否されています。設定から通知を許可してください。"
+            case .failed:
+                message = ActionPushNotificationCoordinator.shared.registrationErrorMessage
+            case .disabled, .permissionRequired, .registering:
+                break
+            }
+        } catch ActionPushNotificationCoordinator.PushError.permissionDenied {
+            message = "Push通知が拒否されています。設定から通知を許可してください。"
+        } catch {
+            message = "Push通知設定の同期に失敗しました: \(error.localizedDescription)"
+        }
+    }
+
+    func reportPushRegistrationFailure(_ message: String) {
+        self.message = message
     }
 
     private func runVersionedOperation(

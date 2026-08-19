@@ -31,11 +31,15 @@ final class TodayState {
     }
 
     var routineRows: [TodayItemRowState] {
-        rows.filter { $0.item.scheduleKind == .routine }
+        displayOrdered(rows.filter { $0.item.scheduleKind == .routine })
+    }
+
+    var pinnedOneShotRowsForRoutineScreen: [TodayItemRowState] {
+        oneShotRows.filter { $0.item.isPinned && !$0.isCompleted }
     }
 
     var oneShotRows: [TodayItemRowState] {
-        rows.filter { $0.item.scheduleKind == .oneShot }
+        displayOrdered(rows.filter { $0.item.scheduleKind == .oneShot })
     }
 
     var visibleOneShotRows: [TodayItemRowState] {
@@ -115,6 +119,23 @@ final class TodayState {
         await persistRow(rows[index])
     }
 
+    func togglePin(for id: UUID) async {
+        guard let index = rows.firstIndex(where: { $0.id == id }) else { return }
+        rows[index].item.isPinned.toggle()
+
+        do {
+            try await useCases.updateOneShotPin.execute(
+                id: id,
+                isPinned: rows[index].item.isPinned
+            )
+            try await publishWidgetSnapshotForToday()
+            errorMessage = nil
+        } catch {
+            errorMessage = "ピン留めの保存に失敗しました: \(error.localizedDescription)"
+            await load()
+        }
+    }
+
     func deleteItem(id: UUID) async {
         do {
             try await useCases.deleteRoutineItem.execute(id: id)
@@ -126,11 +147,12 @@ final class TodayState {
 
     func moveRoutineRows(from offsets: IndexSet, to destination: Int) async {
         let reorderedRoutineRows = reordered(routineRows, from: offsets, to: destination)
-        rows = oneShotRows + reorderedRoutineRows
+        applySortOrders(reorderedRoutineRows)
 
         do {
-            try await useCases.reorderRoutineItems.execute(ids: rows.map(\.id))
+            try await useCases.reorderRoutineItems.execute(ids: reorderedRoutineRows.map(\.id))
             weekdayTaskGroups = try await useCases.loadWeekdayTaskGroups.execute()
+            try await publishWidgetSnapshotForToday()
             errorMessage = nil
         } catch {
             errorMessage = "並べ替えに失敗しました: \(error.localizedDescription)"
@@ -150,16 +172,77 @@ final class TodayState {
         let moving = nextRows.remove(at: sourceIndex)
         let targetIndex = nextRows.firstIndex(where: { $0.id == targetId }) ?? nextRows.count
         nextRows.insert(moving, at: targetIndex)
-        rows = oneShotRows + nextRows
+        applySortOrders(nextRows)
 
         do {
-            try await useCases.reorderRoutineItems.execute(ids: rows.map(\.id))
+            try await useCases.reorderRoutineItems.execute(ids: nextRows.map(\.id))
             weekdayTaskGroups = try await useCases.loadWeekdayTaskGroups.execute()
+            try await publishWidgetSnapshotForToday()
             errorMessage = nil
         } catch {
             errorMessage = "並べ替えに失敗しました: \(error.localizedDescription)"
             await load()
         }
+    }
+
+    func moveOneShotRows(from offsets: IndexSet, to destination: Int) async {
+        let originalRows = visibleOneShotRows
+        let reorderedRows = reordered(originalRows, from: offsets, to: destination)
+        let nextRows = mergedOneShotRows(reorderedRows, replacing: originalRows)
+
+        await persistOneShotRowOrder(
+            nextRows,
+            failureMessage: "単発タスクの並べ替えに失敗しました"
+        )
+    }
+
+    func moveOneShotRow(id sourceId: UUID, before targetId: UUID) async {
+        guard
+            sourceId != targetId,
+            let sourceIndex = visibleOneShotRows.firstIndex(where: { $0.id == sourceId })
+        else {
+            return
+        }
+
+        var nextRows = visibleOneShotRows
+        let moving = nextRows.remove(at: sourceIndex)
+        let targetIndex = nextRows.firstIndex(where: { $0.id == targetId }) ?? nextRows.count
+        nextRows.insert(moving, at: targetIndex)
+
+        await persistOneShotRowOrder(
+            mergedOneShotRows(nextRows, replacing: visibleOneShotRows),
+            failureMessage: "単発タスクの並べ替えに失敗しました"
+        )
+    }
+
+    func movePinnedOneShotRowsForRoutineScreen(from offsets: IndexSet, to destination: Int) async {
+        let originalRows = pinnedOneShotRowsForRoutineScreen
+        let reorderedRows = reordered(originalRows, from: offsets, to: destination)
+        let nextRows = mergedOneShotRows(reorderedRows, replacing: originalRows)
+
+        await persistOneShotRowOrder(
+            nextRows,
+            failureMessage: "ピン留め単発タスクの並べ替えに失敗しました"
+        )
+    }
+
+    func movePinnedOneShotRowForRoutineScreen(id sourceId: UUID, before targetId: UUID) async {
+        guard
+            sourceId != targetId,
+            let sourceIndex = pinnedOneShotRowsForRoutineScreen.firstIndex(where: { $0.id == sourceId })
+        else {
+            return
+        }
+
+        var nextRows = pinnedOneShotRowsForRoutineScreen
+        let moving = nextRows.remove(at: sourceIndex)
+        let targetIndex = nextRows.firstIndex(where: { $0.id == targetId }) ?? nextRows.count
+        nextRows.insert(moving, at: targetIndex)
+
+        await persistOneShotRowOrder(
+            mergedOneShotRows(nextRows, replacing: pinnedOneShotRowsForRoutineScreen),
+            failureMessage: "ピン留め単発タスクの並べ替えに失敗しました"
+        )
     }
 
     func buildAndCopyWeeklyExport() async -> String? {
@@ -189,7 +272,7 @@ final class TodayState {
     private func persistRow(_ row: TodayItemRowState) async {
         do {
             try await useCases.updateDayEntry.execute(
-                itemId: row.id,
+                item: row.item,
                 date: selectedDate,
                 isCompleted: row.isCompleted
             )
@@ -201,12 +284,12 @@ final class TodayState {
     }
 
     private func rowStates(for date: Date) async throws -> [TodayItemRowState] {
-        pinOneShotRows(try await useCases.loadToday.execute(date: date).map { snapshot in
+        try await useCases.loadToday.execute(date: date).map { snapshot in
             TodayItemRowState(
                 item: snapshot.item,
                 isCompleted: snapshot.entry?.isCompleted ?? false
             )
-        })
+        }
     }
 
     private func syncSelectedDateWithSystemTodayIfNeeded() {
@@ -217,10 +300,17 @@ final class TodayState {
     private func publishWidgetSnapshotForToday() async throws {
         let today = Date()
         let todayRows = calendar.isDate(selectedDate, inSameDayAs: today) ? rows : try await rowStates(for: today)
-        let routineRows = todayRows.filter { $0.item.scheduleKind == .routine }
+        let widgetRows = todayRows.filter { row in
+            switch row.item.scheduleKind {
+            case .routine:
+                return true
+            case .oneShot:
+                return row.item.isPinned && !row.isCompleted
+            }
+        }
         let oneShotCount = todayRows.filter { $0.item.scheduleKind == .oneShot }.count
         try await useCases.publishWidgetSnapshot.execute(
-            rows: routineRows.map { row in
+            rows: widgetRows.map { row in
                 WidgetItemSnapshot(
                     id: row.item.id,
                     title: row.item.title,
@@ -243,9 +333,55 @@ final class TodayState {
         return result
     }
 
-    private func pinOneShotRows(_ values: [TodayItemRowState]) -> [TodayItemRowState] {
-        values.filter { $0.item.scheduleKind == .oneShot }
-            + values.filter { $0.item.scheduleKind == .routine }
+    private func displayOrdered(_ values: [TodayItemRowState]) -> [TodayItemRowState] {
+        values.sorted { first, second in
+            if first.item.isPinned != second.item.isPinned {
+                return first.item.isPinned
+            }
+            if first.item.sortOrder != second.item.sortOrder {
+                return first.item.sortOrder < second.item.sortOrder
+            }
+            return first.item.createdAt < second.item.createdAt
+        }
+    }
+
+    private func persistOneShotRowOrder(
+        _ nextRows: [TodayItemRowState],
+        failureMessage: String
+    ) async {
+        applySortOrders(nextRows)
+
+        do {
+            try await useCases.reorderRoutineItems.execute(ids: nextRows.map(\.id))
+            try await publishWidgetSnapshotForToday()
+            errorMessage = nil
+        } catch {
+            errorMessage = "\(failureMessage): \(error.localizedDescription)"
+            await load()
+        }
+    }
+
+    private func mergedOneShotRows(
+        _ reorderedRows: [TodayItemRowState],
+        replacing originalRows: [TodayItemRowState]
+    ) -> [TodayItemRowState] {
+        let replacedIds = Set(originalRows.map(\.id))
+        var remainingRows = reorderedRows
+
+        return oneShotRows.map { row in
+            guard replacedIds.contains(row.id), !remainingRows.isEmpty else {
+                return row
+            }
+            return remainingRows.removeFirst()
+        }
+    }
+
+    private func applySortOrders(_ reorderedRows: [TodayItemRowState]) {
+        for (sortOrder, row) in reorderedRows.enumerated() {
+            guard let index = rows.firstIndex(where: { $0.id == row.id }) else { continue }
+            rows[index].item.sortOrder = sortOrder
+            rows[index].item.updatedAt = Date()
+        }
     }
 
     private func oneShotTasksMarkdown(rows: [TodayItemRowState]) -> String {

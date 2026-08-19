@@ -234,6 +234,17 @@ final class DayEntryModel {
 }
 
 @Model
+final class OneShotPinModel {
+    @Attribute(.unique) var itemId: UUID
+    var createdAt: Date
+
+    init(itemId: UUID, createdAt: Date) {
+        self.itemId = itemId
+        self.createdAt = createdAt
+    }
+}
+
+@Model
 final class HarnessSettingsModel {
     @Attribute(.unique) var key: String
     var notificationHour: Int
@@ -260,6 +271,7 @@ private enum WidgetSwiftDataStore {
         do {
             let schema = Schema([
                 RoutineItemModel.self,
+                OneShotPinModel.self,
                 DayEntryModel.self,
                 HarnessSettingsModel.self
             ])
@@ -309,6 +321,7 @@ private enum WidgetSwiftDataStore {
         ))
         let entryByItemId = Dictionary(uniqueKeysWithValues: entries.map { ($0.itemId, $0) })
         let completedDateKeyByItemId = earliestCompletedDateKeys(from: completedEntries)
+        let pinnedItemIds = Set(try context.fetch(FetchDescriptor<OneShotPinModel>()).map(\.itemId))
         let calendar = Calendar.autoupdatingCurrent
         let todayWeekday = calendar.component(.weekday, from: date)
 
@@ -330,6 +343,15 @@ private enum WidgetSwiftDataStore {
 
             guard scheduleKind == .routine else {
                 oneShotCount += 1
+                guard pinnedItemIds.contains(item.id), completedDateKeyByItemId[item.id] == nil else {
+                    continue
+                }
+                snapshots.append(WidgetItemSnapshot(
+                    id: item.id,
+                    title: item.title,
+                    sortOrder: item.sortOrder,
+                    isCompleted: false
+                ))
                 continue
             }
 
