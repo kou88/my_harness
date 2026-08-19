@@ -15,6 +15,7 @@ final class TelevisionState {
     var selectedChannel: TelevisionChannel?
     var quality: TelevisionStreamQuality = .high
     var loadState: LoadState = .idle
+    var connectionKind: TelevisionConnectionKind?
 
     private let client: KonomiTVAPIClient
 
@@ -32,6 +33,7 @@ final class TelevisionState {
             selectedChannel = previousSelectionID.flatMap { selectionID in
                 loadedChannels.first { $0.id == selectionID }
             }
+            connectionKind = await client.connectionKind()
             loadState = .loaded
         } catch is CancellationError {
             return

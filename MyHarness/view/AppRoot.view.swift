@@ -4,6 +4,7 @@ import SwiftUI
 struct AppRootView: View {
     @Environment(\.scenePhase) private var scenePhase
     private let dependencies: AppDependencies
+    private let televisionAPIClient: KonomiTVAPIClient
 
     @State private var router = AppRouter()
     @State private var todayState: TodayState
@@ -17,6 +18,10 @@ struct AppRootView: View {
 
     init(dependencies: AppDependencies) {
         self.dependencies = dependencies
+        televisionAPIClient = .automatic(
+            localServerURL: KonomiTVConfiguration.serverURL,
+            remoteAccess: dependencies.actionInbox.televisionRemoteAccess
+        )
         _todayState = State(initialValue: TodayState(useCases: dependencies.useCases))
         _settingsState = State(initialValue: SettingsState(
             useCases: dependencies.useCases,
@@ -121,7 +126,7 @@ struct AppRootView: View {
 
             NavigationStack {
                 TelevisionView(
-                    serverURL: KonomiTVConfiguration.serverURL,
+                    apiClient: televisionAPIClient,
                     onRestoreUserInterface: {
                         router.selectedTab = .television
                     }
