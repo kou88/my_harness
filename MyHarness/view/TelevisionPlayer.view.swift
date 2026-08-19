@@ -1,5 +1,5 @@
 import AVFoundation
-import MobileVLCKit
+import AVKit
 import SwiftUI
 import UIKit
 
@@ -14,79 +14,291 @@ final class TelevisionPlayerController: NSObject, ObservableObject {
         case failed(String)
     }
 
+    private struct PlaybackRequest: Equatable {
+        let channel: TelevisionChannel
+        let quality: TelevisionStreamQuality
+    }
+
     @Published private(set) var playbackState: PlaybackState = .idle
     @Published private(set) var isMuted = false
+    @Published private(set) var isPictureInPicturePossible = false
+    @Published private(set) var isPictureInPictureActive = false
 
-    private let mediaPlayer: VLCMediaPlayer
-    private var currentURL: URL?
+    private let apiClient: KonomiTVAPIClient
+    private let player = AVPlayer()
+    private var currentRequest: PlaybackRequest?
+    private var currentSession: TelevisionLiveStreamSession?
+    private var playbackGeneration = UUID()
+    private var itemStatusObservation: NSKeyValueObservation?
+    private var timeControlObservation: NSKeyValueObservation?
+    private var pictureInPicturePossibleObservation: NSKeyValueObservation?
+    private var pictureInPictureController: AVPictureInPictureController?
+    private weak var pictureInPicturePlayerLayer: AVPlayerLayer?
+    private var isPictureInPictureStarting = false
+    private var backgroundCleanupTask: Task<Void, Never>?
+    private var notificationObservers: [NSObjectProtocol] = []
+    private let onRestoreUserInterface: @MainActor () -> Void
 
-    override init() {
-        mediaPlayer = VLCMediaPlayer(options: [
-            "--network-caching=1000",
-            "--live-caching=1000",
-            "--clock-jitter=0",
-            "--clock-synchro=0",
-        ])
+    init(
+        apiClient: KonomiTVAPIClient,
+        onRestoreUserInterface: @escaping @MainActor () -> Void
+    ) {
+        self.apiClient = apiClient
+        self.onRestoreUserInterface = onRestoreUserInterface
         super.init()
-        mediaPlayer.delegate = self
+
+        player.automaticallyWaitsToMinimizeStalling = true
+        timeControlObservation = player.observe(\.timeControlStatus, options: [.initial, .new]) {
+            [weak self] _, _ in
+            Task { @MainActor [weak self] in
+                self?.updatePlaybackStateFromPlayer()
+            }
+        }
     }
 
-    func attach(to view: UIView) {
-        mediaPlayer.drawable = view
+    func attach(to view: TelevisionPlayerSurfaceView) {
+        let layer = view.playerLayer
+        layer.player = player
+        layer.videoGravity = .resizeAspect
+        guard pictureInPictureController?.isPictureInPictureActive != true else { return }
+        guard pictureInPicturePlayerLayer !== layer else { return }
+        configurePictureInPicture(for: layer)
     }
 
-    func detach(from view: UIView) {
-        guard let drawable = mediaPlayer.drawable as? UIView, drawable === view else { return }
-        mediaPlayer.drawable = nil
-    }
-
-    func play(url: URL) {
+    func play(channel: TelevisionChannel, quality: TelevisionStreamQuality) {
         guard configureAudioSession() else { return }
 
-        if currentURL == url, playbackState == .paused {
-            mediaPlayer.play()
+        let request = PlaybackRequest(channel: channel, quality: quality)
+        if currentRequest == request, playbackState == .paused {
+            player.play()
             return
         }
 
-        mediaPlayer.stop()
-        let media = VLCMedia(url: url)
-        media.addOption(":network-caching=1000")
-        media.addOption(":live-caching=1000")
-        mediaPlayer.media = media
-        currentURL = url
+        currentRequest = request
+        let generation = UUID()
+        playbackGeneration = generation
+        let previousSession = currentSession
+        currentSession = nil
+        resetPlayerItem()
         playbackState = .opening
-        mediaPlayer.play()
+
+        Task { [weak self] in
+            guard let self else { return }
+
+            if let previousSession {
+                try? await apiClient.stopLiveStream(previousSession)
+            }
+
+            guard playbackGeneration == generation else { return }
+
+            do {
+                let session = try await apiClient.startLiveStream(channel, quality)
+                guard playbackGeneration == generation else {
+                    try? await apiClient.stopLiveStream(session)
+                    return
+                }
+
+                currentSession = session
+                installPlayerItem(url: session.playlistURL)
+            } catch is CancellationError {
+                return
+            } catch {
+                guard playbackGeneration == generation else { return }
+                playbackState = .failed(
+                    "映像を開始できませんでした。\n\(error.localizedDescription)"
+                )
+            }
+        }
     }
 
     func retry() {
-        guard let currentURL else { return }
-        play(url: currentURL)
+        guard let currentRequest else { return }
+        play(channel: currentRequest.channel, quality: currentRequest.quality)
     }
 
     func togglePlayPause() {
         switch playbackState {
         case .playing, .buffering, .opening:
-            mediaPlayer.pause()
+            player.pause()
         case .paused:
-            mediaPlayer.play()
+            player.play()
         case .failed:
             retry()
         case .idle:
-            guard let currentURL else { return }
-            play(url: currentURL)
+            guard let currentRequest else { return }
+            play(channel: currentRequest.channel, quality: currentRequest.quality)
         }
     }
 
     func toggleMute() {
         isMuted.toggle()
-        mediaPlayer.audio?.isMuted = isMuted
+        player.isMuted = isMuted
+    }
+
+    func togglePictureInPicture() {
+        guard let pictureInPictureController else { return }
+        if pictureInPictureController.isPictureInPictureActive {
+            pictureInPictureController.stopPictureInPicture()
+        } else if pictureInPictureController.isPictureInPicturePossible {
+            pictureInPictureController.startPictureInPicture()
+        }
+    }
+
+    func handleScenePhase(_ phase: ScenePhase) {
+        backgroundCleanupTask?.cancel()
+        backgroundCleanupTask = nil
+
+        guard phase == .background else { return }
+        backgroundCleanupTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled, let self else { return }
+            guard !isPictureInPictureActive, !isPictureInPictureStarting else { return }
+            stop()
+        }
+    }
+
+    func stopUnlessPictureInPictureIsActive() {
+        guard !isPictureInPictureActive, !isPictureInPictureStarting else { return }
+        stop()
     }
 
     func stop() {
-        mediaPlayer.stop()
-        mediaPlayer.media = nil
-        currentURL = nil
+        backgroundCleanupTask?.cancel()
+        backgroundCleanupTask = nil
+        playbackGeneration = UUID()
+
+        let session = currentSession
+        currentSession = nil
+        currentRequest = nil
+        resetPlayerItem()
         playbackState = .idle
+
+        if let session {
+            Task { [apiClient] in
+                try? await apiClient.stopLiveStream(session)
+            }
+        }
+    }
+
+    private func installPlayerItem(url: URL) {
+        removePlayerItemObservers()
+
+        let item = AVPlayerItem(url: url)
+        item.preferredForwardBufferDuration = 2
+        itemStatusObservation = item.observe(\.status, options: [.initial, .new]) {
+            [weak self, weak item] _, _ in
+            Task { @MainActor [weak self, weak item] in
+                guard let self, let item else { return }
+                switch item.status {
+                case .readyToPlay:
+                    playbackState = .buffering
+                    player.play()
+                case .failed:
+                    playbackState = .failed(
+                        item.error?.localizedDescription
+                            ?? "映像を再生できませんでした。同じWi-Fiに接続して再試行してください。"
+                    )
+                case .unknown:
+                    break
+                @unknown default:
+                    playbackState = .failed("不明な再生エラーが発生しました。")
+                }
+            }
+        }
+
+        let center = NotificationCenter.default
+        notificationObservers = [
+            center.addObserver(
+                forName: .AVPlayerItemPlaybackStalled,
+                object: item,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.playbackState = .buffering
+                }
+            },
+            center.addObserver(
+                forName: .AVPlayerItemFailedToPlayToEndTime,
+                object: item,
+                queue: .main
+            ) { [weak self] notification in
+                Task { @MainActor [weak self] in
+                    let error = notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey]
+                        as? Error
+                    self?.playbackState = .failed(
+                        error?.localizedDescription ?? "映像の再生が途中で停止しました。"
+                    )
+                }
+            },
+        ]
+
+        player.replaceCurrentItem(with: item)
+    }
+
+    private func resetPlayerItem() {
+        player.pause()
+        player.replaceCurrentItem(with: nil)
+        removePlayerItemObservers()
+    }
+
+    private func removePlayerItemObservers() {
+        itemStatusObservation?.invalidate()
+        itemStatusObservation = nil
+        for observer in notificationObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        notificationObservers = []
+    }
+
+    private func updatePlaybackStateFromPlayer() {
+        guard currentSession != nil else { return }
+        switch player.timeControlStatus {
+        case .paused:
+            if playbackState != .opening, !isFailureState {
+                playbackState = .paused
+            }
+        case .waitingToPlayAtSpecifiedRate:
+            if !isFailureState {
+                playbackState = .buffering
+            }
+        case .playing:
+            playbackState = .playing
+        @unknown default:
+            playbackState = .failed("不明な再生エラーが発生しました。")
+        }
+    }
+
+    private var isFailureState: Bool {
+        if case .failed = playbackState { return true }
+        return false
+    }
+
+    private func configurePictureInPicture(for playerLayer: AVPlayerLayer) {
+        // Published 値の更新で SwiftUI が同期的に再描画しても再初期化されないよう、
+        // 最初に対象レイヤーを記録する
+        pictureInPicturePlayerLayer = playerLayer
+        pictureInPicturePossibleObservation?.invalidate()
+        pictureInPicturePossibleObservation = nil
+        pictureInPictureController = nil
+        if isPictureInPicturePossible {
+            isPictureInPicturePossible = false
+        }
+
+        guard AVPictureInPictureController.isPictureInPictureSupported() else { return }
+
+        guard let controller = AVPictureInPictureController(playerLayer: playerLayer) else { return }
+        controller.delegate = self
+        controller.requiresLinearPlayback = true
+        controller.canStartPictureInPictureAutomaticallyFromInline = true
+        pictureInPicturePossibleObservation = controller.observe(
+            \.isPictureInPicturePossible,
+            options: [.initial, .new]
+        ) { [weak self] controller, _ in
+            Task { @MainActor [weak self] in
+                self?.isPictureInPicturePossible = controller.isPictureInPicturePossible
+            }
+        }
+        pictureInPictureController = controller
     }
 
     private func configureAudioSession() -> Bool {
@@ -100,52 +312,81 @@ final class TelevisionPlayerController: NSObject, ObservableObject {
             return false
         }
     }
+}
 
-    private func updatePlaybackState() {
-        switch mediaPlayer.state {
-        case .stopped, .ended:
-            playbackState = .idle
-        case .opening:
-            playbackState = .opening
-        case .buffering, .esAdded:
-            playbackState = .buffering
-        case .playing:
-            playbackState = .playing
-        case .paused:
-            playbackState = .paused
-        case .error:
-            playbackState = .failed("映像を再生できませんでした。同じWi-Fiに接続して再試行してください。")
-        @unknown default:
-            playbackState = .failed("不明な再生エラーが発生しました。")
+extension TelevisionPlayerController: AVPictureInPictureControllerDelegate {
+    nonisolated func pictureInPictureControllerWillStartPictureInPicture(
+        _ pictureInPictureController: AVPictureInPictureController
+    ) {
+        Task { @MainActor [weak self] in
+            self?.isPictureInPictureStarting = true
+        }
+    }
+
+    nonisolated func pictureInPictureControllerDidStartPictureInPicture(
+        _ pictureInPictureController: AVPictureInPictureController
+    ) {
+        Task { @MainActor [weak self] in
+            self?.isPictureInPictureStarting = false
+            self?.isPictureInPictureActive = true
+        }
+    }
+
+    nonisolated func pictureInPictureController(
+        _ pictureInPictureController: AVPictureInPictureController,
+        failedToStartPictureInPictureWithError error: Error
+    ) {
+        Task { @MainActor [weak self] in
+            self?.isPictureInPictureStarting = false
+            self?.isPictureInPictureActive = false
+        }
+    }
+
+    nonisolated func pictureInPictureControllerDidStopPictureInPicture(
+        _ pictureInPictureController: AVPictureInPictureController
+    ) {
+        Task { @MainActor [weak self] in
+            self?.isPictureInPictureStarting = false
+            self?.isPictureInPictureActive = false
+        }
+    }
+
+    nonisolated func pictureInPictureController(
+        _ pictureInPictureController: AVPictureInPictureController,
+        restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void
+    ) {
+        Task { @MainActor [weak self] in
+            guard let self else {
+                completionHandler(false)
+                return
+            }
+            onRestoreUserInterface()
+            completionHandler(true)
         }
     }
 }
 
-extension TelevisionPlayerController: VLCMediaPlayerDelegate {
-    nonisolated func mediaPlayerStateChanged(_ aNotification: Notification) {
-        Task { @MainActor [weak self] in
-            self?.updatePlaybackState()
-        }
+final class TelevisionPlayerSurfaceView: UIView {
+    override static var layerClass: AnyClass { AVPlayerLayer.self }
+
+    var playerLayer: AVPlayerLayer {
+        layer as! AVPlayerLayer
     }
 }
 
 struct TelevisionVideoSurface: UIViewRepresentable {
     @ObservedObject var controller: TelevisionPlayerController
 
-    func makeUIView(context: Context) -> UIView {
-        let view = UIView()
+    func makeUIView(context: Context) -> TelevisionPlayerSurfaceView {
+        let view = TelevisionPlayerSurfaceView()
         view.backgroundColor = .black
         view.isUserInteractionEnabled = false
         controller.attach(to: view)
         return view
     }
 
-    func updateUIView(_ view: UIView, context: Context) {
+    func updateUIView(_ view: TelevisionPlayerSurfaceView, context: Context) {
         controller.attach(to: view)
-    }
-
-    static func dismantleUIView(_ view: UIView, coordinator: Void) {
-        // The same controller can move between the inline and full-screen surfaces.
     }
 }
 
@@ -199,6 +440,18 @@ struct FullScreenTelevisionPlayer: View {
                         Image(systemName: controller.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
                     }
                     .accessibilityLabel(controller.isMuted ? "ミュート解除" : "ミュート")
+
+                    Button {
+                        controller.togglePictureInPicture()
+                    } label: {
+                        Image(systemName: controller.isPictureInPictureActive
+                            ? "pip.exit"
+                            : "pip.enter")
+                    }
+                    .disabled(!controller.isPictureInPicturePossible)
+                    .accessibilityLabel(controller.isPictureInPictureActive
+                        ? "ピクチャ・イン・ピクチャを終了"
+                        : "ピクチャ・イン・ピクチャを開始")
                 }
                 .font(.title2)
                 .foregroundStyle(.white)

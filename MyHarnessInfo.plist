@@ -57,6 +57,10 @@
 	<true/>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>同一LAN内のテレビサーバーへ接続して、テレビ番組を視聴します。</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
