@@ -5,6 +5,7 @@ struct AppRootView: View {
     @Environment(\.scenePhase) private var scenePhase
     private let dependencies: AppDependencies
     private let televisionAPIClient: KonomiTVAPIClient
+    @StateObject private var televisionPlayerController: TelevisionPlayerController
 
     @State private var router = AppRouter()
     @State private var todayState: TodayState
@@ -18,10 +19,14 @@ struct AppRootView: View {
 
     init(dependencies: AppDependencies) {
         self.dependencies = dependencies
-        televisionAPIClient = .automatic(
+        let televisionAPIClient = KonomiTVAPIClient.automatic(
             localServerURL: KonomiTVConfiguration.serverURL,
             expectedGatewayBaseURL: KonomiTVConfiguration.expectedGatewayBaseURL,
             remoteAccess: dependencies.actionInbox.televisionRemoteAccess
+        )
+        self.televisionAPIClient = televisionAPIClient
+        _televisionPlayerController = StateObject(
+            wrappedValue: TelevisionPlayerController(apiClient: televisionAPIClient)
         )
         _todayState = State(initialValue: TodayState(useCases: dependencies.useCases))
         _settingsState = State(initialValue: SettingsState(
@@ -128,9 +133,7 @@ struct AppRootView: View {
             NavigationStack {
                 TelevisionView(
                     apiClient: televisionAPIClient,
-                    onRestoreUserInterface: {
-                        router.selectedTab = .television
-                    }
+                    playerController: televisionPlayerController
                 )
             }
             .tabItem {
@@ -156,6 +159,9 @@ struct AppRootView: View {
                 }
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .televisionShouldRestoreUserInterface)) { _ in
+            router.selectedTab = .television
+        }
         .onReceive(NotificationCenter.default.publisher(for: .actionPushRegistrationFailed)) { notification in
             guard let message = notification.object as? String else { return }
             actionInboxState.reportPushRegistrationFailure(message)
@@ -164,7 +170,18 @@ struct AppRootView: View {
         .onReceive(NotificationCenter.default.publisher(for: .actionPushRegistrationStatusChanged)) { _ in
             Task { await settingsState.refreshPushRegistrationState() }
         }
+        .onChange(of: router.selectedTab) { previousTab, selectedTab in
+            if previousTab == .television,
+               selectedTab != .television,
+               scenePhase == .active {
+                televisionPlayerController.handleForegroundTabExit()
+            }
+        }
         .onChange(of: scenePhase) { _, phase in
+            televisionPlayerController.handleScenePhase(phase)
+            if phase == .active, router.selectedTab != .television {
+                televisionPlayerController.handleForegroundTabExit()
+            }
             guard phase == .active,
                   Date().timeIntervalSince(lastForegroundRefreshAt) >= 15 else {
                 return

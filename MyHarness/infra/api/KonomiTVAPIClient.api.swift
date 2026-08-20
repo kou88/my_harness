@@ -10,6 +10,7 @@ struct KonomiTVAPIClient: Sendable {
     var stopLiveStream: @Sendable (_ session: TelevisionLiveStreamSession) async throws -> Void
     var connectionKind: @Sendable () async -> TelevisionConnectionKind?
     var release: @Sendable () async -> Void
+    var cancelPendingStarts: @Sendable () async -> Void
 }
 
 extension KonomiTVAPIClient {
@@ -69,21 +70,26 @@ extension KonomiTVAPIClient {
             stopLiveStream: { liveStreamSession in
                 var request = URLRequest(url: liveStreamSession.disconnectURL)
                 request.httpMethod = "DELETE"
-                let (_, response) = try await session.data(for: request)
+                let (data, response) = try await session.data(for: request)
                 guard let httpResponse = response as? HTTPURLResponse else {
                     throw KonomiTVAPIError.invalidResponse
                 }
-                guard httpResponse.statusCode == 204 || httpResponse.statusCode == 422 else {
+                guard KonomiTVLiveStreamDeletionPolicy.isTerminalSuccess(
+                    statusCode: httpResponse.statusCode,
+                    contentType: httpResponse.value(forHTTPHeaderField: "Content-Type") ?? "",
+                    responseBody: data
+                ) else {
                     throw KonomiTVAPIError.unexpectedStatus(httpResponse.statusCode)
                 }
             },
             connectionKind: { .localNetwork },
-            release: {}
+            release: {},
+            cancelPendingStarts: {}
         )
     }
 }
 
-enum KonomiTVAPIError: LocalizedError {
+enum KonomiTVAPIError: LocalizedError, Equatable {
     case invalidResponse
     case unexpectedStatus(Int)
 
