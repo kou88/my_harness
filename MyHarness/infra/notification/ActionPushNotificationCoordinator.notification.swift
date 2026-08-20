@@ -508,6 +508,14 @@ final class MyHarnessAppDelegate: NSObject, UIApplicationDelegate, UNUserNotific
         ActionPushNotificationCoordinator.shared.didFailToRegisterForRemoteNotifications(error: error)
     }
 
+    func application(
+        _ application: UIApplication,
+        supportedInterfaceOrientationsFor window: UIWindow?
+    ) -> UIInterfaceOrientationMask {
+        guard UIDevice.current.userInterfaceIdiom == .phone else { return .all }
+        return TelevisionInterfaceOrientationController.shared.supportedOrientations
+    }
+
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification
