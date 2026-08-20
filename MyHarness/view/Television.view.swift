@@ -32,21 +32,17 @@ enum KonomiTVConfiguration {
 struct TelevisionView: View {
     private let client: KonomiTVAPIClient
 
-    @Environment(\.scenePhase) private var scenePhase
     @State private var state: TelevisionState
-    @StateObject private var playerController: TelevisionPlayerController
+    @ObservedObject private var playerController: TelevisionPlayerController
     @State private var isFullScreen = false
 
     init(
         apiClient: KonomiTVAPIClient,
-        onRestoreUserInterface: @escaping @MainActor () -> Void = {}
+        playerController: TelevisionPlayerController
     ) {
         self.client = apiClient
         _state = State(initialValue: TelevisionState(client: apiClient))
-        _playerController = StateObject(wrappedValue: TelevisionPlayerController(
-            apiClient: apiClient,
-            onRestoreUserInterface: onRestoreUserInterface
-        ))
+        self.playerController = playerController
     }
 
     var body: some View {
@@ -68,12 +64,6 @@ struct TelevisionView: View {
         .onChange(of: state.quality) { _, _ in
             guard let channel = state.selectedChannel else { return }
             startPlayback(channel)
-        }
-        .onChange(of: scenePhase) { _, phase in
-            playerController.handleScenePhase(phase)
-        }
-        .onDisappear {
-            playerController.stopUnlessPictureInPictureIsActive()
         }
         .fullScreenCover(isPresented: $isFullScreen) {
             if let channel = state.selectedChannel {
@@ -375,9 +365,13 @@ struct TelevisionView: View {
 
 #Preview {
     NavigationStack {
-        TelevisionView(apiClient: .live(
+        let apiClient = KonomiTVAPIClient.live(
             serverURL: URL(string: "https://192-168-11-54.local.konomi.tv:7000/")!
-        ))
+        )
+        TelevisionView(
+            apiClient: apiClient,
+            playerController: TelevisionPlayerController(apiClient: apiClient)
+        )
     }
 }
 

@@ -1,5 +1,6 @@
 import AVFoundation
 import AVKit
+import MediaPlayer
 import SwiftUI
 import UIKit
 
@@ -14,7 +15,7 @@ final class TelevisionPlayerController: NSObject, ObservableObject {
         case failed(String)
     }
 
-    private struct PlaybackRequest: Equatable {
+    private struct PlaybackRequest: Equatable, Sendable {
         let channel: TelevisionChannel
         let quality: TelevisionStreamQuality
     }
@@ -30,24 +31,34 @@ final class TelevisionPlayerController: NSObject, ObservableObject {
     private var currentSession: TelevisionLiveStreamSession?
     private var playbackTask: Task<Void, Never>?
     private var sessionsPendingRelease: [TelevisionLiveStreamSession] = []
-    private var playbackGeneration = UUID()
+    private var playbackGeneration: UInt64 = 0
     private var itemStatusObservation: NSKeyValueObservation?
+    private var currentPlayerItemGeneration: UInt64?
     private var timeControlObservation: NSKeyValueObservation?
     private var pictureInPicturePossibleObservation: NSKeyValueObservation?
     private var pictureInPictureController: AVPictureInPictureController?
     private weak var pictureInPicturePlayerLayer: AVPlayerLayer?
     private var isPictureInPictureStarting = false
     private var currentScenePhase: ScenePhase = .active
-    private var backgroundCleanupTask: Task<Void, Never>?
-    private var notificationObservers: [NSObjectProtocol] = []
-    private let onRestoreUserInterface: @MainActor () -> Void
+    private var isRestoringUserInterfaceFromPictureInPicture = false
+    private var didReleaseAfterPictureInPictureClose = false
+    private var isStoppingPictureInPictureForSessionRelease = false
+    private var playerItemNotificationObservers: [NSObjectProtocol] = []
+    private var audioNotificationObservers: [NSObjectProtocol] = []
+    private var pauseReleaseTask: Task<Void, Never>?
+    private var playbackRestartTask: Task<Void, Never>?
+    private var stallWatchdogTask: Task<Void, Never>?
+    private var logoTask: Task<Void, Never>?
+    private var playbackRestartAttempts = 0
+    private var requiresFreshPlaybackOnResume = false
+    private var pausedAt: Date?
+    private var shouldPlayWhenReady = true
+    private var wasPlayingBeforeInterruption = false
+    private let nowPlayingPublisher = TelevisionNowPlayingPublisher()
+    private var remoteCommandController: TelevisionRemoteCommandController!
 
-    init(
-        apiClient: KonomiTVAPIClient,
-        onRestoreUserInterface: @escaping @MainActor () -> Void
-    ) {
+    init(apiClient: KonomiTVAPIClient) {
         self.apiClient = apiClient
-        self.onRestoreUserInterface = onRestoreUserInterface
         super.init()
 
         player.automaticallyWaitsToMinimizeStalling = true
@@ -57,6 +68,12 @@ final class TelevisionPlayerController: NSObject, ObservableObject {
                 self?.updatePlaybackStateFromPlayer()
             }
         }
+        observeAudioSession()
+        remoteCommandController = TelevisionRemoteCommandController(
+            play: { [weak self] in self?.resumePlayback() },
+            pause: { [weak self] in self?.pausePlayback() },
+            stop: { [weak self] in self?.stop() }
+        )
     }
 
     func attach(to view: TelevisionPlayerSurfaceView) {
@@ -69,25 +86,65 @@ final class TelevisionPlayerController: NSObject, ObservableObject {
     }
 
     func play(channel: TelevisionChannel, quality: TelevisionStreamQuality) {
-        guard configureAudioSession() else { return }
-
         let request = PlaybackRequest(channel: channel, quality: quality)
-        if currentRequest == request, playbackState == .paused {
-            player.play()
+        if currentRequest == request, currentSession != nil {
+            switch playbackState {
+            case .paused:
+                resumePlayback()
+            case .opening, .buffering, .playing:
+                break
+            case .idle, .failed:
+                beginPlayback(request, resetRestartAttempts: true)
+            }
             return
         }
+        beginPlayback(request, resetRestartAttempts: true)
+    }
 
+    private func beginPlayback(
+        _ request: PlaybackRequest,
+        resetRestartAttempts: Bool
+    ) {
+        guard configureAudioSession() else {
+            let failureState = playbackState
+            stop()
+            currentRequest = request
+            playbackState = failureState
+            return
+        }
         currentRequest = request
-        let generation = UUID()
-        playbackGeneration = generation
+
+        if resetRestartAttempts {
+            playbackRestartAttempts = 0
+        }
+        pauseReleaseTask?.cancel()
+        pauseReleaseTask = nil
+        playbackRestartTask?.cancel()
+        playbackRestartTask = nil
+        stallWatchdogTask?.cancel()
+        stallWatchdogTask = nil
+        requiresFreshPlaybackOnResume = false
+        pausedAt = nil
+        shouldPlayWhenReady = true
+
+        let generation = nextPlaybackGeneration()
         let previousSession = currentSession
         currentSession = nil
         resetPlayerItem()
         playbackState = .opening
+        nowPlayingPublisher.publish(
+            metadata: nowPlayingMetadata(for: request.channel, rate: 0),
+            artwork: nil
+        )
+
+        let cancellationTask = Task { [apiClient] in
+            await apiClient.cancelPendingStarts()
+        }
 
         let precedingTask = playbackTask
         playbackTask = Task { [weak self] in
             guard let self else { return }
+            await cancellationTask.value
             await precedingTask?.value
 
             if let previousSession {
@@ -97,29 +154,34 @@ final class TelevisionPlayerController: NSObject, ObservableObject {
             do {
                 try await releasePendingSessions()
             } catch {
-                guard playbackGeneration == generation else { return }
+                guard isCurrent(generation) else { return }
                 playbackState = .failed(
                     "前のチャンネルを解放できませんでした。\n\(error.localizedDescription)"
                 )
                 return
             }
 
-            guard playbackGeneration == generation else { return }
+            guard isCurrent(generation) else { return }
 
             do {
-                let session = try await apiClient.startLiveStream(channel, quality)
-                guard playbackGeneration == generation else {
+                let session = try await apiClient.startLiveStream(
+                    request.channel,
+                    request.quality
+                )
+                guard isCurrent(generation) else {
                     sessionsPendingRelease.append(session)
                     try? await releasePendingSessions()
                     return
                 }
 
                 currentSession = session
-                installPlayerItem(url: session.playlistURL)
+                installPlayerItem(url: session.playlistURL, generation: generation)
+                loadNowPlayingArtwork(for: request.channel, generation: generation)
+                startPictureInPictureAutomaticallyIfPossible()
             } catch is CancellationError {
                 return
             } catch {
-                guard playbackGeneration == generation else { return }
+                guard isCurrent(generation) else { return }
                 playbackState = .failed(
                     "映像を開始できませんでした。\n\(error.localizedDescription)"
                 )
@@ -129,20 +191,75 @@ final class TelevisionPlayerController: NSObject, ObservableObject {
 
     func retry() {
         guard let currentRequest else { return }
-        play(channel: currentRequest.channel, quality: currentRequest.quality)
+        beginPlayback(currentRequest, resetRestartAttempts: true)
     }
 
     func togglePlayPause() {
         switch playbackState {
         case .playing, .buffering, .opening:
-            player.pause()
+            pausePlayback()
         case .paused:
-            player.play()
+            resumePlayback()
         case .failed:
             retry()
         case .idle:
             guard let currentRequest else { return }
             play(channel: currentRequest.channel, quality: currentRequest.quality)
+        }
+    }
+
+    func pausePlayback() {
+        wasPlayingBeforeInterruption = false
+        switch playbackState {
+        case .opening, .buffering, .playing:
+            playbackRestartTask?.cancel()
+            playbackRestartTask = nil
+            stallWatchdogTask?.cancel()
+            stallWatchdogTask = nil
+            shouldPlayWhenReady = false
+            player.pause()
+            playbackState = .paused
+            pausedAt = Date()
+            publishPlaybackRate(0)
+            schedulePausedSessionRelease()
+        case .idle, .paused, .failed:
+            break
+        }
+    }
+
+    func resumePlayback() {
+        guard let currentRequest else { return }
+        guard configureAudioSession() else { return }
+        if let pausedAt,
+           TelevisionPauseLeasePolicy.action(
+            pausedDuration: Date().timeIntervalSince(pausedAt)
+           ) == .releaseSessionKeepingRequest {
+            releaseSessionForExtendedPause()
+            beginPlayback(currentRequest, resetRestartAttempts: true)
+            return
+        }
+        pauseReleaseTask?.cancel()
+        pauseReleaseTask = nil
+        pausedAt = nil
+        shouldPlayWhenReady = true
+        if case .failed = playbackState {
+            beginPlayback(currentRequest, resetRestartAttempts: true)
+            return
+        }
+        if requiresFreshPlaybackOnResume || player.currentItem?.status == .failed {
+            beginPlayback(currentRequest, resetRestartAttempts: false)
+            return
+        }
+        if currentSession != nil, player.currentItem != nil {
+            playbackState = .buffering
+            player.play()
+            if let item = player.currentItem,
+               let generation = currentPlayerItemGeneration {
+                scheduleStallWatchdog(for: item, generation: generation)
+            }
+            startPictureInPictureAutomaticallyIfPossible()
+        } else {
+            beginPlayback(currentRequest, resetRestartAttempts: true)
         }
     }
 
@@ -162,46 +279,56 @@ final class TelevisionPlayerController: NSObject, ObservableObject {
 
     func handleScenePhase(_ phase: ScenePhase) {
         currentScenePhase = phase
-        backgroundCleanupTask?.cancel()
-        backgroundCleanupTask = nil
-
-        guard phase == .background else { return }
-
-        // canStartPictureInPictureAutomaticallyFromInline を有効にした上で、
-        // ホーム画面への遷移時にも明示的に開始を要求する。
-        // 手動で一時停止している場合は、ユーザーの意図を尊重して開始しない。
-        startPictureInPictureAutomaticallyIfPossible()
-
-        backgroundCleanupTask = Task { [weak self] in
-            // PiP の開始コールバックを待ちつつ、開始できなかった配信は
-            // チューナーを占有し続けないよう確実に解放する。
-            try? await Task.sleep(for: .seconds(5))
-            guard !Task.isCancelled, let self else { return }
-            guard pictureInPictureController?.isPictureInPictureActive != true else { return }
-            isPictureInPictureStarting = false
-            stop()
+        if phase == .active {
+            releaseExpiredPausedSessionIfNeeded()
+            return
         }
+        guard phase == .background else { return }
+        startPictureInPictureAutomaticallyIfPossible()
     }
 
-    func stopUnlessPictureInPictureIsActive() {
-        guard !isPictureInPictureActive, !isPictureInPictureStarting else { return }
+    func handleForegroundTabExit() {
+        guard currentScenePhase == .active else { return }
         stop()
     }
 
     func stop() {
-        backgroundCleanupTask?.cancel()
-        backgroundCleanupTask = nil
-        playbackGeneration = UUID()
+        _ = nextPlaybackGeneration()
+        pauseReleaseTask?.cancel()
+        pauseReleaseTask = nil
+        playbackRestartTask?.cancel()
+        playbackRestartTask = nil
+        stallWatchdogTask?.cancel()
+        stallWatchdogTask = nil
+        requiresFreshPlaybackOnResume = false
+        pausedAt = nil
+        logoTask?.cancel()
+        logoTask = nil
+        shouldPlayWhenReady = false
+        wasPlayingBeforeInterruption = false
+        didReleaseAfterPictureInPictureClose = true
+        isStoppingPictureInPictureForSessionRelease = false
+        if pictureInPictureController?.isPictureInPictureActive == true
+            || isPictureInPictureStarting {
+            pictureInPictureController?.stopPictureInPicture()
+        }
 
         let session = currentSession
         currentSession = nil
         currentRequest = nil
         resetPlayerItem()
         playbackState = .idle
+        nowPlayingPublisher.clear()
+        deactivateAudioSession()
+
+        let cancellationTask = Task { [apiClient] in
+            await apiClient.cancelPendingStarts()
+        }
 
         let precedingTask = playbackTask
         playbackTask = Task { [weak self] in
             guard let self else { return }
+            await cancellationTask.value
             await precedingTask?.value
             if let session {
                 sessionsPendingRelease.append(session)
@@ -219,16 +346,16 @@ final class TelevisionPlayerController: NSObject, ObservableObject {
     }
 
     private func startPictureInPictureAutomaticallyIfPossible() {
-        guard currentSession != nil else { return }
-        switch playbackState {
-        case .opening, .buffering, .playing:
-            break
-        case .idle, .paused, .failed:
-            return
-        }
-
-        guard let pictureInPictureController,
-              pictureInPictureController.isPictureInPicturePossible,
+        let action = TelevisionBackgroundPlaybackPolicy.action(
+            isAppInBackground: currentScenePhase == .background,
+            hasLiveSession: currentSession != nil,
+            isActivelyPlaying: playbackState == .opening
+                || playbackState == .buffering
+                || playbackState == .playing,
+            isPictureInPicturePossible: pictureInPictureController?.isPictureInPicturePossible == true
+        )
+        guard action == .startPictureInPicture,
+              let pictureInPictureController,
               !pictureInPictureController.isPictureInPictureActive,
               !isPictureInPictureStarting else {
             return
@@ -238,41 +365,52 @@ final class TelevisionPlayerController: NSObject, ObservableObject {
         pictureInPictureController.startPictureInPicture()
     }
 
-    private func installPlayerItem(url: URL) {
+    private func installPlayerItem(url: URL, generation: UInt64) {
         removePlayerItemObservers()
 
         let item = AVPlayerItem(url: url)
+        currentPlayerItemGeneration = generation
         item.preferredForwardBufferDuration = 2
         itemStatusObservation = item.observe(\.status, options: [.initial, .new]) {
             [weak self, weak item] _, _ in
             Task { @MainActor [weak self, weak item] in
                 guard let self, let item else { return }
+                guard self.isCurrent(generation), self.player.currentItem === item else { return }
                 switch item.status {
                 case .readyToPlay:
+                    cancelStallWatchdog()
                     playbackState = .buffering
-                    player.play()
+                    if shouldPlayWhenReady {
+                        player.play()
+                        scheduleStallWatchdog(for: item, generation: generation)
+                    } else {
+                        playbackState = .paused
+                    }
                 case .failed:
-                    playbackState = .failed(
+                    handlePlaybackFailure(
                         item.error?.localizedDescription
-                            ?? "映像を再生できませんでした。同じWi-Fiに接続して再試行してください。"
+                            ?? "映像を再生できませんでした。"
                     )
                 case .unknown:
                     break
                 @unknown default:
-                    playbackState = .failed("不明な再生エラーが発生しました。")
+                    handlePlaybackFailure("不明な再生エラーが発生しました。")
                 }
             }
         }
 
         let center = NotificationCenter.default
-        notificationObservers = [
+        playerItemNotificationObservers = [
             center.addObserver(
                 forName: .AVPlayerItemPlaybackStalled,
                 object: item,
                 queue: .main
             ) { [weak self] _ in
                 Task { @MainActor [weak self] in
-                    self?.playbackState = .buffering
+                    guard let self, self.player.currentItem === item,
+                          self.isCurrent(generation) else { return }
+                    self.playbackState = .buffering
+                    self.scheduleStallWatchdog(for: item, generation: generation)
                 }
             },
             center.addObserver(
@@ -283,7 +421,8 @@ final class TelevisionPlayerController: NSObject, ObservableObject {
                 Task { @MainActor [weak self] in
                     let error = notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey]
                         as? Error
-                    self?.playbackState = .failed(
+                    guard self?.player.currentItem === item else { return }
+                    self?.handlePlaybackFailure(
                         error?.localizedDescription ?? "映像の再生が途中で停止しました。"
                     )
                 }
@@ -291,9 +430,18 @@ final class TelevisionPlayerController: NSObject, ObservableObject {
         ]
 
         player.replaceCurrentItem(with: item)
+        if shouldPlayWhenReady {
+            playbackState = .buffering
+            scheduleStallWatchdog(for: item, generation: generation)
+        } else {
+            playbackState = .paused
+            cancelStallWatchdog()
+        }
     }
 
     private func resetPlayerItem() {
+        cancelStallWatchdog()
+        currentPlayerItemGeneration = nil
         player.pause()
         player.replaceCurrentItem(with: nil)
         removePlayerItemObservers()
@@ -302,25 +450,37 @@ final class TelevisionPlayerController: NSObject, ObservableObject {
     private func removePlayerItemObservers() {
         itemStatusObservation?.invalidate()
         itemStatusObservation = nil
-        for observer in notificationObservers {
+        for observer in playerItemNotificationObservers {
             NotificationCenter.default.removeObserver(observer)
         }
-        notificationObservers = []
+        playerItemNotificationObservers = []
     }
 
     private func updatePlaybackStateFromPlayer() {
         guard currentSession != nil else { return }
+        guard TelevisionPlaybackObservationPolicy.shouldProcessPlayerProgress(
+            shouldPlayWhenReady: shouldPlayWhenReady
+        ) else {
+            cancelStallWatchdog()
+            playbackState = .paused
+            publishPlaybackRate(0)
+            return
+        }
         switch player.timeControlStatus {
         case .paused:
-            if playbackState != .opening, !isFailureState {
-                playbackState = .paused
-            }
+            break
         case .waitingToPlayAtSpecifiedRate:
             if !isFailureState {
                 playbackState = .buffering
+                if let item = player.currentItem,
+                   let generation = currentPlayerItemGeneration {
+                    scheduleStallWatchdog(for: item, generation: generation)
+                }
             }
         case .playing:
+            cancelStallWatchdog()
             playbackState = .playing
+            publishPlaybackRate(1)
         @unknown default:
             playbackState = .failed("不明な再生エラーが発生しました。")
         }
@@ -329,6 +489,280 @@ final class TelevisionPlayerController: NSObject, ObservableObject {
     private var isFailureState: Bool {
         if case .failed = playbackState { return true }
         return false
+    }
+
+    private func schedulePausedSessionRelease() {
+        pauseReleaseTask?.cancel()
+        let pausedAt = self.pausedAt ?? Date()
+        self.pausedAt = pausedAt
+        let elapsed = max(0, Date().timeIntervalSince(pausedAt))
+        let remaining = max(0, TelevisionPauseLeasePolicy.releaseInterval - elapsed)
+        pauseReleaseTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(remaining))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled, let self else { return }
+            guard playbackState == .paused else { return }
+            releaseSessionForExtendedPause()
+        }
+    }
+
+    private func releaseExpiredPausedSessionIfNeeded() {
+        guard playbackState == .paused, let pausedAt else { return }
+        guard TelevisionPauseLeasePolicy.action(
+            pausedDuration: Date().timeIntervalSince(pausedAt)
+        ) == .releaseSessionKeepingRequest else { return }
+        releaseSessionForExtendedPause()
+    }
+
+    private func releaseSessionForExtendedPause() {
+        guard currentRequest != nil else { return }
+        _ = nextPlaybackGeneration()
+        pauseReleaseTask?.cancel()
+        pauseReleaseTask = nil
+        playbackRestartTask?.cancel()
+        playbackRestartTask = nil
+        stallWatchdogTask?.cancel()
+        stallWatchdogTask = nil
+        pausedAt = nil
+
+        let session = currentSession
+        currentSession = nil
+        isStoppingPictureInPictureForSessionRelease =
+            pictureInPictureController?.isPictureInPictureActive == true
+            || isPictureInPictureStarting
+        if isStoppingPictureInPictureForSessionRelease {
+            pictureInPictureController?.stopPictureInPicture()
+        }
+        resetPlayerItem()
+        playbackState = .paused
+        publishPlaybackRate(0)
+
+        let cancellationTask = Task { [apiClient] in
+            await apiClient.cancelPendingStarts()
+        }
+        let precedingTask = playbackTask
+        playbackTask = Task { [weak self] in
+            guard let self else { return }
+            await cancellationTask.value
+            await precedingTask?.value
+            if let session {
+                sessionsPendingRelease.append(session)
+            }
+            do {
+                try await releasePendingSessions()
+            } catch {
+                guard currentRequest != nil else { return }
+                playbackState = .failed(
+                    "一時停止した映像を解放できませんでした。\n\(error.localizedDescription)"
+                )
+            }
+        }
+    }
+
+    private func handlePlaybackFailure(_ message: String) {
+        guard currentRequest != nil else { return }
+        cancelStallWatchdog()
+        let isExplicitlyPaused = playbackState == .paused
+        guard TelevisionPlaybackFailurePolicy.action(
+            shouldPlayWhenReady: shouldPlayWhenReady,
+            isExplicitlyPaused: isExplicitlyPaused
+        ) == .restartAutomatically else {
+            requiresFreshPlaybackOnResume = true
+            playbackState = .paused
+            publishPlaybackRate(0)
+            return
+        }
+        guard playbackRestartTask == nil else { return }
+        requiresFreshPlaybackOnResume = true
+        guard playbackRestartAttempts < TelevisionNetworkRetryPolicy.maximumAttempts else {
+            playbackState = .failed("映像の再生が停止しました。\n\(message)")
+            publishPlaybackRate(0)
+            return
+        }
+
+        playbackRestartAttempts += 1
+        playbackState = .buffering
+        publishPlaybackRate(0)
+        playbackRestartTask?.cancel()
+        let request = currentRequest
+        let attempts = playbackRestartAttempts
+        playbackRestartTask = Task { [weak self] in
+            let nanoseconds = TelevisionNetworkRetryPolicy.backoffNanoseconds(
+                afterCompletedAttempts: min(attempts, 2)
+            )
+            do {
+                try await Task.sleep(nanoseconds: nanoseconds)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled, let self, self.currentRequest == request,
+                  let request else { return }
+            beginPlayback(request, resetRestartAttempts: false)
+        }
+    }
+
+    private func scheduleStallWatchdog(for item: AVPlayerItem, generation: UInt64) {
+        cancelStallWatchdog()
+        stallWatchdogTask = Task { [weak self, weak item] in
+            do {
+                try await Task.sleep(for: .seconds(TelevisionPlaybackStallPolicy.restartInterval))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled, let self, let item,
+                  player.currentItem === item,
+                  TelevisionPlaybackStallPolicy.shouldRestart(
+                    stalledDuration: TelevisionPlaybackStallPolicy.restartInterval,
+                    isStillBuffering: playbackState == .buffering,
+                    resultGeneration: generation,
+                    currentGeneration: playbackGeneration
+                  ) else { return }
+            stallWatchdogTask = nil
+            handlePlaybackFailure("通信が停止したため映像へ再接続します。")
+        }
+    }
+
+    private func cancelStallWatchdog() {
+        stallWatchdogTask?.cancel()
+        stallWatchdogTask = nil
+    }
+
+    private func observeAudioSession() {
+        let center = NotificationCenter.default
+        audioNotificationObservers = [
+            center.addObserver(
+                forName: AVAudioSession.interruptionNotification,
+                object: AVAudioSession.sharedInstance(),
+                queue: .main
+            ) { [weak self] notification in
+                Task { @MainActor [weak self] in
+                    self?.handleAudioInterruption(notification)
+                }
+            },
+            center.addObserver(
+                forName: AVAudioSession.routeChangeNotification,
+                object: AVAudioSession.sharedInstance(),
+                queue: .main
+            ) { [weak self] notification in
+                Task { @MainActor [weak self] in
+                    self?.handleAudioRouteChange(notification)
+                }
+            },
+        ]
+    }
+
+    private func handleAudioInterruption(_ notification: Notification) {
+        guard let rawType = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: rawType) else { return }
+        switch type {
+        case .began:
+            let wasPlaying = playbackState == .opening
+                || playbackState == .buffering
+                || playbackState == .playing
+            wasPlayingBeforeInterruption = wasPlaying
+            if TelevisionAudioEventPolicy.interruptionBegan(wasPlaying: wasPlaying)
+                == .pauseAndScheduleRelease {
+                pauseForSystemEvent()
+            }
+        case .ended:
+            let rawOptions = notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
+            let shouldResume = AVAudioSession.InterruptionOptions(rawValue: rawOptions)
+                .contains(.shouldResume)
+            let action = TelevisionAudioEventPolicy.interruptionEnded(
+                shouldResume: shouldResume,
+                wasPlayingBeforeInterruption: wasPlayingBeforeInterruption
+            )
+            wasPlayingBeforeInterruption = false
+            if action == .resumeIfRequested {
+                resumePlayback()
+            }
+        @unknown default:
+            break
+        }
+    }
+
+    private func handleAudioRouteChange(_ notification: Notification) {
+        guard let rawReason = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
+              let reason = AVAudioSession.RouteChangeReason(rawValue: rawReason) else { return }
+        let policyReason: TelevisionAudioRouteChangeReason = reason == .oldDeviceUnavailable
+            ? .oldDeviceUnavailable
+            : .other
+        if TelevisionAudioEventPolicy.routeChanged(policyReason) == .pauseAndScheduleRelease {
+            wasPlayingBeforeInterruption = false
+            pauseForSystemEvent()
+        }
+    }
+
+    private func pauseForSystemEvent() {
+        playbackRestartTask?.cancel()
+        playbackRestartTask = nil
+        cancelStallWatchdog()
+        shouldPlayWhenReady = false
+        player.pause()
+        playbackState = .paused
+        if pausedAt == nil {
+            pausedAt = Date()
+        }
+        publishPlaybackRate(0)
+        schedulePausedSessionRelease()
+    }
+
+    private func loadNowPlayingArtwork(for channel: TelevisionChannel, generation: UInt64) {
+        logoTask?.cancel()
+        logoTask = Task { [weak self] in
+            guard let self else { return }
+            let image: UIImage?
+            do {
+                let data = try await apiClient.fetchChannelLogo(channel)
+                image = UIImage(data: data)
+            } catch {
+                image = nil
+            }
+            guard !Task.isCancelled, isCurrent(generation), currentRequest?.channel.id == channel.id else {
+                return
+            }
+            nowPlayingPublisher.publish(
+                metadata: nowPlayingMetadata(
+                    for: channel,
+                    rate: playbackState == .playing ? 1 : 0
+                ),
+                artwork: image
+            )
+        }
+    }
+
+    private func publishPlaybackRate(_ rate: Double) {
+        guard let channel = currentRequest?.channel else { return }
+        nowPlayingPublisher.updatePlaybackRate(
+            metadata: nowPlayingMetadata(for: channel, rate: rate)
+        )
+    }
+
+    private func nowPlayingMetadata(
+        for channel: TelevisionChannel,
+        rate: Double
+    ) -> TelevisionNowPlayingMetadata {
+        TelevisionNowPlayingMetadata(
+            channelName: channel.name,
+            programTitle: channel.currentProgram?.title ?? "番組情報なし",
+            isLiveStream: true,
+            playbackRate: rate
+        )
+    }
+
+    private func nextPlaybackGeneration() -> UInt64 {
+        playbackGeneration &+= 1
+        return playbackGeneration
+    }
+
+    private func isCurrent(_ generation: UInt64) -> Bool {
+        TelevisionPlaybackGenerationPolicy.shouldInstall(
+            resultGeneration: generation,
+            currentGeneration: playbackGeneration
+        )
     }
 
     private func configurePictureInPicture(for playerLayer: AVPlayerLayer) {
@@ -353,7 +787,11 @@ final class TelevisionPlayerController: NSObject, ObservableObject {
             options: [.initial, .new]
         ) { [weak self] controller, _ in
             Task { @MainActor [weak self] in
-                self?.isPictureInPicturePossible = controller.isPictureInPicturePossible
+                guard let self else { return }
+                isPictureInPicturePossible = controller.isPictureInPicturePossible
+                if controller.isPictureInPicturePossible {
+                    startPictureInPictureAutomaticallyIfPossible()
+                }
             }
         }
         pictureInPictureController = controller
@@ -369,6 +807,13 @@ final class TelevisionPlayerController: NSObject, ObservableObject {
             playbackState = .failed("音声出力を開始できませんでした。\n\(error.localizedDescription)")
             return false
         }
+    }
+
+    private func deactivateAudioSession() {
+        try? AVAudioSession.sharedInstance().setActive(
+            false,
+            options: .notifyOthersOnDeactivation
+        )
     }
 }
 
@@ -387,6 +832,7 @@ extension TelevisionPlayerController: AVPictureInPictureControllerDelegate {
         Task { @MainActor [weak self] in
             self?.isPictureInPictureStarting = false
             self?.isPictureInPictureActive = true
+            self?.didReleaseAfterPictureInPictureClose = false
         }
     }
 
@@ -397,6 +843,7 @@ extension TelevisionPlayerController: AVPictureInPictureControllerDelegate {
         Task { @MainActor [weak self] in
             self?.isPictureInPictureStarting = false
             self?.isPictureInPictureActive = false
+            // PiP が使えない場合もバックグラウンド音声とチューナーを維持する。
         }
     }
 
@@ -407,8 +854,21 @@ extension TelevisionPlayerController: AVPictureInPictureControllerDelegate {
             guard let self else { return }
             isPictureInPictureStarting = false
             isPictureInPictureActive = false
-            if currentScenePhase == .background {
+            let wasInternalSessionRelease = isStoppingPictureInPictureForSessionRelease
+            let action = TelevisionPictureInPictureStopPolicy.action(
+                isAppInBackground: currentScenePhase == .background,
+                restoreUserInterfaceRequested: isRestoringUserInterfaceFromPictureInPicture,
+                alreadyReleased: didReleaseAfterPictureInPictureClose,
+                isInternalSessionRelease: isStoppingPictureInPictureForSessionRelease
+            )
+            if action == .releasePlayback {
+                didReleaseAfterPictureInPictureClose = true
                 stop()
+            }
+            isRestoringUserInterfaceFromPictureInPicture = false
+            isStoppingPictureInPictureForSessionRelease = false
+            if wasInternalSessionRelease {
+                startPictureInPictureAutomaticallyIfPossible()
             }
         }
     }
@@ -422,9 +882,113 @@ extension TelevisionPlayerController: AVPictureInPictureControllerDelegate {
                 completionHandler(false)
                 return
             }
-            onRestoreUserInterface()
+            guard !didReleaseAfterPictureInPictureClose else {
+                completionHandler(false)
+                return
+            }
+            isRestoringUserInterfaceFromPictureInPicture = true
+            NotificationCenter.default.post(name: .televisionShouldRestoreUserInterface, object: nil)
             completionHandler(true)
         }
+    }
+}
+
+extension Notification.Name {
+    static let televisionShouldRestoreUserInterface = Notification.Name(
+        "TelevisionShouldRestoreUserInterface"
+    )
+}
+
+@MainActor
+private final class TelevisionNowPlayingPublisher {
+    private var artwork: MPMediaItemArtwork?
+
+    func publish(metadata: TelevisionNowPlayingMetadata, artwork image: UIImage?) {
+        artwork = image.map { image in
+            MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+        }
+        var info: [String: Any] = [
+            MPMediaItemPropertyTitle: metadata.channelName,
+            MPMediaItemPropertyArtist: metadata.programTitle,
+            MPNowPlayingInfoPropertyIsLiveStream: metadata.isLiveStream,
+            MPNowPlayingInfoPropertyPlaybackRate: metadata.playbackRate,
+            MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.video.rawValue,
+            MPMediaItemPropertyMediaType: MPMediaType.tvShow.rawValue,
+        ]
+        if let artwork {
+            info[MPMediaItemPropertyArtwork] = artwork
+        }
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+        MPNowPlayingInfoCenter.default().playbackState = metadata.playbackRate > 0
+            ? .playing
+            : .paused
+    }
+
+    func updatePlaybackRate(metadata: TelevisionNowPlayingMetadata) {
+        var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
+        info[MPMediaItemPropertyTitle] = metadata.channelName
+        info[MPMediaItemPropertyArtist] = metadata.programTitle
+        info[MPNowPlayingInfoPropertyIsLiveStream] = metadata.isLiveStream
+        info[MPNowPlayingInfoPropertyPlaybackRate] = metadata.playbackRate
+        if artwork == nil {
+            info.removeValue(forKey: MPMediaItemPropertyArtwork)
+        }
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+        MPNowPlayingInfoCenter.default().playbackState = metadata.playbackRate > 0
+            ? .playing
+            : .paused
+    }
+
+    func clear() {
+        artwork = nil
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        MPNowPlayingInfoCenter.default().playbackState = .stopped
+    }
+}
+
+@MainActor
+private final class TelevisionRemoteCommandController {
+    private var targets: [(command: MPRemoteCommand, target: Any)] = []
+
+    init(
+        play: @escaping @MainActor () -> Void,
+        pause: @escaping @MainActor () -> Void,
+        stop: @escaping @MainActor () -> Void
+    ) {
+        let center = MPRemoteCommandCenter.shared()
+        configure(center.playCommand, isEnabled: true, action: play)
+        configure(center.pauseCommand, isEnabled: true, action: pause)
+        configure(center.stopCommand, isEnabled: true, action: stop)
+
+        center.changePlaybackPositionCommand.isEnabled = false
+        center.skipForwardCommand.isEnabled = false
+        center.skipBackwardCommand.isEnabled = false
+        center.seekForwardCommand.isEnabled = false
+        center.seekBackwardCommand.isEnabled = false
+        center.nextTrackCommand.isEnabled = false
+        center.previousTrackCommand.isEnabled = false
+    }
+
+    deinit {
+        for entry in targets {
+            entry.command.removeTarget(entry.target)
+        }
+    }
+
+    private func configure(
+        _ command: MPRemoteCommand,
+        isEnabled: Bool,
+        action: @escaping @MainActor () -> Void
+    ) {
+        command.isEnabled = isEnabled
+        let target = command.addTarget { _ in
+            guard MPNowPlayingInfoCenter.default().nowPlayingInfo != nil else {
+                return .commandFailed
+            }
+            Task { @MainActor in action() }
+            return .success
+        }
+        targets.append((command, target))
     }
 }
 

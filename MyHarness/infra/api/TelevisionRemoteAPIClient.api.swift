@@ -78,6 +78,9 @@ extension KonomiTVAPIClient {
             },
             release: {
                 await coordinator.releaseBrowsingSession()
+            },
+            cancelPendingStarts: {
+                await coordinator.cancelPendingLiveStreamStarts()
             }
         )
     }
@@ -94,8 +97,12 @@ private actor TelevisionConnectionCoordinator {
     private let expectedGatewayBaseURL: URL
     private let remoteAccess: TelevisionRemoteAccessConfiguration
     private let session: URLSession
+    private let liveStartGate = TelevisionLiveStartOperationGate<TelevisionLiveStreamSession>()
     private var browsingSession: ActiveGatewaySession?
     private var gatewaySessionsPendingRelease: [TelevisionGatewaySessionCredential] = []
+    private var liveSessionsPendingRelease =
+        TelevisionPendingReleaseQueue<TelevisionLiveStreamSession>()
+    private let liveSessionReleaseGate = TelevisionSerialThrowingOperationGate()
     private(set) var connectionKind: TelevisionConnectionKind?
 
     init(
@@ -120,19 +127,21 @@ private actor TelevisionConnectionCoordinator {
             guard Self.isLocalConnectivityFailure(error) else { throw error }
         }
 
-        let gatewaySession = try await activeBrowsingSession()
-        do {
-            let client = KonomiTVAPIClient.live(
-                serverURL: gatewaySession.playbackBaseURL,
-                session: session
-            )
-            let groups = try await client.fetchChannels()
-            connectionKind = .internet
-            return groups
-        } catch {
-            await releaseOrRemember(gatewaySession.credential)
-            browsingSession = nil
-            throw error
+        return try await performWANOperation { [self] in
+            let gatewaySession = try await activeBrowsingSession()
+            do {
+                let client = KonomiTVAPIClient.live(
+                    serverURL: gatewaySession.playbackBaseURL,
+                    session: session
+                )
+                let groups = try await client.fetchChannels()
+                connectionKind = .internet
+                return groups
+            } catch {
+                await releaseOrRemember(gatewaySession.credential)
+                browsingSession = nil
+                throw error
+            }
         }
     }
 
@@ -141,12 +150,14 @@ private actor TelevisionConnectionCoordinator {
         case .localNetwork:
             return try await localClient.fetchChannelLogo(channel)
         case .internet:
-            let gatewaySession = try await activeBrowsingSession()
-            let client = KonomiTVAPIClient.live(
-                serverURL: gatewaySession.playbackBaseURL,
-                session: session
-            )
-            return try await client.fetchChannelLogo(channel)
+            return try await performWANOperation { [self] in
+                let gatewaySession = try await activeBrowsingSession()
+                let client = KonomiTVAPIClient.live(
+                    serverURL: gatewaySession.playbackBaseURL,
+                    session: session
+                )
+                return try await client.fetchChannelLogo(channel)
+            }
         case nil:
             throw TelevisionRemoteAPIError.invalidResponse
         }
@@ -156,37 +167,100 @@ private actor TelevisionConnectionCoordinator {
         channel: TelevisionChannel,
         quality: TelevisionStreamQuality
     ) async throws -> TelevisionLiveStreamSession {
+        try await liveStartGate.run { [self] operationGeneration in
+            try await performLiveStreamStart(
+                channel: channel,
+                quality: quality,
+                operationGeneration: operationGeneration
+            )
+        }
+    }
+
+    func cancelPendingLiveStreamStarts() async {
+        await liveStartGate.cancel()
+    }
+
+    private func performLiveStreamStart(
+        channel: TelevisionChannel,
+        quality: TelevisionStreamQuality,
+        operationGeneration: UInt64
+    ) async throws -> TelevisionLiveStreamSession {
+        try Task.checkCancellation()
+        guard await liveStartGate.isCurrent(operationGeneration) else {
+            throw CancellationError()
+        }
+        try await releasePendingLiveSessions()
+        guard await isCurrentLiveStart(operationGeneration) else {
+            throw CancellationError()
+        }
+
         if connectionKind != .internet {
             do {
                 connectionKind = .localNetwork
-                return try await localClient.startLiveStream(channel, quality)
+                let localSession = try await localClient.startLiveStream(channel, quality)
+                guard await isCurrentLiveStart(operationGeneration) else {
+                    await releaseStaleLiveStream(localSession)
+                    throw CancellationError()
+                }
+                return localSession
             } catch {
+                guard await isCurrentLiveStart(operationGeneration) else {
+                    throw CancellationError()
+                }
                 guard Self.isLocalConnectivityFailure(error) else { throw error }
                 connectionKind = .internet
             }
         }
 
-        let gatewaySession = try await createGatewaySession()
-        let client = KonomiTVAPIClient.live(
-            serverURL: gatewaySession.playbackBaseURL,
-            session: session
-        )
-
-        do {
-            let liveStreamSession = try await client.startLiveStream(channel, quality)
-            return TelevisionLiveStreamSession(
-                clientID: liveStreamSession.clientID,
-                playlistURL: liveStreamSession.playlistURL,
-                disconnectURL: liveStreamSession.disconnectURL,
-                transport: .gateway(gatewaySession.credential)
-            )
-        } catch {
-            await releaseOrRemember(gatewaySession.credential)
-            throw error
+        guard await isCurrentLiveStart(operationGeneration) else {
+            throw CancellationError()
         }
+        var completedAttempts = 0
+        while completedAttempts < TelevisionNetworkRetryPolicy.maximumAttempts {
+            try Task.checkCancellation()
+            guard await liveStartGate.isCurrent(operationGeneration) else {
+                throw CancellationError()
+            }
+            completedAttempts += 1
+            do {
+                let gatewaySession = try await startGatewayLiveStream(
+                    channel: channel,
+                    quality: quality
+                )
+                guard await isCurrentLiveStart(operationGeneration) else {
+                    await releaseStaleLiveStream(gatewaySession)
+                    throw CancellationError()
+                }
+                return gatewaySession
+            } catch {
+                guard await isCurrentLiveStart(operationGeneration) else {
+                    throw CancellationError()
+                }
+                let failure = Self.networkFailure(for: error)
+                guard TelevisionNetworkRetryPolicy.shouldRetryWAN(
+                    after: failure,
+                    completedAttempts: completedAttempts
+                ) else {
+                    throw error
+                }
+                try await Task.sleep(
+                    nanoseconds: TelevisionNetworkRetryPolicy.backoffNanoseconds(
+                        afterCompletedAttempts: completedAttempts
+                    )
+                )
+            }
+        }
+        throw TelevisionRemoteAPIError.invalidResponse
     }
 
     func stopLiveStream(_ liveStreamSession: TelevisionLiveStreamSession) async throws {
+        liveSessionsPendingRelease.remember(liveStreamSession)
+        try await releasePendingLiveSessions()
+    }
+
+    private func performStopLiveStream(
+        _ liveStreamSession: TelevisionLiveStreamSession
+    ) async throws {
         switch liveStreamSession.transport {
         case .localNetwork:
             try await localClient.stopLiveStream(liveStreamSession)
@@ -209,6 +283,7 @@ private actor TelevisionConnectionCoordinator {
     }
 
     func releaseBrowsingSession() async {
+        try? await releasePendingLiveSessions()
         if let browsingSession {
             self.browsingSession = nil
             await releaseOrRemember(browsingSession.credential)
@@ -311,6 +386,89 @@ private actor TelevisionConnectionCoordinator {
         )
     }
 
+    private func startGatewayLiveStream(
+        channel: TelevisionChannel,
+        quality: TelevisionStreamQuality
+    ) async throws -> TelevisionLiveStreamSession {
+        let gatewaySession = try await createGatewaySession()
+        let client = KonomiTVAPIClient.live(
+            serverURL: gatewaySession.playbackBaseURL,
+            session: session
+        )
+
+        do {
+            let liveStreamSession = try await client.startLiveStream(channel, quality)
+            return TelevisionLiveStreamSession(
+                clientID: liveStreamSession.clientID,
+                playlistURL: liveStreamSession.playlistURL,
+                disconnectURL: liveStreamSession.disconnectURL,
+                transport: .gateway(gatewaySession.credential)
+            )
+        } catch {
+            await releaseOrRemember(gatewaySession.credential)
+            throw error
+        }
+    }
+
+    private func isCurrentLiveStart(_ operationGeneration: UInt64) async -> Bool {
+        guard !Task.isCancelled else { return false }
+        return await liveStartGate.isCurrent(operationGeneration)
+    }
+
+    private func releaseStaleLiveStream(_ liveStreamSession: TelevisionLiveStreamSession) async {
+        liveSessionsPendingRelease.remember(liveStreamSession)
+        // 親start Taskがcancel済みでも、後着したsessionのDELETEと失敗時のqueue保持は
+        // 非構造化Taskで新しいcancellation contextに分離する。
+        let cleanupTask = Task { [self] in
+            do {
+                try await releasePendingLiveSessions()
+            } catch {
+                // 次のlive開始前に同じqueueを再drainし、成功するまで新規開始を禁止する。
+            }
+        }
+        await cleanupTask.value
+    }
+
+    private func releasePendingLiveSessions() async throws {
+        try await liveSessionReleaseGate.run { [self] in
+            try await drainPendingLiveSessions()
+        }
+    }
+
+    private func drainPendingLiveSessions() async throws {
+        while let liveStreamSession = liveSessionsPendingRelease.first {
+            try await performStopLiveStream(liveStreamSession)
+            liveSessionsPendingRelease.didRelease(liveStreamSession)
+        }
+    }
+
+    private func performWANOperation<Value: Sendable>(
+        _ operation: () async throws -> Value
+    ) async throws -> Value {
+        var completedAttempts = 0
+        while completedAttempts < TelevisionNetworkRetryPolicy.maximumAttempts {
+            try Task.checkCancellation()
+            completedAttempts += 1
+            do {
+                return try await operation()
+            } catch {
+                let failure = Self.networkFailure(for: error)
+                guard TelevisionNetworkRetryPolicy.shouldRetryWAN(
+                    after: failure,
+                    completedAttempts: completedAttempts
+                ) else {
+                    throw error
+                }
+                try await Task.sleep(
+                    nanoseconds: TelevisionNetworkRetryPolicy.backoffNanoseconds(
+                        afterCompletedAttempts: completedAttempts
+                    )
+                )
+            }
+        }
+        throw TelevisionRemoteAPIError.invalidResponse
+    }
+
     private func deleteGatewaySession(_ credential: TelevisionGatewaySessionCredential) async throws {
         var request = URLRequest(
             url: TelevisionRemoteEndpointBuilder.deleteSessionURL(
@@ -322,10 +480,8 @@ private actor TelevisionConnectionCoordinator {
         request.setValue("Bearer \(credential.sessionToken)", forHTTPHeaderField: "Authorization")
 
         var lastError: Error?
-        for attempt in 0..<3 {
-            if attempt > 0 {
-                try? await Task.sleep(for: .milliseconds(attempt == 1 ? 200 : 600))
-            }
+        for attempt in 1...TelevisionNetworkRetryPolicy.maximumAttempts {
+            try Task.checkCancellation()
             do {
                 let (_, response) = try await session.data(for: request)
                 guard let httpResponse = response as? HTTPURLResponse else {
@@ -337,12 +493,28 @@ private actor TelevisionConnectionCoordinator {
                     return
                 }
                 let error = TelevisionRemoteAPIError.sessionReleaseFailed(httpResponse.statusCode)
-                if !(500..<600).contains(httpResponse.statusCode) {
+                lastError = error
+                guard TelevisionNetworkRetryPolicy.shouldRetryWAN(
+                    after: .httpStatus(httpResponse.statusCode),
+                    completedAttempts: attempt
+                ) else {
                     throw error
                 }
-                lastError = error
             } catch {
                 lastError = error
+                guard TelevisionNetworkRetryPolicy.shouldRetryWAN(
+                    after: Self.networkFailure(for: error),
+                    completedAttempts: attempt
+                ) else {
+                    throw error
+                }
+            }
+            if attempt < TelevisionNetworkRetryPolicy.maximumAttempts {
+                try await Task.sleep(
+                    nanoseconds: TelevisionNetworkRetryPolicy.backoffNanoseconds(
+                        afterCompletedAttempts: attempt
+                    )
+                )
             }
         }
         throw lastError ?? TelevisionRemoteAPIError.invalidResponse
@@ -369,20 +541,47 @@ private actor TelevisionConnectionCoordinator {
     }
 
     private static func isLocalConnectivityFailure(_ error: Error) -> Bool {
-        guard let urlError = error as? URLError else { return false }
-        switch urlError.code {
-        case .cannotFindHost,
-             .cannotConnectToHost,
-             .dnsLookupFailed,
-             .networkConnectionLost,
-             .notConnectedToInternet,
-             .secureConnectionFailed,
-             .serverCertificateUntrusted,
-             .timedOut:
-            return true
-        default:
-            return false
+        TelevisionNetworkRetryPolicy.shouldFallbackFromLAN(
+            after: networkFailure(for: error)
+        )
+    }
+
+    private static func networkFailure(for error: Error) -> TelevisionNetworkFailure {
+        if error is CancellationError {
+            return .cancelled
         }
+        if let urlError = error as? URLError {
+            return .url(urlError.code)
+        }
+        if let apiError = error as? KonomiTVAPIError {
+            switch apiError {
+            case .invalidResponse:
+                return .decoding
+            case .unexpectedStatus(let statusCode):
+                return .httpStatus(statusCode)
+            }
+        }
+        if let remoteError = error as? TelevisionRemoteAPIError {
+            switch remoteError {
+            case .authenticationRequired:
+                return .authentication
+            case .unexpectedAPIStatus(let statusCode),
+                 .unexpectedGatewayStatus(let statusCode),
+                 .sessionReleaseFailed(let statusCode):
+                return .httpStatus(statusCode)
+            case .invalidResponse:
+                return .decoding
+            case .unavailable:
+                return .other
+            }
+        }
+        if error is TelevisionRemoteEndpointValidationError {
+            return .unsafeContract
+        }
+        if error is DecodingError {
+            return .decoding
+        }
+        return .other
     }
 
     private static let decoder: JSONDecoder = {
