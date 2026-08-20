@@ -22,6 +22,41 @@ enum TelevisionBackgroundPlaybackPolicy {
     }
 }
 
+enum TelevisionDeviceOrientation: Equatable, Sendable {
+    case portrait
+    case landscape
+    case other
+}
+
+enum TelevisionFullScreenPresentationAction: Equatable, Sendable {
+    case present
+    case dismiss
+    case none
+}
+
+enum TelevisionFullScreenOrientationPolicy {
+    static func action(
+        deviceOrientation: TelevisionDeviceOrientation,
+        isFullScreen: Bool,
+        hasObservedLandscapeInFullScreen: Bool,
+        isLandscapePresentationSuppressed: Bool,
+        hasSelectedChannel: Bool,
+        isPhone: Bool
+    ) -> TelevisionFullScreenPresentationAction {
+        guard isPhone else { return .none }
+        switch deviceOrientation {
+        case .landscape where hasSelectedChannel
+            && !isFullScreen
+            && !isLandscapePresentationSuppressed:
+            return .present
+        case .portrait where isFullScreen && hasObservedLandscapeInFullScreen:
+            return .dismiss
+        case .portrait, .landscape, .other:
+            return .none
+        }
+    }
+}
+
 enum TelevisionPictureInPictureStopAction: Equatable, Sendable {
     case keepPlayback
     case releasePlayback

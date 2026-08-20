@@ -3,6 +3,95 @@ import XCTest
 @testable import MyHarnessTelevisionDomain
 
 final class TelevisionPlaybackPolicyTests: XCTestCase {
+    func testPhoneRotationPresentsAndDismissesFullScreenLikeYouTube() {
+        XCTAssertEqual(
+            TelevisionFullScreenOrientationPolicy.action(
+                deviceOrientation: .landscape,
+                isFullScreen: false,
+                hasObservedLandscapeInFullScreen: false,
+                isLandscapePresentationSuppressed: false,
+                hasSelectedChannel: true,
+                isPhone: true
+            ),
+            .present
+        )
+        XCTAssertEqual(
+            TelevisionFullScreenOrientationPolicy.action(
+                deviceOrientation: .portrait,
+                isFullScreen: true,
+                hasObservedLandscapeInFullScreen: true,
+                isLandscapePresentationSuppressed: false,
+                hasSelectedChannel: true,
+                isPhone: true
+            ),
+            .dismiss
+        )
+    }
+
+    func testFullScreenButtonIgnoresPortraitUntilLandscapeWasObserved() {
+        XCTAssertEqual(
+            TelevisionFullScreenOrientationPolicy.action(
+                deviceOrientation: .portrait,
+                isFullScreen: true,
+                hasObservedLandscapeInFullScreen: false,
+                isLandscapePresentationSuppressed: false,
+                hasSelectedChannel: true,
+                isPhone: true
+            ),
+            .none
+        )
+    }
+
+    func testExplicitExitDoesNotImmediatelyReopenWhilePhoneRemainsLandscape() {
+        XCTAssertEqual(
+            TelevisionFullScreenOrientationPolicy.action(
+                deviceOrientation: .landscape,
+                isFullScreen: false,
+                hasObservedLandscapeInFullScreen: false,
+                isLandscapePresentationSuppressed: true,
+                hasSelectedChannel: true,
+                isPhone: true
+            ),
+            .none
+        )
+    }
+
+    func testRotationDoesNotOpenWithoutAChannelOrChangeIPadPresentation() {
+        XCTAssertEqual(
+            TelevisionFullScreenOrientationPolicy.action(
+                deviceOrientation: .landscape,
+                isFullScreen: false,
+                hasObservedLandscapeInFullScreen: false,
+                isLandscapePresentationSuppressed: false,
+                hasSelectedChannel: false,
+                isPhone: true
+            ),
+            .none
+        )
+        XCTAssertEqual(
+            TelevisionFullScreenOrientationPolicy.action(
+                deviceOrientation: .landscape,
+                isFullScreen: false,
+                hasObservedLandscapeInFullScreen: false,
+                isLandscapePresentationSuppressed: false,
+                hasSelectedChannel: true,
+                isPhone: false
+            ),
+            .none
+        )
+        XCTAssertEqual(
+            TelevisionFullScreenOrientationPolicy.action(
+                deviceOrientation: .other,
+                isFullScreen: true,
+                hasObservedLandscapeInFullScreen: true,
+                isLandscapePresentationSuppressed: false,
+                hasSelectedChannel: true,
+                isPhone: true
+            ),
+            .none
+        )
+    }
+
     func testBackgroundPrefersPiPButNeverReleasesWhenPiPCannotStart() {
         XCTAssertEqual(
             TelevisionBackgroundPlaybackPolicy.action(

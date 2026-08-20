@@ -1,6 +1,40 @@
 import SwiftUI
 import UIKit
 
+@MainActor
+final class TelevisionInterfaceOrientationController {
+    static let shared = TelevisionInterfaceOrientationController()
+
+    private(set) var supportedOrientations: UIInterfaceOrientationMask = .portrait
+
+    func enterFullScreen() {
+        updatePhoneOrientations(.landscape)
+    }
+
+    func leaveFullScreen() {
+        updatePhoneOrientations(.portrait)
+    }
+
+    private func updatePhoneOrientations(_ orientations: UIInterfaceOrientationMask) {
+        guard UIDevice.current.userInterfaceIdiom == .phone else { return }
+        supportedOrientations = orientations
+
+        let windowScenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        guard let windowScene = windowScenes.first(where: {
+            $0.activationState == .foregroundActive
+        }) ?? windowScenes.first else {
+            return
+        }
+
+        windowScene.windows.forEach {
+            $0.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
+        }
+        windowScene.requestGeometryUpdate(
+            .iOS(interfaceOrientations: orientations)
+        ) { _ in }
+    }
+}
+
 enum KonomiTVConfiguration {
     static var serverURL: URL {
         guard let rawValue = Bundle.main.object(forInfoDictionaryKey: "KonomiTVBaseURL") as? String,
@@ -35,6 +69,9 @@ struct TelevisionView: View {
     @State private var state: TelevisionState
     @ObservedObject private var playerController: TelevisionPlayerController
     @State private var isFullScreen = false
+    @State private var hasObservedLandscapeInFullScreen = false
+    @State private var isLandscapePresentationSuppressed = false
+    @State private var isGeneratingDeviceOrientationNotifications = false
 
     init(
         apiClient: KonomiTVAPIClient,
@@ -65,11 +102,31 @@ struct TelevisionView: View {
             guard let channel = state.selectedChannel else { return }
             startPlayback(channel)
         }
-        .fullScreenCover(isPresented: $isFullScreen) {
+        .onAppear {
+            beginDeviceOrientationObservation()
+            handleDeviceOrientation(UIDevice.current.orientation)
+        }
+        .onDisappear {
+            guard !isFullScreen else { return }
+            endDeviceOrientationObservation()
+            TelevisionInterfaceOrientationController.shared.leaveFullScreen()
+        }
+        .onReceive(NotificationCenter.default.publisher(
+            for: UIDevice.orientationDidChangeNotification
+        )) { _ in
+            handleDeviceOrientation(UIDevice.current.orientation)
+        }
+        .fullScreenCover(isPresented: $isFullScreen, onDismiss: {
+            hasObservedLandscapeInFullScreen = false
+            TelevisionInterfaceOrientationController.shared.leaveFullScreen()
+        }) {
             if let channel = state.selectedChannel {
                 FullScreenTelevisionPlayer(
                     channel: channel,
-                    controller: playerController
+                    controller: playerController,
+                    onExit: {
+                        dismissFullScreen(suppressLandscapePresentation: true)
+                    }
                 )
             }
         }
@@ -190,7 +247,7 @@ struct TelevisionView: View {
                     : "ピクチャ・イン・ピクチャを開始")
 
                 Button {
-                    isFullScreen = true
+                    presentFullScreen()
                 } label: {
                     Image(systemName: "arrow.up.left.and.arrow.down.right")
                 }
@@ -347,6 +404,69 @@ struct TelevisionView: View {
 
     private func startPlayback(_ channel: TelevisionChannel) {
         playerController.play(channel: channel, quality: state.quality)
+    }
+
+    private func presentFullScreen() {
+        guard state.selectedChannel != nil else { return }
+        isLandscapePresentationSuppressed = false
+        isFullScreen = true
+    }
+
+    private func dismissFullScreen(suppressLandscapePresentation: Bool) {
+        isLandscapePresentationSuppressed = suppressLandscapePresentation
+        isFullScreen = false
+    }
+
+    private func beginDeviceOrientationObservation() {
+        guard !isGeneratingDeviceOrientationNotifications else { return }
+        UIDevice.current.beginGeneratingDeviceOrientationNotifications()
+        isGeneratingDeviceOrientationNotifications = true
+    }
+
+    private func endDeviceOrientationObservation() {
+        guard isGeneratingDeviceOrientationNotifications else { return }
+        UIDevice.current.endGeneratingDeviceOrientationNotifications()
+        isGeneratingDeviceOrientationNotifications = false
+    }
+
+    private func handleDeviceOrientation(_ orientation: UIDeviceOrientation) {
+        let deviceOrientation: TelevisionDeviceOrientation
+        switch orientation {
+        case .portrait, .portraitUpsideDown:
+            deviceOrientation = .portrait
+        case .landscapeLeft, .landscapeRight:
+            deviceOrientation = .landscape
+        case .faceUp, .faceDown, .unknown:
+            deviceOrientation = .other
+        @unknown default:
+            deviceOrientation = .other
+        }
+
+        if deviceOrientation == .portrait {
+            isLandscapePresentationSuppressed = false
+        }
+
+        if isFullScreen, deviceOrientation == .landscape {
+            hasObservedLandscapeInFullScreen = true
+        }
+
+        let action = TelevisionFullScreenOrientationPolicy.action(
+            deviceOrientation: deviceOrientation,
+            isFullScreen: isFullScreen,
+            hasObservedLandscapeInFullScreen: hasObservedLandscapeInFullScreen,
+            isLandscapePresentationSuppressed: isLandscapePresentationSuppressed,
+            hasSelectedChannel: state.selectedChannel != nil,
+            isPhone: UIDevice.current.userInterfaceIdiom == .phone
+        )
+        switch action {
+        case .present:
+            hasObservedLandscapeInFullScreen = true
+            presentFullScreen()
+        case .dismiss:
+            dismissFullScreen(suppressLandscapePresentation: false)
+        case .none:
+            break
+        }
     }
 
     private func programTimeText(_ program: TelevisionProgram) -> String {

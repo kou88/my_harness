@@ -1019,8 +1019,10 @@ struct TelevisionVideoSurface: UIViewRepresentable {
 struct FullScreenTelevisionPlayer: View {
     let channel: TelevisionChannel
     @ObservedObject var controller: TelevisionPlayerController
+    let onExit: @MainActor () -> Void
 
-    @Environment(\.dismiss) private var dismiss
+    @State private var areControlsVisible = true
+    @State private var controlsHideTask: Task<Void, Never>?
 
     var body: some View {
         ZStack {
@@ -1028,65 +1030,147 @@ struct FullScreenTelevisionPlayer: View {
             TelevisionVideoSurface(controller: controller)
                 .ignoresSafeArea()
 
-            VStack {
-                HStack {
-                    Text(channel.name)
-                        .font(.headline)
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                    Spacer()
-                    Button("閉じる", systemImage: "xmark.circle.fill") {
-                        dismiss()
+            if areControlsVisible {
+                controls
+                    .transition(.opacity)
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            withAnimation(.easeInOut(duration: 0.18)) {
+                areControlsVisible.toggle()
+            }
+            if areControlsVisible {
+                scheduleControlsToHide()
+            } else {
+                controlsHideTask?.cancel()
+            }
+        }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 24)
+                .onEnded { value in
+                    guard value.translation.height > 80,
+                          abs(value.translation.height) > abs(value.translation.width) else {
+                        return
                     }
-                    .labelStyle(.iconOnly)
-                    .font(.title)
-                    .foregroundStyle(.white)
-                    .accessibilityLabel("フルスクリーンを閉じる")
+                    onExit()
                 }
-                .padding()
-                .background(.linearGradient(
-                    colors: [.black.opacity(0.72), .clear],
-                    startPoint: .top,
-                    endPoint: .bottom
-                ))
-
-                Spacer()
-
-                HStack(spacing: 28) {
-                    Button {
-                        controller.togglePlayPause()
-                    } label: {
-                        Image(systemName: controller.playbackState == .paused ? "play.fill" : "pause.fill")
-                    }
-                    .accessibilityLabel(controller.playbackState == .paused ? "再生" : "一時停止")
-
-                    Button {
-                        controller.toggleMute()
-                    } label: {
-                        Image(systemName: controller.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                    }
-                    .accessibilityLabel(controller.isMuted ? "ミュート解除" : "ミュート")
-
-                    Button {
-                        controller.togglePictureInPicture()
-                    } label: {
-                        Image(systemName: controller.isPictureInPictureActive
-                            ? "pip.exit"
-                            : "pip.enter")
-                    }
-                    .disabled(!controller.isPictureInPicturePossible)
-                    .accessibilityLabel(controller.isPictureInPictureActive
-                        ? "ピクチャ・イン・ピクチャを終了"
-                        : "ピクチャ・イン・ピクチャを開始")
+        )
+        .onAppear {
+            TelevisionInterfaceOrientationController.shared.enterFullScreen()
+            scheduleControlsToHide()
+        }
+        .onDisappear {
+            controlsHideTask?.cancel()
+            TelevisionInterfaceOrientationController.shared.leaveFullScreen()
+        }
+        .onChange(of: controller.playbackState) { _, state in
+            switch state {
+            case .paused, .failed, .idle:
+                controlsHideTask?.cancel()
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    areControlsVisible = true
                 }
-                .font(.title2)
-                .foregroundStyle(.white)
-                .padding(.horizontal, 24)
-                .padding(.vertical, 14)
-                .background(.black.opacity(0.58), in: Capsule())
-                .padding(.bottom, 28)
+            case .opening, .buffering, .playing:
+                scheduleControlsToHide()
             }
         }
         .statusBarHidden()
+        .persistentSystemOverlays(.hidden)
+    }
+
+    private var controls: some View {
+        VStack {
+            HStack {
+                Text(channel.name)
+                    .font(.headline)
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                Spacer()
+                Text("下へスワイプして戻る")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.72))
+            }
+            .padding()
+            .background(.linearGradient(
+                colors: [.black.opacity(0.74), .clear],
+                startPoint: .top,
+                endPoint: .bottom
+            ))
+
+            Spacer()
+
+            HStack(spacing: 30) {
+                Button {
+                    controller.togglePlayPause()
+                    showControlsTemporarily()
+                } label: {
+                    Image(systemName: controller.playbackState == .paused ? "play.fill" : "pause.fill")
+                }
+                .accessibilityLabel(controller.playbackState == .paused ? "再生" : "一時停止")
+
+                Button {
+                    controller.toggleMute()
+                    showControlsTemporarily()
+                } label: {
+                    Image(systemName: controller.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                }
+                .accessibilityLabel(controller.isMuted ? "ミュート解除" : "ミュート")
+
+                Button {
+                    controller.togglePictureInPicture()
+                    showControlsTemporarily()
+                } label: {
+                    Image(systemName: controller.isPictureInPictureActive
+                        ? "pip.exit"
+                        : "pip.enter")
+                }
+                .disabled(!controller.isPictureInPicturePossible)
+                .accessibilityLabel(controller.isPictureInPictureActive
+                    ? "ピクチャ・イン・ピクチャを終了"
+                    : "ピクチャ・イン・ピクチャを開始")
+
+                Spacer()
+
+                Button {
+                    onExit()
+                } label: {
+                    Image(systemName: "arrow.down.right.and.arrow.up.left")
+                }
+                .accessibilityLabel("フルスクリーンを終了")
+            }
+            .font(.title2)
+            .foregroundStyle(.white)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 14)
+            .background(.linearGradient(
+                colors: [.clear, .black.opacity(0.78)],
+                startPoint: .top,
+                endPoint: .bottom
+            ))
+        }
+    }
+
+    private func showControlsTemporarily() {
+        withAnimation(.easeInOut(duration: 0.18)) {
+            areControlsVisible = true
+        }
+        scheduleControlsToHide()
+    }
+
+    private func scheduleControlsToHide() {
+        controlsHideTask?.cancel()
+        guard controller.playbackState != .paused else { return }
+        controlsHideTask = Task { @MainActor in
+            do {
+                try await Task.sleep(for: .seconds(3))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeInOut(duration: 0.18)) {
+                areControlsVisible = false
+            }
+        }
     }
 }
