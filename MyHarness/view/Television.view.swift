@@ -404,6 +404,7 @@ struct TelevisionView: View {
 
     private func startPlayback(_ channel: TelevisionChannel) {
         playerController.play(channel: channel, quality: state.quality)
+        handleDeviceOrientation(UIDevice.current.orientation)
     }
 
     private func presentFullScreen() {
