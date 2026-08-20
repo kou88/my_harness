@@ -47,6 +47,8 @@
 	<false/>
 	<key>KonomiTVBaseURL</key>
 	<string>https://192-168-11-54.local.konomi.tv:7000/</string>
+	<key>TelevisionGatewayBaseURL</key>
+	<string>https://tv.kou88.dev</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.productivity</string>
 	<key>LSApplicationQueriesSchemes</key>
