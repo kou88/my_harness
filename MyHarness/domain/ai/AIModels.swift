@@ -136,6 +136,30 @@ struct AITool: Identifiable {
     var arguments: String
     var output: String
     var completed: Bool
+
+    var displayArguments: String {
+        if name == "execute_code", let data = arguments.data(using: .utf8),
+           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let code = object["code"] as? String { return code }
+        return Self.readable(arguments, depth: 0)
+    }
+    var displayOutput: String { Self.readable(output, depth: 0) }
+
+    private static func readable(_ text: String, depth: Int) -> String {
+        guard depth < 5, let data = text.data(using: .utf8),
+              let value = try? JSONSerialization.jsonObject(with: data, options: .fragmentsAllowed) else { return text }
+        // Responses tool results may wrap JSON in input_text content blocks.
+        // Preserve the stored payload and normalize only its presentation.
+        if let blocks = value as? [[String: Any]], !blocks.isEmpty,
+           blocks.allSatisfy({ ["input_text", "output_text", "text"].contains($0["type"] as? String ?? "") && $0["text"] is String }) {
+            return blocks.compactMap { $0["text"] as? String }.map { readable($0, depth: depth + 1) }.joined(separator: "\n")
+        }
+        if let nested = value as? String { return readable(nested, depth: depth + 1) }
+        guard JSONSerialization.isValidJSONObject(value),
+              let formatted = try? JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]),
+              let result = String(data: formatted, encoding: .utf8) else { return text }
+        return result
+    }
 }
 
 struct AITrace {
