@@ -11,14 +11,22 @@ struct AIMessageList: View {
         GeometryReader { viewport in
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 36) {
+                // A run can grow by many screens while streamed text is arriving.
+                // Lazy estimates plus scrollTo(onAppear) can restore an offset
+                // outside the rendered rows. Measure actual message heights first.
+                VStack(alignment: .leading, spacing: 36) {
                     ForEach(detail.runs) { run in AIRunMessage(run: run, state: state).id(run.id) }
                     Color.clear.frame(height: 1).id("bottom")
                         .background(GeometryReader { geometry in
                             Color.clear.preference(key: AIChatBottomKey.self, value: geometry.frame(in: .named("AI.messageScroll")).maxY)
                         })
                 }.padding(.horizontal, 18).padding(.top, 14).padding(.bottom, 20)
+                    .frame(minHeight: viewport.size.height, alignment: .top)
+                    .background(GeometryReader { content in
+                        Color.clear.preference(key: AIChatContentHeightKey.self, value: content.size.height)
+                    })
             }
+            .defaultScrollAnchor(.bottom)
             .scrollDismissesKeyboard(.interactively)
             .coordinateSpace(name: "AI.messageScroll")
             .onPreferenceChange(AIChatBottomKey.self) { bottom in
@@ -30,11 +38,12 @@ struct AIMessageList: View {
             }.onEnded { _ in
                 userScrolling = false; following = distanceFromBottom < 90
             })
-            .onChange(of: detail.runs.last?.lastSeq) { _, _ in
-                if following && !userScrolling { proxy.scrollTo("bottom", anchor: .bottom) }
+            .onPreferenceChange(AIChatContentHeightKey.self) { height in
+                // Includes text layout, trace expansion and keyboard/viewport changes.
+                // Do not scroll on every SSE event before UIKit has laid out its text.
+                if height > 0 && following && !userScrolling { proxy.scrollTo("bottom", anchor: .bottom) }
             }
-            .onChange(of: detail.runs.count) { _, _ in following = true; proxy.scrollTo("bottom", anchor: .bottom) }
-            .onAppear { proxy.scrollTo("bottom", anchor: .bottom) }
+            .onChange(of: detail.runs.count) { _, _ in following = true }
             .overlay(alignment: .bottom) {
                 if !following {
                     Button { following = true; proxy.scrollTo("bottom", anchor: .bottom) } label: {
@@ -167,6 +176,11 @@ private struct AIChatCodeBlock: View {
 }
 
 private struct AIChatBottomKey: PreferenceKey {
+    static var defaultValue: CGFloat { 0 }
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
+private struct AIChatContentHeightKey: PreferenceKey {
     static var defaultValue: CGFloat { 0 }
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
