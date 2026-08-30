@@ -7,7 +7,7 @@ import Foundation
         let sharedState = AIChatState(apiClient: sharedAPI, authSession: CognitoAuthSession(), configurationErrorMessage: nil)
         await sharedState.loadList()
         sharedState.choose(sharedAPI.model)
-        let saved = await sharedState.saveSharing(AISharing(enabled: true, modelId: sharedAPI.model.id, contextLength: 65536, revision: 1))
+        let saved = await sharedState.saveSharing(AISharing(enabled: true, modelId: sharedAPI.model.id, contextLength: 65536, maxConcurrentRuns: 2, revision: 1))
         precondition(saved && sharedState.sharedMode)
         sharedState.saveSettings(AISettings(contextLength: 131072, maxOutputTokens: 1024, reasoningEffort: "low"))
         precondition(sharedState.settings?.contextLength == 65536)
