@@ -109,10 +109,10 @@ private struct AIRunView: View {
                         DisclosureGroup {
                             VStack(alignment: .leading, spacing: 8) {
                                 Text("入力").font(.caption.bold())
-                                AICodeBlock(text: tool.arguments)
+                                AICodeBlock(text: tool.displayArguments)
                                 if tool.completed {
                                     Text("結果").font(.caption.bold())
-                                    AICodeBlock(text: tool.output)
+                                    AICodeBlock(text: tool.displayOutput)
                                 }
                             }.padding(.top, 6)
                         } label: {
