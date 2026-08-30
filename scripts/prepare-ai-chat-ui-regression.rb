@@ -10,6 +10,7 @@ project = Xcodeproj::Project.new(File.join(directory, 'ChatUIRegression.xcodepro
 target = project.new_target(:application, 'ChatUIRegression', :ios, '17.0')
 sources = %w[
   MyHarness/domain/ai/AIModels.swift
+  MyHarness/domain/ai/AIMessageContent.swift
   MyHarness/state/AIChatState.state.swift
   MyHarness/view/AIConversationList.view.swift
   MyHarness/view/AIChatScreen.view.swift
