@@ -2,353 +2,148 @@ import SwiftUI
 
 struct AIConversationListView: View {
     @Environment(AppRouter.self) private var router
-    let state: AIChatState
-    @State private var isCreatingConversation = false
-    @State private var conversationToDelete: AIConversationSummary?
+    @Bindable var state: AIChatState
+    @State private var showSettings = false
 
     var body: some View {
-        Group {
-            if !state.isConfigured || !state.isSignedIn {
-                ContentUnavailableView(
-                    "AIを利用できません",
-                    systemImage: "person.crop.circle.badge.exclamationmark",
-                    description: Text(state.errorMessage ?? "ログインとAPI設定を確認してください。")
-                )
-            } else if state.isLoadingList && state.conversations.isEmpty {
-                ProgressView("会話を読み込み中")
-            } else if state.filteredConversations.isEmpty {
-                ContentUnavailableView {
-                    Label("会話はまだありません", systemImage: "bubble.left.and.bubble.right")
-                } description: {
-                    Text("OpenAI CodexまたはOpenRouterのモデルで始められます。")
-                } actions: {
-                    Button("新しい会話") { isCreatingConversation = true }
-                        .buttonStyle(.borderedProminent)
-                }
+        List {
+            if !state.isSignedIn {
+                ContentUnavailableView("AIチャット", systemImage: "bubble.left.and.text.bubble.right", description: Text("ログインしてUbuntuのAgentに依頼できます。"))
+                Button("ログイン") { Task { await state.signIn() } }
             } else {
-                List {
-                    ForEach(state.filteredConversations) { conversation in
-                        Button {
-                            router.push(.aiConversation(id: conversation.id))
-                        } label: {
-                            AIConversationRow(conversation: conversation)
+                Section {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("何をしますか？").font(.title2.bold())
+                        AIModelMenu(state: state, showSettings: $showSettings)
+                        AIComposer(state: state, conversationId: nil) { id in
+                            router.aiPath = [.aiConversation(id: id)]
                         }
-                        .buttonStyle(.plain)
-                        .swipeActions(edge: .trailing) {
-                            Button("削除", role: .destructive) {
-                                conversationToDelete = conversation
+                    }.padding(.vertical, 8)
+                }
+                if !state.errorMessage.isEmpty { Section { Text(state.errorMessage).font(.callout).foregroundStyle(.red).textSelection(.enabled) } }
+                Section("会話") {
+                    if state.isLoading && state.conversations.isEmpty { ProgressView("読み込み中") }
+                    else if state.filteredConversations.isEmpty { Text("会話はまだありません").foregroundStyle(.secondary) }
+                    ForEach(state.filteredConversations) { conversation in
+                        NavigationLink(value: AppRoute.aiConversation(id: conversation.id)) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(conversation.title).lineLimit(2)
+                                Text(String(conversation.updatedAt.prefix(10))).font(.caption).foregroundStyle(.secondary)
                             }
+                        }
+                        .swipeActions(allowsFullSwipe: false) {
+                            Button("削除", role: .destructive) { Task { _ = await state.delete(conversation.id) } }
                         }
                     }
                 }
-                .listStyle(.plain)
-                .refreshable { await state.loadList() }
             }
         }
+        .listStyle(.insetGrouped)
         .navigationTitle("AI")
-        .searchable(text: Bindable(state).searchText, prompt: "会話を検索")
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    isCreatingConversation = true
-                } label: {
-                    Image(systemName: "square.and.pencil")
-                }
-                .accessibilityLabel("新しい会話")
-                .disabled(!state.isConfigured || !state.isSignedIn)
-            }
-        }
+        .searchable(text: $state.searchText, prompt: "会話を検索")
         .task { await state.loadList() }
-        .sheet(isPresented: $isCreatingConversation) {
-            AINewConversationView(state: state) { id in
-                isCreatingConversation = false
-                router.push(.aiConversation(id: id))
+        .onAppear { state.closeConversation(); state.detail = nil }
+        .refreshable { await state.loadList() }
+        .sheet(isPresented: $showSettings) {
+            if let model = state.selectedModel, let settings = state.settings {
+                AISettingsView(model: model, draft: settings) { state.saveSettings($0) }
             }
         }
-        .confirmationDialog(
-            "この会話を削除しますか？",
-            isPresented: Binding(
-                get: { conversationToDelete != nil },
-                set: { if !$0 { conversationToDelete = nil } }
-            ),
-            titleVisibility: .visible
-        ) {
-            Button("削除", role: .destructive) {
-                guard let conversation = conversationToDelete else { return }
-                Task {
-                    _ = await state.deleteConversation(id: conversation.id)
-                    conversationToDelete = nil
+    }
+}
+
+struct AIModelMenu: View {
+    @Bindable var state: AIChatState
+    @Binding var showSettings: Bool
+    var body: some View {
+        HStack(spacing: 8) {
+            Menu {
+                if state.models.isEmpty { Text("利用可能なモデルがありません") }
+                ForEach(state.models) { model in
+                    Button { state.choose(model) } label: {
+                        Label(model.name + (model.online ? "" : " · オフライン"), systemImage: model.id == state.selectedModel?.id ? "checkmark" : "cpu")
+                    }.disabled(!model.online)
+                }
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "cpu")
+                    Text(state.selectedModel?.name ?? "モデルを選択").lineLimit(1).truncationMode(.middle)
+                    Image(systemName: "chevron.down").font(.caption2)
+                }.font(.subheadline)
+            }.accessibilityIdentifier("AI.modelMenu")
+            .disabled(state.activeRun != nil || state.hasPendingSubmission)
+            Spacer(minLength: 0)
+            Button { showSettings = true } label: { Image(systemName: "slider.horizontal.3") }
+                .accessibilityLabel("モデル設定").accessibilityIdentifier("AI.settings")
+                .disabled(state.selectedModel == nil || state.activeRun != nil || state.hasPendingSubmission)
+        }
+    }
+}
+
+struct AIComposer: View {
+    @Bindable var state: AIChatState
+    let conversationId: String?
+    let onSent: (String) -> Void
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let settings = state.settings {
+                Text("推論 \(settings.reasoningEffort) · コンテキスト \(settings.contextLength / 1024)K · 出力 \(settings.maxOutputTokens.formatted())")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+            HStack(alignment: .bottom, spacing: 10) {
+                TextField("調べる、コードを書く、ファイルを扱う", text: $state.composerText, axis: .vertical)
+                    .lineLimit(2...7).textFieldStyle(.plain).accessibilityIdentifier("AI.prompt")
+                    .disabled(state.hasPendingSubmission)
+                if let run = state.activeRun {
+                    Button { Task { await state.cancel() } } label: {
+                        Image(systemName: "stop.fill").frame(width: 34, height: 34)
+                    }.disabled(run.cancelRequested).accessibilityLabel("実行を停止")
+                } else {
+                    Button {
+                        Task { if let id = await state.send(conversationId: conversationId) { onSent(id) } }
+                    } label: {
+                        if state.isSending { ProgressView().frame(width: 34, height: 34) }
+                        else { Image(systemName: state.hasPendingSubmission ? "arrow.clockwise" : "arrow.up").font(.headline).frame(width: 34, height: 34) }
+                    }
+                    .buttonStyle(.borderedProminent).buttonBorderShape(.circle)
+                    .disabled(!state.canSend).accessibilityLabel(state.hasPendingSubmission ? "同じ依頼を再送" : "送信")
+                    .accessibilityIdentifier("AI.send")
                 }
             }
-            Button("キャンセル", role: .cancel) { conversationToDelete = nil }
-        } message: {
-            Text("会話履歴、実行イベント、承認履歴を削除します。")
+            if state.hasPendingSubmission { Text("送信結果が未確認です。再送しても同じ依頼を重複実行しません。").font(.caption).foregroundStyle(.secondary) }
         }
-        .alert(
-            "AI",
-            isPresented: Binding(
-                get: { state.errorMessage != nil },
-                set: { if !$0 { state.errorMessage = nil } }
-            )
-        ) {
-            Button("閉じる", role: .cancel) { state.errorMessage = nil }
-        } message: {
-            Text(state.errorMessage ?? "エラーが発生しました。")
-        }
+        .padding(12)
+        .background(.background, in: RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(.secondary.opacity(0.22)))
     }
 }
 
-private struct AIConversationRow: View {
-    let conversation: AIConversationSummary
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack(spacing: 8) {
-                Text(conversation.title)
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                Spacer(minLength: 4)
-                if conversation.latestRunStatus.isActive || conversation.latestRunStatus == .failed {
-                    AIStatusLabel(status: conversation.latestRunStatus)
-                }
-            }
-
-            if !conversation.lastMessagePreview.isEmpty {
-                Text(conversation.lastMessagePreview)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
-
-            HStack(spacing: 6) {
-                Label(conversation.provider.label, systemImage: providerIcon)
-                Text("·")
-                Text(conversation.model)
-                    .lineLimit(1)
-                Text("·")
-                Label(conversation.mode.label, systemImage: conversation.mode.systemImage)
-                Spacer(minLength: 4)
-                Text(conversation.updatedAt, format: .relative(presentation: .named))
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-        }
-        .padding(.vertical, 5)
-        .contentShape(Rectangle())
-    }
-
-    private var providerIcon: String {
-        conversation.provider == .openai ? "sparkles" : "arrow.triangle.branch"
-    }
-}
-
-struct AIStatusLabel: View {
-    let status: AIConversationStatus
-
-    var body: some View {
-        HStack(spacing: 4) {
-            if status == .running || status == .queued {
-                ProgressView().controlSize(.mini)
-            } else {
-                Image(systemName: icon)
-            }
-            Text(status.label)
-        }
-        .font(.caption2.weight(.semibold))
-        .foregroundStyle(color)
-    }
-
-    private var icon: String {
-        switch status {
-        case .awaitingApproval: return "exclamationmark.shield"
-        case .failed: return "exclamationmark.circle"
-        case .cancelled: return "stop.circle"
-        case .completed: return "checkmark.circle"
-        case .idle, .queued, .running: return "circle"
-        }
-    }
-
-    private var color: Color {
-        switch status {
-        case .awaitingApproval: return .orange
-        case .failed: return .red
-        case .cancelled: return .secondary
-        case .completed: return .green
-        case .idle, .queued, .running: return .blue
-        }
-    }
-}
-
-private struct AINewConversationView: View {
+struct AISettingsView: View {
     @Environment(\.dismiss) private var dismiss
-    let state: AIChatState
-    let onCreated: (String) -> Void
-
-    @State private var title = ""
-    @State private var selectedHostId = ""
-    @State private var selectedModelId = ""
-    @State private var selectedMode: AIConversationMode?
-    @State private var selectedEffort: AIReasoningEffort?
-    @State private var selectedWorkspaceId = ""
-    @State private var isTemporary = false
-    @State private var isCreating = false
-
-    private var selectedModel: AIModelCatalogItem? {
-        state.models.first { $0.id == selectedModelId && $0.hostId == selectedHostId }
-    }
-
-    private var selectedWorkspace: AIWorkspaceSummary? {
-        state.workspaces.first { $0.id == selectedWorkspaceId }
-    }
-
-    private var availableModels: [AIModelCatalogItem] {
-        state.models.filter { $0.hostId == selectedHostId && $0.isAvailable }
-    }
-
-    private var availableEfforts: [AIReasoningEffort] {
-        selectedModel?.reasoningEfforts ?? []
-    }
-
-    private var canCreate: Bool {
-        guard let mode = selectedMode,
-              selectedEffort != nil,
-              selectedModel != nil,
-              !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return false
-        }
-        return mode == .consultation ? !consultationWorkspaceId.isEmpty : selectedWorkspace != nil
-    }
-
+    let model: AIModel
+    @State var draft: AISettings
+    let onSave: (AISettings) -> Void
     var body: some View {
         NavigationStack {
             Form {
-                Section {
-                    TextField("会話タイトル", text: $title)
-                    Picker("実行ホスト", selection: $selectedHostId) {
-                        Text("選択してください").tag("")
-                        ForEach(state.hosts.filter(\.isOnline)) { host in
-                            Text(host.name).tag(host.id)
-                        }
+                Section { Text(model.name).font(.subheadline); Text(model.hostName).foregroundStyle(.secondary) }
+                Section("推論設定") {
+                    Picker("Reasoning effort", selection: $draft.reasoningEffort) {
+                        ForEach(model.reasoningEfforts, id: \.self) { Text($0).tag($0) }
                     }
-                    .onChange(of: selectedHostId) { _, value in
-                        selectedModelId = ""
-                        selectedEffort = nil
-                        selectedWorkspaceId = ""
-                        guard !value.isEmpty else { return }
-                        Task { await state.loadWorkspaces(hostId: value) }
+                    Picker("コンテキスト", selection: $draft.contextLength) {
+                        ForEach(model.contextLengths, id: \.self) { Text("\($0 / 1024)K（\($0.formatted()) tokens）").tag($0) }
                     }
-                    Picker("モデル", selection: $selectedModelId) {
-                        Text("選択してください").tag("")
-                        ForEach(availableModels) { model in
-                            Text("\(model.displayName) · \(model.provider.label)").tag(model.id)
-                        }
-                    }
-                    .onChange(of: selectedModelId) { _, _ in selectedEffort = nil }
-                }
-
-                Section("利用モード") {
-                    Picker("モード", selection: $selectedMode) {
-                        Text("選択してください").tag(AIConversationMode?.none)
-                        ForEach(AIConversationMode.allCases, id: \.self) { mode in
-                            Label(mode.label, systemImage: mode.systemImage).tag(AIConversationMode?.some(mode))
-                        }
-                    }
-                    .pickerStyle(.segmented)
-
-                    if selectedMode == .work {
-                        Picker("Workspace", selection: $selectedWorkspaceId) {
-                            Text("選択してください").tag("")
-                            ForEach(state.workspaces.filter {
-                                $0.hostId == selectedHostId && $0.runtimeId == selectedModel?.runtimeId
-                            }) { workspace in
-                                Text(workspace.name).tag(workspace.id)
-                            }
-                        }
-                    } else if selectedMode == .consultation {
-                        Label("隔離ディレクトリ・読み取り専用・MCP無効", systemImage: "lock.shield")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                Section {
-                    Picker("推論レベル", selection: $selectedEffort) {
-                        Text("選択してください").tag(AIReasoningEffort?.none)
-                        ForEach(availableEfforts, id: \.self) { effort in
-                            Text(effort.label).tag(AIReasoningEffort?.some(effort))
-                        }
-                    }
-                }
-
-                Section {
-                    Toggle("一時チャット", isOn: $isTemporary)
-                        .disabled(true)
-                    Text("ホスト実行の履歴を保存しない一時チャットは、安全な実行経路が整うまで利用できません。")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                    Stepper("出力上限 \(draft.maxOutputTokens.formatted())", value: $draft.maxOutputTokens, in: 256...model.maxOutputTokens, step: 256)
+                    Text("出力上限には思考用トークンも含みます。設定はモデルごとに保存します。").font(.caption).foregroundStyle(.secondary)
+                    if !model.accepts(draft) { Text("推論量に対して出力上限が不足しています。出力上限を増やしてください。").foregroundStyle(.red) }
                 }
             }
-            .navigationTitle("新しい会話")
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationTitle("モデル設定").navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("キャンセル") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("作成") {
-                        create()
-                    }
-                    .disabled(!canCreate || isCreating)
-                }
+                ToolbarItem(placement: .cancellationAction) { Button("閉じる") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) { Button("保存") { onSave(draft); dismiss() }.disabled(!model.accepts(draft)) }
             }
-            .task { await state.loadCatalog() }
-            .overlay {
-                if state.isLoadingCatalog || isCreating {
-                    ProgressView().padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-                }
-            }
-        }
-    }
-
-    private func create() {
-        guard let model = selectedModel,
-              let mode = selectedMode,
-              let effort = selectedEffort else { return }
-        let workspaceId: String
-        switch mode {
-        case .work:
-            guard let selectedWorkspace else { return }
-            workspaceId = selectedWorkspace.workspaceId
-        case .consultation:
-            guard !consultationWorkspaceId.isEmpty else { return }
-            workspaceId = consultationWorkspaceId
-        }
-        isCreating = true
-        Task {
-            let id = await state.createConversation(
-                AINewConversationDraft(
-                    title: title.trimmingCharacters(in: .whitespacesAndNewlines),
-                    runtimeId: model.runtimeId,
-                    hostId: selectedHostId,
-                    provider: model.provider,
-                    model: model.model,
-                    mode: mode,
-                    workspaceId: workspaceId,
-                    reasoningEffort: effort,
-                    isTemporary: isTemporary
-                )
-            )
-            isCreating = false
-            if let id { onCreated(id) }
-        }
-    }
-
-    private var consultationWorkspaceId: String {
-        state.workspaces.first {
-            $0.hostId == selectedHostId
-                && $0.runtimeId == selectedModel?.runtimeId
-                && $0.modes.contains(.consultation)
-        }?.workspaceId ?? ""
+        }.presentationDetents([.medium, .large])
     }
 }

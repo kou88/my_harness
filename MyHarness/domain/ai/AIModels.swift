@@ -1,320 +1,115 @@
 import Foundation
 
-enum AIProvider: String, Codable, CaseIterable, Hashable {
-    case openai
-    case openrouter
-
-    var label: String {
-        switch self {
-        case .openai: return "OpenAI"
-        case .openrouter: return "OpenRouter"
-        }
-    }
+struct AISettings: Codable, Hashable {
+    var contextLength: Int
+    var maxOutputTokens: Int
+    var reasoningEffort: String
 }
 
-enum AIConversationMode: String, Codable, CaseIterable, Hashable {
-    case consultation
-    case work
-
-    var label: String {
-        switch self {
-        case .consultation: return "相談"
-        case .work: return "作業"
-        }
-    }
-
-    var systemImage: String {
-        switch self {
-        case .consultation: return "bubble.left.and.text.bubble.right"
-        case .work: return "hammer"
-        }
-    }
-}
-
-enum AIReasoningEffort: String, Codable, CaseIterable, Hashable {
-    case none
-    case minimal
-    case low
-    case medium
-    case high
-    case xhigh
-    case max
-    case ultra
-
-    var label: String {
-        switch self {
-        case .none: return "なし"
-        case .minimal: return "最小"
-        case .low: return "低"
-        case .medium: return "中"
-        case .high: return "高"
-        case .xhigh: return "最高"
-        case .max: return "最大"
-        case .ultra: return "ウルトラ"
-        }
-    }
-}
-
-enum AIConversationStatus: String, Codable, Hashable {
-    case idle
-    case queued
-    case running
-    case awaitingApproval = "waiting_approval"
-    case completed
-    case failed
-    case cancelled
-
-    var label: String {
-        switch self {
-        case .idle: return "待機中"
-        case .queued: return "実行待ち"
-        case .running: return "実行中"
-        case .awaitingApproval: return "承認待ち"
-        case .completed: return "完了"
-        case .failed: return "失敗"
-        case .cancelled: return "停止"
-        }
-    }
-
-    var isActive: Bool {
-        self == .queued || self == .running || self == .awaitingApproval
-    }
-}
-
-enum AIConversationLifecycleStatus: String, Codable, Hashable {
-    case active
-    case archived
-}
-
-enum AIMessageRole: String, Codable, Hashable {
-    case user
-    case assistant
-    case system
-}
-
-enum AIMessageStatus: String, Codable, Hashable {
-    case pending
-    case streaming
-    case completed
-    case failed
-}
-
-enum AIContentType: String, Codable, Hashable {
-    case text
-    case markdown
-    case image
-    case file
-}
-
-struct AIModelCatalogItem: Codable, Identifiable, Hashable {
+struct AIModel: Codable, Identifiable, Hashable {
     let id: String
-    let model: String
-    let runtimeId: String
     let hostId: String
     let hostName: String
-    let provider: AIProvider
+    let model: String
     let name: String
-    let displayName: String
-    let status: String
-    let isAvailable: Bool
-    let reasoningEfforts: [AIReasoningEffort]
-    let supportsImages: Bool
-    let supportsFiles: Bool
-    let supportsTools: Bool
-}
-
-struct AIRuntimeSummary: Codable, Identifiable, Hashable {
-    let id: String
-    let runtimeId: String
-    let provider: AIProvider
-    let authKind: String
-    let status: String
-    let authenticated: Bool
-    let modelIds: [String]
-}
-
-struct AIHostSummary: Codable, Identifiable, Hashable {
-    let id: String
-    let name: String
-    let hostname: String?
-    let os: String?
-    let status: String
     let online: Bool
-    let lastSeenAt: Date?
-    let runtimes: [AIRuntimeSummary]
+    let contextLengths: [Int]
+    let maxOutputTokens: Int
+    let reasoningEfforts: [String]
+    let reasoningBudgets: [String: Int]
+    let initialSettings: AISettings
 
-    var isOnline: Bool { online }
-}
-
-struct AIWorkspaceSummary: Codable, Identifiable, Hashable {
-    let id: String
-    let workspaceId: String
-    let hostId: String
-    let hostName: String
-    let runtimeId: String
-    let name: String
-    let path: String
-    let modes: [AIConversationMode]
-    let status: String
-    let isAvailable: Bool
-}
-
-struct AIConversationSummary: Codable, Identifiable, Hashable {
-    let id: String
-    let title: String
-    let runtimeId: String
-    let provider: AIProvider
-    let model: String
-    let hostId: String
-    let workspaceId: String
-    let mode: AIConversationMode
-    let status: AIConversationLifecycleStatus
-    let latestRunStatus: AIConversationStatus
-    let reasoningEffort: AIReasoningEffort
-    let workspacePath: String
-    let lastMessagePreview: String
-    let createdAt: Date
-    let updatedAt: Date
-}
-
-struct AIMessageContent: Codable, Identifiable, Hashable {
-    let id: String
-    let contentType: AIContentType
-    let text: String?
-    let attachmentId: String?
-    let ordinal: Int
-}
-
-struct AIMessage: Codable, Identifiable, Hashable {
-    let id: String
-    let conversationId: String
-    let runtimeSessionId: String
-    let runId: String
-    let role: AIMessageRole
-    let status: AIMessageStatus
-    let parentMessageId: String?
-    let contents: [AIMessageContent]
-    let createdAt: Date
-    let updatedAt: Date
-
-    var text: String {
-        contents
-            .filter { $0.contentType == .text || $0.contentType == .markdown }
-            .sorted { $0.ordinal < $1.ordinal }
-            .compactMap(\.text)
-            .joined(separator: "\n")
+    func accepts(_ settings: AISettings) -> Bool {
+        guard let budget = reasoningBudgets[settings.reasoningEffort] else { return false }
+        return contextLengths.contains(settings.contextLength)
+            && reasoningEfforts.contains(settings.reasoningEffort)
+            && settings.maxOutputTokens >= budget + 256
+            && settings.maxOutputTokens <= maxOutputTokens
+            && settings.maxOutputTokens < settings.contextLength
     }
 }
 
-enum AIRunStatus: String, Codable, Hashable {
-    case queued
-    case running
-    case awaitingApproval = "waiting_approval"
-    case completed
-    case failed
-    case cancelled
+struct AIConversation: Codable, Identifiable, Hashable {
+    let id: String
+    var title: String
+    let createdAt: String
+    var updatedAt: String
+}
 
-    var isTerminal: Bool {
-        self == .completed || self == .failed || self == .cancelled
-    }
+struct AIConversationDetail: Codable, Identifiable {
+    let id: String
+    var title: String
+    let createdAt: String
+    var updatedAt: String
+    var runs: [AIRun]
 }
 
 struct AIRun: Codable, Identifiable, Hashable {
     let id: String
     let conversationId: String
-    let runtimeSessionId: String
-    let userMessageId: String
-    let assistantMessageId: String?
     let hostId: String
-    let runtimeId: String
-    let provider: AIProvider
+    let modelId: String
     let model: String
-    let workspaceId: String
-    let workspacePath: String
-    let mode: AIConversationMode
-    let sandboxPolicy: String
-    let approvalPolicy: String
-    let reasoningEffort: AIReasoningEffort
-    let status: AIRunStatus
-    let lastSeq: Int
-    let inputTokens: Int
-    let outputTokens: Int
-    let errorCode: String?
-    let errorMessage: String?
-    let createdAt: Date
-    let startedAt: Date?
-    let finishedAt: Date?
-    let updatedAt: Date
+    let settings: AISettings
+    let inputText: String
+    var outputText: String
+    var status: String
+    var cancelRequested: Bool
+    var lastSeq: Int
+    var error: String
+    var responseId: String
+    let previousResponseId: String
+    let createdAt: String
+    var updatedAt: String
+
+    var isActive: Bool { status == "queued" || status == "running" }
+    mutating func apply(_ event: AIEvent) throws {
+        guard event.seq > lastSeq else { return }
+        guard event.seq == lastSeq + 1 else { throw AIContractError.sequenceGap }
+        switch event.type {
+        case "run.started": status = "running"
+        case "text.delta": outputText += try event.requiredText("text")
+        case "run.completed":
+            status = "completed"
+            responseId = try event.requiredText("responseId")
+        case "run.failed": status = "failed"; error = try event.requiredText("message")
+        case "run.cancelled": status = "cancelled"
+        default: break
+        }
+        lastSeq = event.seq
+        updatedAt = event.createdAt
+    }
 }
 
-enum AIEventType: String, Codable, Hashable {
-    case runStarted = "run.started"
-    case runStatusChanged = "run.status_changed"
-    case messageStarted = "message.started"
-    case messageDelta = "message.delta"
-    case messageCompleted = "message.completed"
-    case reasoningStarted = "reasoning.started"
-    case reasoningDelta = "reasoning.delta"
-    case reasoningCompleted = "reasoning.completed"
-    case toolCallStarted = "tool_call.started"
-    case toolCallUpdated = "tool_call.updated"
-    case toolCallCompleted = "tool_call.completed"
-    case fileChangeCreated = "file_change.created"
-    case commandStarted = "command.started"
-    case commandOutput = "command.output"
-    case commandCompleted = "command.completed"
-    case approvalRequired = "approval.required"
-    case approvalResolved = "approval.resolved"
-    case usageUpdated = "usage.updated"
-    case runCompleted = "run.completed"
-    case runFailed = "run.failed"
-    case runCancelled = "run.cancelled"
-}
+enum AIContractError: Error { case sequenceGap, malformedEvent }
 
 struct AIEvent: Codable, Identifiable, Hashable {
-    let id: String
     let seq: Int
-    let runId: String
-    let conversationId: String
-    let type: AIEventType
-    let payload: [String: AIJSONValue]
-    let createdAt: Date
-
-    var displayText: String {
-        payload["text"]?.stringValue
-            ?? payload["delta"]?.stringValue
-            ?? payload["summary"]?.stringValue
-            ?? payload["command"]?.stringValue
-            ?? payload["path"]?.stringValue
-            ?? ""
+    let type: String
+    let data: [String: AIJSON]
+    let createdAt: String
+    var id: Int { seq }
+    func requiredText(_ key: String) throws -> String {
+        guard case .string(let text) = data[key] else { throw AIContractError.malformedEvent }
+        return text
+    }
+    func text(_ key: String) -> String {
+        guard case .string(let text) = data[key] else { return "" }
+        return text
     }
 }
 
-enum AIJSONValue: Codable, Hashable {
-    case string(String)
-    case number(Double)
-    case bool(Bool)
-    case object([String: AIJSONValue])
-    case array([AIJSONValue])
-    case null
-
+indirect enum AIJSON: Codable, Hashable {
+    case string(String), number(Double), bool(Bool), object([String: AIJSON]), array([AIJSON]), null
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
-        if container.decodeNil() {
-            self = .null
-        } else if let value = try? container.decode(Bool.self) {
-            self = .bool(value)
-        } else if let value = try? container.decode(Double.self) {
-            self = .number(value)
-        } else if let value = try? container.decode(String.self) {
-            self = .string(value)
-        } else if let value = try? container.decode([String: AIJSONValue].self) {
-            self = .object(value)
-        } else {
-            self = .array(try container.decode([AIJSONValue].self))
-        }
+        if container.decodeNil() { self = .null }
+        else if let value = try? container.decode(Bool.self) { self = .bool(value) }
+        else if let value = try? container.decode(String.self) { self = .string(value) }
+        else if let value = try? container.decode(Double.self) { self = .number(value) }
+        else if let value = try? container.decode([String: AIJSON].self) { self = .object(value) }
+        else { self = .array(try container.decode([AIJSON].self)) }
     }
-
     func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         switch self {
@@ -326,62 +121,46 @@ enum AIJSONValue: Codable, Hashable {
         case .null: try container.encodeNil()
         }
     }
-
-    var stringValue: String? {
-        guard case .string(let value) = self else { return nil }
-        return value
+    var formatted: String {
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        guard let bytes = try? encoder.encode(self), let text = String(data: bytes, encoding: .utf8) else { return "表示できません" }
+        return text
     }
 }
 
-struct AIApproval: Codable, Identifiable, Hashable {
+struct AIEventPage: Decodable { let run: AIRun; let events: [AIEvent] }
+
+struct AITool: Identifiable {
     let id: String
-    let runId: String
-    let conversationId: String
-    let toolCallId: String?
-    let kind: String
-    let title: String
-    let detail: String
-    let riskLevel: String
-    let status: String
-    let allowForSession: Bool
-    let decision: String?
-    let requestedAt: Date
-    let resolvedAt: Date?
-    let createdAt: Date
-    let updatedAt: Date
+    var name: String
+    var arguments: String
+    var output: String
+    var completed: Bool
 }
 
-struct AIConversationDetail: Codable, Hashable {
-    let conversation: AIConversationSummary
-    let messages: [AIMessage]
-    let run: AIRun?
+struct AITrace {
     let events: [AIEvent]
-    let approvals: [AIApproval]
-}
-
-struct AITurnAccepted: Codable, Hashable {
-    let runId: String
-    let conversationId: String
-    let status: AIRunStatus
-}
-
-struct AIAttachment: Codable, Identifiable, Hashable {
-    let id: String
-    let conversationId: String
-    let fileName: String
-    let contentType: String
-    let byteSize: Int
-    let createdAt: Date
-}
-
-struct AINewConversationDraft: Hashable {
-    let title: String
-    let runtimeId: String
-    let hostId: String
-    let provider: AIProvider
-    let model: String
-    let mode: AIConversationMode
-    let workspaceId: String
-    let reasoningEffort: AIReasoningEffort
-    let isTemporary: Bool
+    var reasoning: String { events.filter { $0.type == "reasoning.delta" }.map { $0.text("text") }.joined() }
+    var status: String {
+        guard let event = events.last(where: { $0.type == "status" }), event.data["done"] == .bool(false) else { return "" }
+        return event.text("description")
+    }
+    var tools: [AITool] {
+        var result: [AITool] = []
+        for event in events where event.type == "tool.call" || event.type == "tool.result" {
+            let id = event.text("id")
+            if let index = result.firstIndex(where: { $0.id == id }) {
+                if event.type == "tool.call" {
+                    result[index].name = event.text("name")
+                    result[index].arguments = event.text("arguments")
+                } else {
+                    result[index].output = event.text("output")
+                    result[index].completed = true
+                }
+            } else {
+                result.append(AITool(id: id, name: event.text("name"), arguments: event.text("arguments"), output: event.text("output"), completed: event.type == "tool.result"))
+            }
+        }
+        return result
+    }
 }
