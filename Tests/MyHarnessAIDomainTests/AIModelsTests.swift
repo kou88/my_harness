@@ -36,3 +36,19 @@ private func run() -> AIRun {
     #expect(model.accepts(settings))
     #expect(!model.accepts(AISettings(contextLength: 65536, maxOutputTokens: 4096, reasoningEffort: "max")))
 }
+
+@Test func rendersCodeAndWrappedToolOutputReadably() {
+    let tool = AITool(id: "call", name: "execute_code", arguments: #"{"code":"print(7 * 8)\n"}"#,
+        output: #"[{"type":"input_text","text":"{\"status\":\"success\",\"output\":\"56\\n\"}"}]"#, completed: true)
+    #expect(tool.displayArguments == "print(7 * 8)\n")
+    #expect(tool.displayOutput.hasPrefix("{\n"))
+    #expect(tool.displayOutput.contains("success"))
+    #expect(tool.displayOutput.contains("56"))
+    #expect(!tool.displayOutput.contains("input_text"))
+}
+
+@Test func preservesPlainToolOutput() {
+    let tool = AITool(id: "call", name: "terminal", arguments: "echo hi", output: "hi\n", completed: true)
+    #expect(tool.displayArguments == "echo hi")
+    #expect(tool.displayOutput == "hi\n")
+}
