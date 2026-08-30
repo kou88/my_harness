@@ -42,7 +42,10 @@ import Foundation
         details[conversation]!.runs.append(run)
         return run
     }
-    func run(_ id: String) async throws -> AIRun { details.values.flatMap(\.runs).first { $0.id == id }! }
+    func run(_ id: String) async throws -> AIRun {
+        guard let run = details.values.flatMap(\.runs).first(where: { $0.id == id }) else { throw APIError.response(404, "Deleted run") }
+        return run
+    }
     func events(_ id: String, after: Int) async throws -> AIEventPage {
         AIEventPage(run: try await run(id), events: (history[id] ?? []).filter { $0.seq > after })
     }

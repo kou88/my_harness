@@ -271,7 +271,9 @@ final class AIChatState {
                         if let index = session.detail?.runs.firstIndex(where: { $0.id == runId }) { try session.detail?.runs[index].apply(event) }
                         self.appendTrace(runId, event)
                     }
+                    try Task.checkCancellation()
                     let run = try await api.run(runId)
+                    try Task.checkCancellation()
                     self.replaceRun(run, session: session)
                     if !run.isActive {
                         await self.loadTrace(runId, session: session)
