@@ -150,7 +150,10 @@ struct AIChatSidebar: View {
                 Spacer()
                 Button(action: onClose) { Image(systemName: "sidebar.left").frame(width: 44, height: 44) }.accessibilityLabel("サイドバーを閉じる")
             }.padding(.leading, 20).padding(.trailing, 6)
-            Button(action: onNew) { Label("新しいチャット", systemImage: "square.and.pencil").frame(maxWidth: .infinity, alignment: .leading).frame(height: 44) }
+            Button(action: onNew) {
+                Label("新しいチャット", systemImage: "square.and.pencil")
+                    .frame(maxWidth: .infinity, alignment: .leading).frame(height: 44).contentShape(Rectangle())
+            }.buttonStyle(AIChatRowButtonStyle())
                 .padding(.horizontal, 20)
             HStack(spacing: 10) {
                 Image(systemName: "magnifyingglass")
@@ -171,12 +174,14 @@ struct AIChatSidebar: View {
                                         Text(activity).font(.system(size: 11)).foregroundStyle(AIChatStyle.muted)
                                     }
                                 }
-                                    .frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 12).frame(minHeight: 42)
-                            }
+                                    .frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 12).frame(minHeight: 44)
+                                    .contentShape(Rectangle())
+                            }.buttonStyle(AIChatRowButtonStyle())
+                                .accessibilityIdentifier("AI.conversation." + conversation.id)
                             Menu {
                                 Button("会話を削除", systemImage: "trash", role: .destructive) { onDelete(conversation.id) }
                                     .disabled(!state.canDelete(conversation.id))
-                            } label: { Image(systemName: "ellipsis").font(.system(size: 14)).frame(width: 36, height: 42) }
+                            } label: { Image(systemName: "ellipsis").font(.system(size: 14)).frame(width: 44, height: 44).contentShape(Rectangle()) }
                                 .accessibilityLabel(conversation.title + "の操作")
                         }
                         .background(selectedId == conversation.id ? AIChatStyle.bubble : .clear, in: RoundedRectangle(cornerRadius: 10))
@@ -206,4 +211,11 @@ struct AIChatSidebar: View {
     }
 
     private func leave(_ tab: AppTab) { onClose(); router.selectedTab = tab }
+}
+
+private struct AIChatRowButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(configuration.isPressed ? AIChatStyle.pressed : .clear, in: RoundedRectangle(cornerRadius: 10))
+    }
 }
