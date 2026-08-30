@@ -141,6 +141,7 @@ struct AppRootView: View {
             }
             .tag(AppTab.television)
         }
+        .preferredColorScheme(router.selectedTab == .ai ? .dark : nil)
         .environment(router)
         .onOpenURL { url in
             handleDeepLink(url)
