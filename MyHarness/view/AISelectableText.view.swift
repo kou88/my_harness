@@ -36,7 +36,12 @@ struct AISelectableText: UIViewRepresentable {
         let natural = ceil(uiView.attributedText.boundingRect(
             with: CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude),
             options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil).width) + 1
-        let available = proposal.width ?? max(1, natural)
+        // SwiftUI also probes with zero/infinite widths during navigation layout.
+        // Never ask UITextView to wrap a streaming message into a zero-width column.
+        if let proposed = proposal.width, proposed <= 0 { return .zero }
+        let available: CGFloat
+        if let proposed = proposal.width, proposed.isFinite { available = proposed }
+        else { available = max(1, natural) }
         let width = kind == .message || kind == .code ? min(available, max(1, natural)) : available
         let fitted = uiView.sizeThatFits(CGSize(width: width, height: CGFloat.greatestFiniteMagnitude))
         return CGSize(width: width, height: ceil(fitted.height))
