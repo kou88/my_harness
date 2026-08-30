@@ -93,10 +93,12 @@ struct AIChatScreen: View {
                 }
             }
             .clipped()
+            .contentShape(Rectangle())
             .simultaneousGesture(DragGesture(minimumDistance: 24).onEnded { value in
-                guard !showModels, !showSettings, abs(value.translation.width) > abs(value.translation.height) * 1.5 else { return }
+                guard !showModels, !showSettings, !showSharing, abs(value.translation.width) > abs(value.translation.height) * 1.5 else { return }
                 if showSidebar && value.translation.width < -60 { toggleSidebar(false) }
-                else if !showSidebar && value.startLocation.x <= 32 && value.translation.width > 60 {
+                // Accept a short rightward swipe anywhere, including near the right edge.
+                else if !showSidebar && value.translation.width > 24 && !hasActiveTextSelection {
                     toggleSidebar(true)
                     Task { await state.loadList() }
                 }
@@ -214,6 +216,16 @@ struct AIChatScreen: View {
             if !state.connectionMessage.isEmpty { Text(state.connectionMessage).foregroundStyle(AIChatStyle.muted) }
             if !state.errorMessage.isEmpty { Text(state.errorMessage).foregroundStyle(.red).textSelection(.enabled) }
         }.font(.caption).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16)
+    }
+
+    private var hasActiveTextSelection: Bool {
+        // Native selection handles also emit horizontal drags to the parent gesture.
+        func containsSelection(_ view: UIView) -> Bool {
+            if let text = view as? UITextView, text.isFirstResponder, text.selectedRange.length > 0 { return true }
+            return view.subviews.contains(where: containsSelection)
+        }
+        return UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows).filter(\.isKeyWindow).contains(where: containsSelection)
     }
 
     private func toggleSidebar(_ value: Bool) {
