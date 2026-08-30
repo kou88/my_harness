@@ -58,7 +58,7 @@ private struct AIRunMessage: View {
     private var status: String {
         if run.cancelRequested && run.isActive { return "停止を要求中" }
         if !trace.status.isEmpty && run.isActive { return trace.status }
-        if run.status == "queued" { return "実行待ち" }
+        if run.status == "queued" { return "待機中（PCで順番に処理します）" }
         if run.status == "running" {
             if trace.tools.contains(where: { !$0.completed }) { return "ツール実行中" }
             if run.outputText.isEmpty && !trace.reasoning.isEmpty { return "思考中" }
@@ -71,7 +71,7 @@ private struct AIRunMessage: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Spacer(minLength: 30)
-                Text(run.inputText).font(.system(size: 16)).lineSpacing(3).textSelection(.enabled)
+                AISelectableText(text: run.inputText, kind: .message)
                     .padding(.horizontal, 16).padding(.vertical, 10)
                     .background(AIChatStyle.bubble, in: RoundedRectangle(cornerRadius: 24))
             }.padding(.bottom, 40)
@@ -86,8 +86,8 @@ private struct AIRunMessage: View {
             }
             if !trace.reasoning.isEmpty {
                 AITraceDisclosure(title: run.isActive && run.outputText.isEmpty ? "思考中" : "思考", icon: "sparkle", completed: !run.isActive) {
-                    Text(trace.reasoning).font(.system(size: 14)).lineSpacing(4).foregroundStyle(AIChatStyle.muted)
-                        .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                    AISelectableText(text: trace.reasoning, kind: .reasoning)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.leading, 12).overlay(alignment: .leading) { Rectangle().fill(AIChatStyle.border).frame(width: 2) }
                 }.padding(.bottom, 8)
             }
@@ -99,7 +99,7 @@ private struct AIRunMessage: View {
                     }
                 }.padding(.bottom, 8)
             }
-            if !run.outputText.isEmpty { ProductOpsMarkdownView(markdown: run.outputText).padding(.top, 2) }
+            if !run.outputText.isEmpty { AISelectableText(text: run.outputText, kind: .markdown).padding(.top, 2) }
             if !run.error.isEmpty { Text(run.error).font(.callout).foregroundStyle(.red).textSelection(.enabled).padding(.vertical, 8) }
             if !run.isActive {
                 HStack(spacing: 0) {
@@ -158,9 +158,9 @@ private struct AIChatCodeBlock: View {
                 }.buttonStyle(.plain).accessibilityLabel(title + "をコピー")
             }.foregroundStyle(AIChatStyle.muted).padding(.horizontal, 12).padding(.vertical, 10)
             ScrollView(.horizontal) {
-                Text(text).font(.system(size: 13, design: .monospaced)).lineSpacing(3).textSelection(.enabled)
+                AISelectableText(text: text, kind: .code)
                     .fixedSize(horizontal: true, vertical: true).padding(12).frame(maxWidth: .infinity, alignment: .leading)
-            }.background(Color.black.opacity(0.22))
+            }.background(AIChatStyle.code)
         }.background(AIChatStyle.bubble, in: RoundedRectangle(cornerRadius: 10))
             .clipShape(RoundedRectangle(cornerRadius: 10))
     }

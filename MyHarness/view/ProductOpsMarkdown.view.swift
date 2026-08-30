@@ -108,7 +108,7 @@ struct ProductOpsMarkdownView: View {
     }
 }
 
-private struct ProductOpsMarkdownBlock: Identifiable {
+struct ProductOpsMarkdownBlock: Identifiable {
     enum Kind {
         case heading(level: Int, text: String)
         case paragraph(String)
@@ -123,7 +123,7 @@ private struct ProductOpsMarkdownBlock: Identifiable {
     let kind: Kind
 }
 
-private enum ProductOpsMarkdownParser {
+enum ProductOpsMarkdownParser {
     static func parse(_ markdown: String) -> [ProductOpsMarkdownBlock] {
         let lines = markdown
             .replacingOccurrences(of: "\r\n", with: "\n")

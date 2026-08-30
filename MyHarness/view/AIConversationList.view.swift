@@ -1,8 +1,13 @@
 import SwiftUI
 
 struct AIConversationListView: View {
+    @Environment(AppRouter.self) private var router
     @Bindable var state: AIChatState
-    var body: some View { AIChatScreen(state: state, conversationId: nil) }
+    private var conversationId: String? {
+        guard case .aiConversation(let id) = router.aiPath.last else { return nil }
+        return id
+    }
+    var body: some View { AIChatScreen(state: state, conversationId: conversationId) }
 }
 
 struct AISettingsView: View {
