@@ -39,9 +39,9 @@ private func run() -> AIRun {
 
 @Test func rendersCodeAndWrappedToolOutputReadably() {
     let tool = AITool(id: "call", name: "execute_code", arguments: #"{"code":"print(7 * 8)\n"}"#,
-        output: #"[{"type":"input_text","text":"{\"status\":\"success\",\"output\":\"56\n\"}"}]"#, completed: true)
+        output: #"[{"type":"input_text","text":"{\"status\":\"success\",\"output\":\"56\\n\"}"}]"#, completed: true)
     #expect(tool.displayArguments == "print(7 * 8)\n")
-    #expect(tool.displayOutput.contains("\n"))
+    #expect(tool.displayOutput.hasPrefix("{\n"))
     #expect(tool.displayOutput.contains("success"))
     #expect(tool.displayOutput.contains("56"))
     #expect(!tool.displayOutput.contains("input_text"))
