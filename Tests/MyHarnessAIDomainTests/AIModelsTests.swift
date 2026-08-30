@@ -6,7 +6,7 @@ private func event(_ seq: Int, _ type: String, _ data: [String: AIJSON]) -> AIEv
     AIEvent(seq: seq, type: type, data: data, createdAt: "2026-08-30T00:00:00Z")
 }
 private func run() -> AIRun {
-    AIRun(id: UUID().uuidString.lowercased(), conversationId: UUID().uuidString.lowercased(), hostId: UUID().uuidString.lowercased(), modelId: UUID().uuidString.lowercased(), model: "qwen", settings: AISettings(contextLength: 65536, maxOutputTokens: 4096, reasoningEffort: "medium"), inputText: "test", outputText: "", status: "queued", cancelRequested: false, lastSeq: 0, error: "", responseId: "", previousResponseId: "", createdAt: "", updatedAt: "")
+    AIRun(id: UUID().uuidString.lowercased(), conversationId: UUID().uuidString.lowercased(), hostId: UUID().uuidString.lowercased(), modelId: UUID().uuidString.lowercased(), model: "qwen", settings: AISettings(contextLength: 65536, maxOutputTokens: 4096, reasoningEffort: "medium"), delivery: .changes, inputText: "test", outputText: "", status: "queued", cancelRequested: false, lastSeq: 0, error: "", responseId: "", previousResponseId: "", createdAt: "", updatedAt: "")
 }
 @Test func replayDoesNotDuplicateOutput() throws {
     var value = run()
@@ -67,4 +67,15 @@ private func run() -> AIRun {
     #expect(!sharing.capacityIsValid)
     sharing.maxConcurrentRuns = 0
     #expect(!sharing.capacityIsValid)
+}
+
+@Test func codingContextUsesTheFlatServerContract() throws {
+    let context = AIContext.opencode(AICodingContext(repositoryId: "repo", repository: "owner/repo", hostId: "host", baseBranch: "main", workBranch: "agent/conversation"))
+    let encoded = try JSONEncoder().encode(context)
+    let json = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: String])
+    #expect(json["harness"] == "opencode")
+    #expect(json["repository"] == "owner/repo")
+    #expect(try JSONDecoder().decode(AIContext.self, from: encoded) == context)
+    #expect(throws: DecodingError.self) { try JSONDecoder().decode(AIContext.self, from: Data(#"{"harness":"unknown"}"#.utf8)) }
+    #expect(throws: DecodingError.self) { try JSONDecoder().decode(AIContext.self, from: Data(#"{"harness":"opencode"}"#.utf8)) }
 }

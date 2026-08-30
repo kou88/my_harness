@@ -22,6 +22,7 @@ final class AIAPIClient {
         let modelId: String
         let inputText: String
         let settings: AISettings
+        let delivery: AIDelivery
     }
     private let config: ActionInboxConfig
     private let authSession: CognitoAuthSession
@@ -38,13 +39,20 @@ final class AIAPIClient {
     }
 
     func models() async throws -> [AIModel] { try await request("/models", method: "GET", body: nil) }
+    func repositories() async throws -> [AIRepository] { try await request("/repositories", method: "GET", body: nil) }
+    func requests(_ runId: String) async throws -> [AIRequest] { try await request("/runs/\(runId)/requests", method: "GET", body: nil) }
+    func reply(_ id: String, value: AIReply) async throws {
+        struct Accepted: Decodable { let accepted: Bool }
+        let _: Accepted = try await request("/requests/\(id)/reply", method: "POST", body: encoder.encode(value))
+    }
     func sharing() async throws -> AISharing { try await request("/sharing", method: "GET", body: nil) }
     func saveSharing(_ value: AISharing) async throws -> AISharing { try await request("/sharing", method: "PATCH", body: encoder.encode(value)) }
     func conversations() async throws -> [AIConversation] { try await request("/conversations", method: "GET", body: nil) }
     func conversation(_ id: String) async throws -> AIConversationDetail { try await request("/conversations/\(id)", method: "GET", body: nil) }
     func run(_ id: String) async throws -> AIRun { try await request("/runs/\(id)", method: "GET", body: nil) }
-    func create(id: String, title: String) async throws -> AIConversation {
-        try await request("/conversations", method: "POST", body: encoder.encode(["id": id, "title": title]))
+    func create(id: String, title: String, context: AIContextInput) async throws -> AIConversation {
+        struct Creation: Encodable { let id: String; let title: String; let context: AIContextInput }
+        return try await request("/conversations", method: "POST", body: encoder.encode(Creation(id: id, title: title, context: context)))
     }
     func send(conversation: String, submission: Submission) async throws -> AIRun {
         try await request("/conversations/\(conversation)/runs", method: "POST", body: encoder.encode(submission))
@@ -73,7 +81,7 @@ final class AIAPIClient {
                     guard http.statusCode == 200 else { throw APIError.response(http.statusCode, "実行状況への接続に失敗しました") }
                     for try await line in bytes.lines {
                         try Task.checkCancellation()
-                        // AI v4 emits one JSON data line per event. Do not rely
+                        // AI v5 emits one JSON data line per event. Do not rely
                         // on AsyncLineSequence preserving empty separator lines.
                         if line.hasPrefix("data:") {
                             let data = Data(line.dropFirst(5).trimmingCharacters(in: .whitespaces).utf8)
@@ -98,7 +106,7 @@ final class AIAPIClient {
         return try decoder.decode(Envelope<Value>.self, from: data).data
     }
     private func makeRequest(_ path: String, method: String, body: Data?) async throws -> URLRequest {
-        guard let url = URL(string: config.apiBaseURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + "/api/v4/ai" + path) else { throw APIError.invalidResponse }
+        guard let url = URL(string: config.apiBaseURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + "/api/v5/ai" + path) else { throw APIError.invalidResponse }
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
         request.httpMethod = method; request.httpBody = body
         request.setValue("Bearer \(try await authSession.accessToken())", forHTTPHeaderField: "Authorization")

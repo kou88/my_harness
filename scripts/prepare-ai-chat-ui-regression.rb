@@ -14,6 +14,7 @@ sources = %w[
   MyHarness/state/AIChatState.state.swift
   MyHarness/view/AIConversationList.view.swift
   MyHarness/view/AIChatScreen.view.swift
+  MyHarness/view/AIHarnessControls.view.swift
   MyHarness/view/AIChatControls.view.swift
   MyHarness/view/AISharing.view.swift
   MyHarness/view/AIChatMessages.view.swift
