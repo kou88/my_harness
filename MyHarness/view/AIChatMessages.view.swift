@@ -81,7 +81,7 @@ private struct AIRunMessage: View {
             VStack(alignment: .trailing, spacing: 0) {
                 HStack {
                     Spacer(minLength: 30)
-                    AISelectableText(text: run.inputText, kind: .message)
+                    AIChatMessageText(text: run.inputText, kind: .message, copyID: run.id + ".input")
                         .padding(.horizontal, 16).padding(.vertical, 10)
                         .background(AIChatStyle.bubble, in: RoundedRectangle(cornerRadius: 24))
                 }
@@ -103,7 +103,7 @@ private struct AIRunMessage: View {
             }
             if !trace.reasoning.isEmpty {
                 AITraceDisclosure(title: run.isActive && run.outputText.isEmpty ? "思考中" : "思考", icon: "sparkle", completed: !run.isActive) {
-                    AISelectableText(text: trace.reasoning, kind: .reasoning)
+                    AIChatMessageText(text: trace.reasoning, kind: .reasoning, copyID: run.id + ".reasoning")
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.leading, 12).overlay(alignment: .leading) { Rectangle().fill(AIChatStyle.border).frame(width: 2) }
                 }.padding(.bottom, 8)
@@ -111,12 +111,12 @@ private struct AIRunMessage: View {
             ForEach(trace.tools) { tool in
                 AITraceDisclosure(title: tool.name == "execute_code" ? "コード実行 · execute_code" : tool.name, icon: tool.name == "execute_code" ? "terminal" : "wrench", completed: tool.completed) {
                     VStack(alignment: .leading, spacing: 10) {
-                        AIChatCodeBlock(title: tool.name == "execute_code" ? "python" : "入力", text: tool.displayArguments)
-                        if tool.completed { AIChatCodeBlock(title: "結果", text: tool.displayOutput) }
+                        AIChatCodeBlock(title: tool.name == "execute_code" ? "python" : "入力", text: tool.displayArguments, copyID: run.id + ".tool.\(tool.id).input")
+                        if tool.completed { AIChatCodeBlock(title: "結果", text: tool.displayOutput, copyID: run.id + ".tool.\(tool.id).output") }
                     }
                 }.padding(.bottom, 8)
             }
-            if !run.outputText.isEmpty { AISelectableText(text: run.outputText, kind: .markdown).padding(.top, 2) }
+            if !run.outputText.isEmpty { AIChatMessageText(text: run.outputText, kind: .markdown, copyID: run.id + ".output").padding(.top, 2) }
             if !run.error.isEmpty { Text(run.error).font(.callout).foregroundStyle(.red).textSelection(.enabled).padding(.vertical, 8) }
             if !run.isActive {
                 HStack(spacing: 0) {
@@ -128,7 +128,7 @@ private struct AIRunMessage: View {
             if showInfo {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("推論 \(run.settings.reasoningEffort) · \(run.settings.contextLength / 1024)K · 出力上限 \(run.settings.maxOutputTokens.formatted())")
-                    if let usage = trace.events.last(where: { $0.type == "usage" })?.data["usage"] { AIChatCodeBlock(title: "使用トークン", text: usage.formatted) }
+                    if let usage = trace.events.last(where: { $0.type == "usage" })?.data["usage"] { AIChatCodeBlock(title: "使用トークン", text: usage.formatted, copyID: run.id + ".usage") }
                     ForEach(trace.events.filter { $0.type == "status" && $0.data["done"] == .bool(true) }) { event in
                         Text(event.text("description"))
                     }
@@ -162,24 +162,62 @@ private struct AITraceDisclosure<Content: View>: View {
     }
 }
 
+private struct AIChatMessageText: View {
+    let text: String
+    let kind: AISelectableText.Kind
+    let copyID: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ForEach(AIMessageContent.parse(text)) { part in
+                switch part.kind {
+                case .text(let prose):
+                    if !prose.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        AISelectableText(text: prose.trimmingCharacters(in: .newlines), kind: kind)
+                    }
+                case .code(let language, let code):
+                    AIChatCodeBlock(title: language.isEmpty ? "コード" : language, text: code, copyID: copyID + ".\(part.id)")
+                }
+            }
+        }
+    }
+}
+
 private struct AIChatCodeBlock: View {
     let title: String
     let text: String
+    let copyID: String
+    @State private var copied = false
+    @State private var copyCount = 0
     var body: some View {
         VStack(spacing: 0) {
             HStack {
                 Text(title).font(.system(size: 12, weight: .medium))
                 Spacer()
-                Button { UIPasteboard.general.string = text } label: {
-                    Label("コピー", systemImage: "doc.on.doc").font(.system(size: 11))
+                Button {
+                    UIPasteboard.general.string = text
+                    copied = true
+                    copyCount += 1
+                } label: {
+                    Label(copied ? "コピー済み" : "コピー", systemImage: copied ? "checkmark" : "doc.on.doc")
+                        .font(.system(size: 12)).frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
                 }.buttonStyle(.plain).accessibilityLabel(title + "をコピー")
-            }.foregroundStyle(AIChatStyle.muted).padding(.horizontal, 12).padding(.vertical, 10)
+                    .accessibilityIdentifier("AI.copyCode." + copyID)
+            }.foregroundStyle(AIChatStyle.muted).padding(.horizontal, 12)
             ScrollView(.horizontal) {
                 AISelectableText(text: text, kind: .code)
                     .fixedSize(horizontal: true, vertical: true).padding(12).frame(maxWidth: .infinity, alignment: .leading)
             }.background(AIChatStyle.code)
         }.background(AIChatStyle.bubble, in: RoundedRectangle(cornerRadius: 10))
             .clipShape(RoundedRectangle(cornerRadius: 10))
+            .onChange(of: text) { _, _ in copied = false }
+            .task(id: copyCount) {
+                guard copyCount > 0 else { return }
+                do {
+                    try await Task.sleep(for: .seconds(2))
+                    copied = false
+                } catch { /* A newer copy or a removed block cancels this reset. */ }
+            }
     }
 }
 
