@@ -81,6 +81,7 @@ private struct AIRepositoryPicker: View {
 
 struct AICodingResult: View {
     let trace: AITrace
+    let runID: String
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             if let diff = trace.events.last(where: { $0.type == "work.diff" }), case .array(let files) = diff.data["files"], !files.isEmpty {
@@ -89,7 +90,7 @@ struct AICodingResult: View {
                         ForEach(Array(files.enumerated()), id: \.offset) { item in
                             if case .string(let path) = item.element { Text(path).font(.caption.monospaced()).textSelection(.enabled) }
                         }
-                        AIChatCodeBlock(title: "差分", text: diff.text("patch"))
+                        AIChatCodeBlock(title: "差分", text: diff.text("patch"), copyID: runID + ".diff")
                         if diff.data["truncated"] == .bool(true) { Text("差分は表示上限までです。全体は作業repoまたはPRで確認できます。").font(.caption).foregroundStyle(AIChatStyle.muted) }
                     }
                 }
