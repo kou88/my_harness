@@ -78,12 +78,20 @@ private struct AIRunMessage: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Spacer(minLength: 30)
-                AISelectableText(text: run.inputText, kind: .message)
-                    .padding(.horizontal, 16).padding(.vertical, 10)
-                    .background(AIChatStyle.bubble, in: RoundedRectangle(cornerRadius: 24))
-            }.padding(.bottom, 40)
+            VStack(alignment: .trailing, spacing: 0) {
+                HStack {
+                    Spacer(minLength: 30)
+                    AISelectableText(text: run.inputText, kind: .message)
+                        .padding(.horizontal, 16).padding(.vertical, 10)
+                        .background(AIChatStyle.bubble, in: RoundedRectangle(cornerRadius: 24))
+                }
+                Button { UIPasteboard.general.string = run.inputText } label: {
+                    Image(systemName: "doc.on.doc").font(.system(size: 14))
+                        .frame(width: 44, height: 44).contentShape(Rectangle())
+                }.buttonStyle(.plain).foregroundStyle(AIChatStyle.muted)
+                    .accessibilityLabel("送信したメッセージを全文コピー")
+                    .accessibilityIdentifier("AI.copyInput.\(run.id)")
+            }.padding(.bottom, 12)
             Text(run.model).font(.system(size: 14, weight: .semibold)).lineLimit(1).truncationMode(.tail)
                 .accessibilityLabel("回答モデル: " + run.model).padding(.bottom, 8)
             if run.isActive || run.status != "completed" {
