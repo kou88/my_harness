@@ -47,6 +47,13 @@ struct AIChatScreen: View {
                 AIChatStyle.canvas.ignoresSafeArea()
                 VStack(spacing: 0) {
                     header
+                    if !isNew, case .opencode(let context) = state.detail?.context {
+                        HStack(spacing: 6) {
+                            Image(systemName: AIHarness.opencode.symbol)
+                            Text(context.repository + " · " + context.baseBranch).lineLimit(1).truncationMode(.middle)
+                            Image(systemName: "lock.fill").font(.system(size: 9))
+                        }.font(.system(size: 11)).foregroundStyle(AIChatStyle.muted).padding(.horizontal, 18).padding(.bottom, 8)
+                    }
                     if !state.isSignedIn { signIn }
                     else if isNew { welcome }
                     else if let detail = state.detail, detail.id == conversationId {
@@ -128,7 +135,7 @@ struct AIChatScreen: View {
                 Task { if await state.delete(id), id == conversationId { newChat() } }
             }
             Button("キャンセル", role: .cancel) {}
-        } message: { _ in Text("会話履歴と実行イベントを削除します。Hermesのmemoryと作成したファイルは残ります。") }
+        } message: { _ in Text("会話履歴と実行イベントを削除します。作成したファイル・作業ブランチ・PR・ハーネスの保存データは残ります。") }
         .alert("会話の名前", isPresented: $showRename) {
             TextField("名前", text: $title)
             Button("保存") { Task { await state.rename(title) } }
@@ -175,9 +182,10 @@ struct AIChatScreen: View {
                             .font(.system(size: 24, weight: .semibold)).lineLimit(1).truncationMode(.tail)
                     }.padding(.horizontal, 16).padding(.bottom, 14)
                         .onTapGesture { if !modelLocked { showModels = true } }
-                    Text("Hermes Agent / ローカル推論。\n調べる、コードを書く、ファイルを扱う。")
+                    Text(state.harness == .hermes ? "ローカルモデルで調べる、相談する、ファイルを扱う。" : "専用の作業場所で実装し、テストしてPRを作る。")
                         .font(.system(size: 14)).foregroundStyle(AIChatStyle.muted)
                         .multilineTextAlignment(.center).lineSpacing(3).padding(.bottom, 22)
+                    AIHarnessSetup(state: state).padding(.bottom, 16)
                     composer
                     Button { showSharing = true } label: {
                         HStack(spacing: 7) {
@@ -192,7 +200,7 @@ struct AIChatScreen: View {
                         }.font(.system(size: 13)).padding(.vertical, 14).contentShape(Rectangle())
                     }.buttonStyle(.plain).disabled(state.sharing == nil).accessibilityIdentifier("AI.sharing")
                     notices.padding(.top, 12)
-                    Text("MyHarness · Hermes Agent").font(.system(size: 12)).foregroundStyle(AIChatStyle.muted).padding(.top, 26)
+                    Text("MyHarness · " + state.harness.name).font(.system(size: 12)).foregroundStyle(AIChatStyle.muted).padding(.top, 20)
                 }
                 .padding(.horizontal, 12).padding(.bottom, 90)
                 .frame(minHeight: geometry.size.height)

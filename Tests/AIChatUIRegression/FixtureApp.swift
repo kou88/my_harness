@@ -20,6 +20,7 @@ enum AppRoute { case aiConversation(id: String) }
     private let conversationId: String
     private let runId: String
     private let otherId: String
+    private let codingId: String
     @State private var shown = true
     @State private var result = "長文・生成中の再表示テスト"
 
@@ -29,15 +30,24 @@ enum AppRoute { case aiConversation(id: String) }
         let activeId = UUID().uuidString.lowercased()
         let runs = (0..<12).map { index in
             AIRun(id: index == 11 ? activeId : UUID().uuidString.lowercased(), conversationId: id,
-                hostId: "host", modelId: api.model.id, model: "表示確認モデル", settings: api.model.initialSettings,
+                hostId: "host", modelId: api.model.id, model: "表示確認モデル", settings: api.model.initialSettings, delivery: .changes,
                 inputText: "再表示テスト \(index + 1)",
                 outputText: (0..<(index == 11 ? 70 : 8)).map { "段落\($0): 生成中に会話を開き直しても、回答が画面内に表示されることを確認します。" }.joined(separator: "\n\n"),
                 status: index == 11 ? "running" : "completed", cancelRequested: false, lastSeq: 0,
                 error: "", responseId: "", previousResponseId: "", createdAt: "test", updatedAt: "test")
         }
-        api.details[id] = AIConversationDetail(id: id, title: "生成中の長文", createdAt: "test", updatedAt: "test", runs: runs)
+        api.details[id] = AIConversationDetail(id: id, title: "生成中の長文", context: .hermes, createdAt: "test", updatedAt: "test", runs: runs)
         let other = UUID().uuidString.lowercased()
-        api.details[other] = AIConversationDetail(id: other, title: "別の会話", createdAt: "test", updatedAt: "test", runs: [])
+        api.details[other] = AIConversationDetail(id: other, title: "別の会話", context: .hermes, createdAt: "test", updatedAt: "test", runs: [])
+        let coding = UUID().uuidString.lowercased(), codingRun = UUID().uuidString.lowercased()
+        let repo = AIRepository(id: UUID().uuidString.lowercased(), hostId: "host", hostName: "PC-02", online: true, repository: "kou88/my_api", branches: ["prod", "develop"], defaultBranch: "prod")
+        api.repositoryValues = [repo]
+        api.details[coding] = AIConversationDetail(id: coding, title: "APIのテストを追加", context: .opencode(AICodingContext(repositoryId: repo.id, repository: repo.repository, hostId: "host", baseBranch: "develop", workBranch: "agent/" + coding)), createdAt: "test", updatedAt: "test", runs: [
+            AIRun(id: codingRun, conversationId: coding, hostId: "host", modelId: api.model.id, model: "表示確認モデル", settings: api.model.initialSettings, delivery: .draftPR, inputText: "入力の検証を追加してDraft PRを作って", outputText: "入力の検証とテストを追加しました。確認が必要な操作があります。", status: "running", cancelRequested: false, lastSeq: 0, error: "", responseId: "", previousResponseId: "", createdAt: "test", updatedAt: "test")])
+        api.requestValues[codingRun] = [AIRequest(id: UUID().uuidString.lowercased(), runId: codingRun, kind: "permission", payload: ["permission": .string("bash"), "patterns": .array([.string("rm -rf temporary-build")])], status: "pending", createdAt: "test", updatedAt: "test"),
+            AIRequest(id: UUID().uuidString.lowercased(), runId: codingRun, kind: "question", payload: ["questions": .array([.object(["header": .string("対象"), "question": .string("どちらの入力を検証しますか？"), "options": .array([.object(["label": .string("名前"), "description": .string("空の名前を拒否する")]), .object(["label": .string("メール"), "description": .string("メール形式を検証する")])]), "multiple": .bool(false), "custom": .bool(true)])])], status: "pending", createdAt: "test", updatedAt: "test")]
+        try! api.emit(codingRun, type: "work.diff", data: ["files": .array([.string("src/input.ts")]), "patch": .string("--- a/src/input.ts\n+++ b/src/input.ts\n@@ -1 +1 @@\n-return input\n+return validate(input)\n"), "truncated": .bool(false)])
+        codingId = coding
         self.api = api; conversationId = id; runId = activeId
         otherId = other
         _state = State(initialValue: AIChatState(apiClient: api, authSession: CognitoAuthSession(), configurationErrorMessage: nil))
@@ -48,6 +58,7 @@ enum AppRoute { case aiConversation(id: String) }
             HStack {
                 Text(result).font(.caption)
                 Spacer()
+                Button("コード") { router.aiPath = [.aiConversation(id: codingId)] }
                 Button("追記") {
                     try? api.emit(runId, type: "text.delta", data: ["text": .string("\n\n手動追加: 過去の文を読んでいる間はスクロール位置を保持します。")])
                 }

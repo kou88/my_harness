@@ -11,6 +11,15 @@ struct AIChatComposer: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
+            if state.harness == .opencode {
+                HStack {
+                    Label("OpenCode", systemImage: AIHarness.opencode.symbol).font(.caption).foregroundStyle(AIChatStyle.muted)
+                    Spacer()
+                    Picker("作業の範囲", selection: $state.delivery) {
+                        ForEach(AIDelivery.allCases) { Text($0.name).tag($0) }
+                    }.pickerStyle(.menu).font(.caption).disabled(modelLocked).accessibilityIdentifier("AI.delivery")
+                }.padding(.horizontal, 14).padding(.top, 6)
+            }
             TextField(conversationId == nil ? "今日はどのようにお手伝いしましょうか？" : "メッセージを送信", text: $state.composerText, axis: .vertical)
                 .font(.system(size: 16)).lineLimit(1...8).textFieldStyle(.plain)
                 .padding(.horizontal, 16).padding(.top, 15).padding(.bottom, 4)
@@ -19,7 +28,7 @@ struct AIChatComposer: View {
             HStack(spacing: 6) {
                 Menu {
                     Button("モデル設定", systemImage: "slider.horizontal.3", action: onSettings).disabled(state.selectedModel == nil || modelLocked)
-                    Button("コードを実行", systemImage: "terminal") { state.composerText += "execute_codeを使ってPythonで"; focused = true }
+                    Button("コードを実行", systemImage: "terminal") { state.composerText += state.harness == .hermes ? "execute_codeを使ってPythonで" : "このrepoのテストを実行して結果を確認してください。"; focused = true }
                     Button("Webを調べる", systemImage: "globe") { state.composerText += "Webで調べて、出典とともに教えてください。"; focused = true }
                 } label: { Image(systemName: "plus").font(.system(size: 19, weight: .light)).frame(width: 36, height: 36) }
                     .accessibilityLabel("もっと見る").disabled(state.hasPendingSubmission)
@@ -169,6 +178,7 @@ struct AIChatSidebar: View {
                             Button { onOpen(conversation.id) } label: {
                                 VStack(alignment: .leading, spacing: 3) {
                                     Text(conversation.title).lineLimit(1).font(.system(size: 14))
+                                    Text(conversation.context.harness.name).font(.system(size: 10)).foregroundStyle(AIChatStyle.muted)
                                     let activity = state.activity(conversation.id)
                                     if !activity.isEmpty {
                                         Text(activity).font(.system(size: 11)).foregroundStyle(AIChatStyle.muted)
@@ -213,7 +223,7 @@ struct AIChatSidebar: View {
     private func leave(_ tab: AppTab) { onClose(); router.selectedTab = tab }
 }
 
-private struct AIChatRowButtonStyle: ButtonStyle {
+struct AIChatRowButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .background(configuration.isPressed ? AIChatStyle.pressed : .clear, in: RoundedRectangle(cornerRadius: 10))

@@ -16,16 +16,23 @@ final class AIChatState {
         var loading = false
         var loadGeneration = 0
         var pending: Pending?
+        var harness: AIHarness = .hermes
+        var repository: AIRepositorySelection = .unselected
+        var delivery: AIDelivery = .changes
         var activeRun: AIRun? { detail?.runs.last(where: { $0.isActive }) }
     }
     fileprivate struct Pending {
         let conversationId: String
         let title: String
         let isNew: Bool
+        let context: AIContextInput
         let submission: AIAPIClient.Submission
     }
     var conversations: [AIConversation] = []
     var models: [AIModel] = []
+    var repositories: [AIRepository] = []
+    var requestsByRun: [String: [AIRequest]] = [:]
+    var replying: Set<String> = []
     private(set) var sharing: AISharing?
     private(set) var savingSharing = false
     var sharedMode: Bool { sharing?.enabled == true }
@@ -43,6 +50,12 @@ final class AIChatState {
     private(set) var isSignedIn: Bool
 
     var detail: AIConversationDetail? { visible.detail }
+    var harness: AIHarness { visible.detail?.context.harness ?? visible.harness }
+    var repositorySelection: AIRepositorySelection { visible.repository }
+    var delivery: AIDelivery {
+        get { visible.delivery }
+        set { if activeRun == nil && !isSending && !hasPendingSubmission { visible.delivery = newValue } }
+    }
     var selectedModel: AIModel? { visible.model }
     var settings: AISettings? { visible.settings }
     var composerText: String { get { visible.draft } set { visible.draft = newValue } }
@@ -58,6 +71,14 @@ final class AIChatState {
     var canSend: Bool {
         if visible.pending != nil { return !isSending }
         guard sharing != nil, !savingSharing, let model = selectedModel, let settings else { return false }
+        if harness == .opencode {
+            if case .opencode(let context) = visible.detail?.context {
+                guard context.hostId == model.hostId else { return false }
+            } else {
+                guard case .selected(let repo, let branch) = visible.repository,
+                      repo.online, repo.hostId == model.hostId, repo.branches.contains(branch) else { return false }
+            }
+        }
         return model.online && model.accepts(settings) && !composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isSending && !visible.loading && activeRun == nil
     }
 
@@ -74,6 +95,15 @@ final class AIChatState {
         guard !sharedMode, !visible.sending, visible.activeRun == nil, visible.pending == nil else { return }
         configure(visible, model: model)
         UserDefaults.standard.set(model.id, forKey: "agent-chat-selected-model")
+    }
+    func chooseHarness(_ value: AIHarness) {
+        guard visible.detail == nil, !isSending, !hasPendingSubmission else { return }
+        visible.harness = value
+        if value == .hermes { visible.delivery = .changes }
+    }
+    func chooseRepository(_ repository: AIRepository, branch: String) {
+        guard visible.detail == nil, !isSending, !hasPendingSubmission, repository.branches.contains(branch) else { return }
+        visible.repository = .selected(repository, branch: branch)
     }
     private func configure(_ session: Session, model: AIModel) {
         session.model = model
@@ -136,9 +166,11 @@ final class AIChatState {
             async let list = api.conversations()
             async let catalog = api.models()
             async let mode = api.sharing()
-            let loaded = try await (list, catalog, mode)
+            async let repos = api.repositories()
+            let loaded = try await (list, catalog, mode, repos)
             guard token == listGeneration else { return }
             conversations = loaded.0; models = loaded.1; sharing = loaded.2
+            repositories = loaded.3
             for session in Array(sessions.values) + [newSession] {
                 if let model = session.model {
                     session.model = models.first(where: { $0.id == model.id })
@@ -177,6 +209,7 @@ final class AIChatState {
                 loaded.runs.append(run)
             }
             session.detail = loaded; session.error = ""
+            if let last = loaded.runs.last { session.delivery = last.delivery }
             if session.model == nil && session.settings == nil {
                 if let last = loaded.runs.last {
                     session.model = models.first(where: { $0.id == last.modelId }); session.settings = last.settings
@@ -214,8 +247,17 @@ final class AIChatState {
             guard let selectedModel = session.model, let settings = session.settings else { return nil }
             let text = session.draft.trimmingCharacters(in: .whitespacesAndNewlines)
             let id = conversationId ?? UUID().uuidString.lowercased()
+            let context: AIContextInput
+            if let detail = session.detail, case .opencode(let value) = detail.context {
+                context = .opencode(repositoryId: value.repositoryId, baseBranch: value.baseBranch)
+            } else if session.harness == .opencode {
+                guard case .selected(let repo, let branch) = session.repository else {
+                    session.error = "作業repoとブランチを選んでください。"; return nil
+                }
+                context = .opencode(repositoryId: repo.id, baseBranch: branch)
+            } else { context = .hermes }
             session.pending = Pending(conversationId: id, title: String(text.prefix(80)), isNew: conversationId == nil,
-                submission: AIAPIClient.Submission(id: UUID().uuidString.lowercased(), modelId: selectedModel.id, inputText: text, settings: settings))
+                context: context, submission: AIAPIClient.Submission(id: UUID().uuidString.lowercased(), modelId: selectedModel.id, inputText: text, settings: settings, delivery: session.delivery))
             sessions[id] = session
             if session === newSession { newSession = Session(); configureNew(newSession) }
         }
@@ -224,16 +266,17 @@ final class AIChatState {
         defer { session.sending = false }
         do {
             if pending.isNew {
-                let created = try await api.create(id: pending.conversationId, title: pending.title)
+                let created = try await api.create(id: pending.conversationId, title: pending.title, context: pending.context)
+                if session.detail == nil {
+                    session.detail = AIConversationDetail(id: created.id, title: created.title, context: created.context, createdAt: created.createdAt, updatedAt: created.updatedAt, runs: [])
+                }
                 listGeneration += 1; listLoading = false
                 if !conversations.contains(where: { $0.id == created.id }) { conversations.insert(created, at: 0) }
             }
             let run = try await api.send(conversation: pending.conversationId, submission: pending.submission)
             session.pending = nil; session.draft = ""
-            if session.detail == nil {
-                session.detail = AIConversationDetail(id: pending.conversationId, title: pending.title,
-                    createdAt: run.createdAt, updatedAt: run.updatedAt, runs: [run])
-            } else if !session.detail!.runs.contains(where: { $0.id == run.id }) { session.detail!.runs.append(run) }
+            guard session.detail != nil else { throw AIContractError.malformedEvent }
+            if !session.detail!.runs.contains(where: { $0.id == run.id }) { session.detail!.runs.append(run) }
             observe(run.id, session: session)
             return visible === session ? pending.conversationId : nil
         } catch let error as AIAPIClient.APIError {
@@ -282,6 +325,14 @@ final class AIChatState {
         } catch { session.error = error.localizedDescription }
     }
     func trace(_ runId: String) -> AITrace { AITrace(events: eventsByRun[runId] ?? []) }
+    func answer(_ request: AIRequest, reply: AIReply) async {
+        guard let api, !replying.contains(request.id) else { return }
+        let session = visible
+        replying.insert(request.id)
+        defer { replying.remove(request.id) }
+        do { try await api.reply(request.id, value: reply); requestsByRun[request.runId] = try await api.requests(request.runId) }
+        catch { session.error = error.localizedDescription }
+    }
     func loadTrace(_ runId: String) async { await loadTrace(runId, session: visible) }
     private func loadTrace(_ runId: String, session: Session) async {
         guard let api else { return }
@@ -295,6 +346,7 @@ final class AIChatState {
                 cursor = last.seq
                 if cursor >= page.run.lastSeq { break }
             }
+            requestsByRun[runId] = try await api.requests(runId)
         } catch { if !Task.isCancelled { session.error = error.localizedDescription } }
     }
     private func replaceRun(_ run: AIRun, session: Session) {
@@ -319,6 +371,9 @@ final class AIChatState {
                         session.connection = ""
                         if let index = session.detail?.runs.firstIndex(where: { $0.id == runId }) { try session.detail?.runs[index].apply(event) }
                         self.appendTrace(runId, event)
+                        if event.type == "request.created" || event.type == "request.resolved" {
+                            self.requestsByRun[runId] = try await api.requests(runId)
+                        }
                     }
                     try Task.checkCancellation()
                     let run = try await api.run(runId)

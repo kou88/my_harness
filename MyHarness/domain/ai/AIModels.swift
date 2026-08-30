@@ -1,5 +1,93 @@
 import Foundation
 
+enum AIHarness: String, Codable, CaseIterable, Identifiable {
+    case hermes, opencode
+    var id: String { rawValue }
+    var name: String { self == .hermes ? "Hermes" : "OpenCode" }
+    var symbol: String { self == .hermes ? "sparkles" : "chevron.left.forwardslash.chevron.right" }
+}
+enum AIDelivery: String, Codable, CaseIterable, Identifiable {
+    case changes, draftPR = "draft_pr"
+    var id: String { rawValue }
+    var name: String { self == .changes ? "変更まで" : "Draft PRまで" }
+}
+struct AIRepository: Codable, Identifiable, Hashable {
+    let id: String
+    let hostId: String
+    let hostName: String
+    let online: Bool
+    let repository: String
+    let branches: [String]
+    let defaultBranch: String
+}
+struct AICodingContext: Codable, Hashable {
+    let repositoryId: String
+    let repository: String
+    let hostId: String
+    let baseBranch: String
+    let workBranch: String
+}
+enum AIContext: Codable, Hashable {
+    case hermes
+    case opencode(AICodingContext)
+    var harness: AIHarness { if case .hermes = self { return .hermes }; return .opencode }
+    private enum Keys: String, CodingKey { case harness }
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: Keys.self)
+        switch try container.decode(AIHarness.self, forKey: .harness) {
+        case .hermes: self = .hermes
+        case .opencode: self = .opencode(try AICodingContext(from: decoder))
+        }
+    }
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: Keys.self)
+        try container.encode(harness, forKey: .harness)
+        if case .opencode(let value) = self { try value.encode(to: encoder) }
+    }
+}
+enum AIContextInput: Encodable {
+    case hermes
+    case opencode(repositoryId: String, baseBranch: String)
+    private enum Keys: String, CodingKey { case harness, repositoryId, baseBranch }
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: Keys.self)
+        switch self {
+        case .hermes: try container.encode("hermes", forKey: .harness)
+        case .opencode(let id, let branch):
+            try container.encode("opencode", forKey: .harness)
+            try container.encode(id, forKey: .repositoryId)
+            try container.encode(branch, forKey: .baseBranch)
+        }
+    }
+}
+enum AIRepositorySelection {
+    case unselected
+    case selected(AIRepository, branch: String)
+}
+struct AIRequest: Decodable, Identifiable {
+    let id: String
+    let runId: String
+    let kind: String
+    let payload: [String: AIJSON]
+    let status: String
+    let createdAt: String
+    let updatedAt: String
+}
+enum AIReply: Encodable {
+    case permission(allow: Bool)
+    case question(answers: [[String]], rejected: Bool)
+    private enum Keys: String, CodingKey { case kind, allow, answers, rejected }
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: Keys.self)
+        switch self {
+        case .permission(let allow):
+            try container.encode("permission", forKey: .kind); try container.encode(allow, forKey: .allow)
+        case .question(let answers, let rejected):
+            try container.encode("question", forKey: .kind); try container.encode(answers, forKey: .answers); try container.encode(rejected, forKey: .rejected)
+        }
+    }
+}
+
 struct AISharing: Codable, Equatable {
     var enabled: Bool
     var modelId: String
@@ -46,6 +134,7 @@ struct AIModel: Codable, Identifiable, Hashable {
 struct AIConversation: Codable, Identifiable, Hashable {
     let id: String
     var title: String
+    let context: AIContext
     let createdAt: String
     var updatedAt: String
 }
@@ -53,6 +142,7 @@ struct AIConversation: Codable, Identifiable, Hashable {
 struct AIConversationDetail: Codable, Identifiable {
     let id: String
     var title: String
+    let context: AIContext
     let createdAt: String
     var updatedAt: String
     var runs: [AIRun]
@@ -65,6 +155,7 @@ struct AIRun: Codable, Identifiable, Hashable {
     let modelId: String
     let model: String
     let settings: AISettings
+    let delivery: AIDelivery
     let inputText: String
     var outputText: String
     var status: String
