@@ -18,9 +18,10 @@ import Foundation
     var pausedLoads: Set<String> = []
     var loadWaiters: [String: CheckedContinuation<Void, Never>] = [:]
     var pauseSend = false
+    var hideModel = false
     var sendWaiter: CheckedContinuation<Void, Never>?
     var cancelled: [String] = []
-    func models() async throws -> [AIModel] { [model] }
+    func models() async throws -> [AIModel] { hideModel ? [] : [model] }
     func conversations() async throws -> [AIConversation] {
         details.values.map { AIConversation(id: $0.id, title: $0.title, createdAt: $0.createdAt, updatedAt: $0.updatedAt) }
     }
@@ -123,6 +124,12 @@ import Foundation
         await state.openConversation(id: "b"); state.composerText = "B remains"
         let deleted = await state.delete("a")
         precondition(deleted && state.detail?.id == "b" && state.composerText == "B remains")
+        api.hideModel = true
+        await state.loadList()
+        precondition(state.selectedModel == nil && !state.canSend && !state.errorMessage.isEmpty)
+        api.hideModel = false
+        await state.loadList()
+        precondition(state.selectedModel == nil, "A removed model requires explicit reselection")
         for listener in api.listeners.values { listener.finish() }
         print("PASS: draft isolation, delayed navigation, concurrent streams, queue status, targeted stop and deletion")
     }
