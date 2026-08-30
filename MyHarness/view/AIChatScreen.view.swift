@@ -50,7 +50,17 @@ struct AIChatScreen: View {
                     if !state.isSignedIn { signIn }
                     else if isNew { welcome }
                     else if let detail = state.detail, detail.id == conversationId {
-                        AIMessageList(detail: detail, state: state).id(detail.id)
+                        if detail.runs.isEmpty {
+                            VStack(spacing: 12) {
+                                if state.isSending { ProgressView("送信内容を確認中") }
+                                else if state.hasPendingSubmission { Text("送信結果を確認できません。入力欄から再送してください。") }
+                                else if state.isLoading { ProgressView("読み込み中") }
+                                else { Text("メッセージを送信して会話を始めましょう") }
+                            }.font(.callout).foregroundStyle(AIChatStyle.muted)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        } else {
+                            AIMessageList(detail: detail, state: state).id(detail.id)
+                        }
                     } else {
                         VStack(spacing: 12) {
                             if state.isLoading { ProgressView("読み込み中") }
