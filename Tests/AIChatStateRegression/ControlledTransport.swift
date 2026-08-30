@@ -12,7 +12,7 @@ import Foundation
     let model = AIModel(id: "regression-model", hostId: "host", hostName: "host", model: "test", name: "test", online: true,
         contextLengths: [65536], maxOutputTokens: 32768, reasoningEfforts: ["low"], reasoningBudgets: ["low": 512],
         initialSettings: AISettings(contextLength: 65536, maxOutputTokens: 1024, reasoningEffort: "low"))
-    var sharingValue = AISharing(enabled: false, modelId: "", contextLength: 65536, revision: 1)
+    var sharingValue = AISharing(enabled: false, modelId: "", contextLength: 65536, maxConcurrentRuns: 2, revision: 1)
     func sharing() async throws -> AISharing { sharingValue }
     func saveSharing(_ value: AISharing) async throws -> AISharing { sharingValue = value; sharingValue.revision += 1; return sharingValue }
     var details: [String: AIConversationDetail] = [:]
