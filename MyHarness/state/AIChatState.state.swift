@@ -29,7 +29,7 @@ final class AIChatState {
     }
     private var pending: Pending?
     var hasPendingSubmission: Bool { pending != nil }
-    var isSignedIn: Bool { authSession?.isSignedIn == true }
+    private(set) var isSignedIn: Bool
     var activeRun: AIRun? { detail?.runs.last(where: { $0.isActive }) }
     var filteredConversations: [AIConversation] {
         searchText.isEmpty ? conversations : conversations.filter { $0.title.localizedCaseInsensitiveContains(searchText) }
@@ -42,6 +42,7 @@ final class AIChatState {
 
     init(apiClient: AIAPIClient?, authSession: CognitoAuthSession?, configurationErrorMessage: String?) {
         self.api = apiClient; self.authSession = authSession; self.configurationErrorMessage = configurationErrorMessage
+        self.isSignedIn = authSession?.isSignedIn == true
     }
     func signIn() async {
         do { try await authSession?.signIn(); await loadList() }
@@ -65,6 +66,7 @@ final class AIChatState {
         if let data = try? JSONEncoder().encode(value) { UserDefaults.standard.set(data, forKey: "agent-chat-settings-" + model.id) }
     }
     func loadList() async {
+        isSignedIn = authSession?.isSignedIn == true
         guard let api else { errorMessage = configurationErrorMessage ?? "AI接続の設定がありません。"; return }
         guard isSignedIn else { return }
         isLoading = true
