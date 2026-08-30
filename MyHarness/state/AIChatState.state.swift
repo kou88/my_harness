@@ -26,6 +26,9 @@ final class AIChatState {
     }
     var conversations: [AIConversation] = []
     var models: [AIModel] = []
+    private(set) var sharing: AISharing?
+    private(set) var savingSharing = false
+    var sharedMode: Bool { sharing?.enabled == true }
     var eventsByRun: [String: [AIEvent]] = [:]
     var searchText = ""
     private var sessions: [String: Session] = [:]
@@ -54,7 +57,7 @@ final class AIChatState {
     }
     var canSend: Bool {
         if visible.pending != nil { return !isSending }
-        guard let model = selectedModel, let settings else { return false }
+        guard sharing != nil, !savingSharing, let model = selectedModel, let settings else { return false }
         return model.online && model.accepts(settings) && !composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isSending && !visible.loading && activeRun == nil
     }
 
@@ -68,6 +71,7 @@ final class AIChatState {
         catch { errorMessage = error.localizedDescription }
     }
     func choose(_ model: AIModel) {
+        guard !sharedMode, !visible.sending, visible.activeRun == nil, visible.pending == nil else { return }
         configure(visible, model: model)
         UserDefaults.standard.set(model.id, forKey: "agent-chat-selected-model")
     }
@@ -83,14 +87,43 @@ final class AIChatState {
         } else { session.settings = model.initialSettings }
     }
     private func configureNew(_ session: Session) {
+        if sharedMode { applySharing(to: session); return }
         if let id = UserDefaults.standard.string(forKey: "agent-chat-selected-model"), let model = models.first(where: { $0.id == id }) {
             configure(session, model: model)
         }
     }
     func saveSettings(_ value: AISettings) {
+        guard !visible.sending, visible.activeRun == nil, visible.pending == nil else { return }
+        if let sharing, sharing.enabled, value.contextLength != sharing.contextLength {
+            errorMessage = "共有モードのコンテキスト長はトップ画面で変更してください。"; return
+        }
         guard let model = selectedModel, model.accepts(value) else { errorMessage = "このモデルでは指定した設定を使用できません。"; return }
         visible.settings = value
         if let data = try? JSONEncoder().encode(value) { UserDefaults.standard.set(data, forKey: "agent-chat-settings-" + model.id) }
+    }
+    private func applySharing(to session: Session) {
+        guard let sharing, sharing.enabled, session.activeRun == nil, session.pending == nil else { return }
+        guard let model = models.first(where: { $0.id == sharing.modelId }) else {
+            session.model = nil; session.error = "共有モデルを利用できません。トップ画面で共有設定を確認してください。"; return
+        }
+        if session.settings == nil { configure(session, model: model) }
+        session.model = model
+        session.settings?.contextLength = sharing.contextLength
+        if let settings = session.settings, !model.accepts(settings) {
+            session.error = "共有モデルに推論設定が対応していません。推論量・出力上限を確認してください。"
+        }
+    }
+    func saveSharing(_ value: AISharing) async -> Bool {
+        guard let api, !savingSharing else { return false }
+        savingSharing = true
+        defer { savingSharing = false }
+        do {
+            sharing = try await api.saveSharing(value)
+            listGeneration += 1; listLoading = false
+            for session in Array(sessions.values) + [newSession] { applySharing(to: session) }
+            errorMessage = ""
+            return true
+        } catch { errorMessage = error.localizedDescription; return false }
     }
     func loadList() async {
         isSignedIn = authSession?.isSignedIn == true
@@ -102,14 +135,16 @@ final class AIChatState {
         do {
             async let list = api.conversations()
             async let catalog = api.models()
-            let loaded = try await (list, catalog)
+            async let mode = api.sharing()
+            let loaded = try await (list, catalog, mode)
             guard token == listGeneration else { return }
-            conversations = loaded.0; models = loaded.1
+            conversations = loaded.0; models = loaded.1; sharing = loaded.2
             for session in Array(sessions.values) + [newSession] {
                 if let model = session.model {
                     session.model = models.first(where: { $0.id == model.id })
                     if session.model == nil { session.error = "選択中のモデルが一覧にありません。モデルを選び直してください。" }
                 }
+                applySharing(to: session)
             }
             if visible.model == nil && visible.settings == nil { configureNew(visible) }
         } catch { if token == listGeneration && !Task.isCancelled { errorMessage = error.localizedDescription } }
@@ -148,6 +183,7 @@ final class AIChatState {
                     if session.model == nil { session.error = "この会話のモデルが一覧にありません。モデルを選び直してください。" }
                 } else { configureNew(session) }
             }
+            applySharing(to: session)
             if let run = loaded.runs.last { await loadTrace(run.id, session: session) }
             if let active = session.activeRun { observe(active.id, session: session) }
         } catch { if token == session.loadGeneration && !Task.isCancelled { session.error = error.localizedDescription } }
@@ -162,7 +198,20 @@ final class AIChatState {
         guard let api, canSend else { return nil }
         let session = visible
         if session.pending == nil {
-            guard let selectedModel, let settings else { return nil }
+            // Refresh global policy before creating a run. A remote change must
+            // be shown to the user, never silently change the submitted model.
+            session.sending = true
+            do {
+                let current = try await api.sharing()
+                guard current == sharing else {
+                    sharing = current
+                    for target in Array(sessions.values) + [newSession] { applySharing(to: target) }
+                    session.error = "共有設定が変更されました。モデル・設定を確認してから送信してください。"
+                    session.sending = false; return nil
+                }
+            } catch { session.error = error.localizedDescription; session.sending = false; return nil }
+            session.sending = false
+            guard let selectedModel = session.model, let settings = session.settings else { return nil }
             let text = session.draft.trimmingCharacters(in: .whitespacesAndNewlines)
             let id = conversationId ?? UUID().uuidString.lowercased()
             session.pending = Pending(conversationId: id, title: String(text.prefix(80)), isNew: conversationId == nil,

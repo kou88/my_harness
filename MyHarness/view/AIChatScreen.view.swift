@@ -33,12 +33,13 @@ struct AIChatScreen: View {
     @State private var showSidebar = false
     @State private var showModels = false
     @State private var showSettings = false
+    @State private var showSharing = false
     @State private var deleteTarget: String?
     @State private var showRename = false
     @State private var title = ""
 
     private var isNew: Bool { conversationId == nil }
-    private var modelLocked: Bool { state.activeRun != nil || state.hasPendingSubmission }
+    private var modelLocked: Bool { state.sharedMode || state.activeRun != nil || state.hasPendingSubmission }
 
     var body: some View {
         GeometryReader { geometry in
@@ -114,8 +115,11 @@ struct AIChatScreen: View {
         }
         .sheet(isPresented: $showSettings) {
             if let model = state.selectedModel, let settings = state.settings {
-                AISettingsView(model: model, draft: settings) { state.saveSettings($0) }
+                AISettingsView(model: model, draft: settings, sharedMode: state.sharedMode) { state.saveSettings($0) }
             }
+        }
+        .sheet(isPresented: $showSharing) {
+            if let sharing = state.sharing { AISharingView(state: state, draft: sharing) }
         }
         .alert("会話を削除しますか？", isPresented: Binding(get: { deleteTarget != nil }, set: { if !$0 { deleteTarget = nil } }), presenting: deleteTarget) { id in
             Button("削除", role: .destructive) {
@@ -152,7 +156,7 @@ struct AIChatScreen: View {
             Button { showSettings = true } label: {
                 Image(systemName: "slider.horizontal.3").font(.system(size: 18)).frame(width: 44, height: 44)
             }.accessibilityLabel("モデル設定").accessibilityIdentifier("AI.settings")
-                .disabled(state.selectedModel == nil || modelLocked)
+                .disabled(state.selectedModel == nil || state.activeRun != nil || state.hasPendingSubmission)
         }
         .buttonStyle(.plain).foregroundStyle(AIChatStyle.controls).padding(.horizontal, 2)
         .background(AIChatStyle.canvas)
@@ -173,6 +177,14 @@ struct AIChatScreen: View {
                         .font(.system(size: 14)).foregroundStyle(AIChatStyle.muted)
                         .multilineTextAlignment(.center).lineSpacing(3).padding(.bottom, 22)
                     composer
+                    Button { showSharing = true } label: {
+                        HStack(spacing: 7) {
+                            Image(systemName: state.sharedMode ? "lock.fill" : "square.stack.3d.up")
+                            Text("共有モード")
+                            Text(state.sharedMode ? "ON · 2件並列" : "OFF").foregroundStyle(AIChatStyle.muted)
+                            Image(systemName: "chevron.right").font(.caption2)
+                        }.font(.system(size: 13)).padding(.vertical, 14).contentShape(Rectangle())
+                    }.buttonStyle(.plain).disabled(state.sharing == nil).accessibilityIdentifier("AI.sharing")
                     notices.padding(.top, 12)
                     Text("MyHarness · Hermes Agent").font(.system(size: 12)).foregroundStyle(AIChatStyle.muted).padding(.top, 26)
                 }
