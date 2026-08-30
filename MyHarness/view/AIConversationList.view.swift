@@ -14,6 +14,7 @@ struct AISettingsView: View {
     @Environment(\.dismiss) private var dismiss
     let model: AIModel
     @State var draft: AISettings
+    let sharedMode: Bool
     let onSave: (AISettings) -> Void
     var body: some View {
         NavigationStack {
@@ -25,7 +26,8 @@ struct AISettingsView: View {
                     }
                     Picker("コンテキスト", selection: $draft.contextLength) {
                         ForEach(model.contextLengths, id: \.self) { Text("\($0 / 1024)K（\($0.formatted()) tokens）").tag($0) }
-                    }
+                    }.disabled(sharedMode)
+                    if sharedMode { Text("共有モデル・コンテキスト長はトップ画面で変更できます。").font(.caption).foregroundStyle(.secondary) }
                     HStack {
                         Text("出力上限")
                         TextField("tokens", value: $draft.maxOutputTokens, format: .number)

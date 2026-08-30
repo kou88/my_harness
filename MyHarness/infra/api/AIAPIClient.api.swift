@@ -38,6 +38,8 @@ final class AIAPIClient {
     }
 
     func models() async throws -> [AIModel] { try await request("/models", method: "GET", body: nil) }
+    func sharing() async throws -> AISharing { try await request("/sharing", method: "GET", body: nil) }
+    func saveSharing(_ value: AISharing) async throws -> AISharing { try await request("/sharing", method: "PATCH", body: encoder.encode(value)) }
     func conversations() async throws -> [AIConversation] { try await request("/conversations", method: "GET", body: nil) }
     func conversation(_ id: String) async throws -> AIConversationDetail { try await request("/conversations/\(id)", method: "GET", body: nil) }
     func run(_ id: String) async throws -> AIRun { try await request("/runs/\(id)", method: "GET", body: nil) }

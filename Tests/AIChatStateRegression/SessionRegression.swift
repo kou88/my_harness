@@ -1,7 +1,21 @@
 import Foundation
 
+
 @main struct SessionRegression {
     @MainActor static func main() async throws {
+        let sharedAPI = AIAPIClient()
+        let sharedState = AIChatState(apiClient: sharedAPI, authSession: CognitoAuthSession(), configurationErrorMessage: nil)
+        await sharedState.loadList()
+        sharedState.choose(sharedAPI.model)
+        let saved = await sharedState.saveSharing(AISharing(enabled: true, modelId: sharedAPI.model.id, contextLength: 65536, revision: 1))
+        precondition(saved && sharedState.sharedMode)
+        sharedState.saveSettings(AISettings(contextLength: 131072, maxOutputTokens: 1024, reasoningEffort: "low"))
+        precondition(sharedState.settings?.contextLength == 65536)
+        sharedState.composerText = "shared draft"
+        sharedAPI.sharingValue.enabled = false; sharedAPI.sharingValue.revision += 1
+        let changed = await sharedState.send(conversationId: nil)
+        precondition(changed == nil && sharedState.composerText == "shared draft")
+        precondition(sharedAPI.details.isEmpty, "Remote setting change must not submit a run")
         let api = AIAPIClient()
         let state = AIChatState(apiClient: api, authSession: CognitoAuthSession(), configurationErrorMessage: nil)
         await state.loadList(); state.choose(api.model)

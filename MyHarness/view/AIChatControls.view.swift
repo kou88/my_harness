@@ -7,7 +7,7 @@ struct AIChatComposer: View {
     let onSettings: () -> Void
     let onSent: (String) -> Void
     @FocusState private var focused: Bool
-    private var modelLocked: Bool { state.activeRun != nil || state.hasPendingSubmission }
+    private var modelLocked: Bool { state.activeRun != nil || state.hasPendingSubmission || state.isSending }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -54,9 +54,9 @@ struct AIChatComposer: View {
                 Button(action: onModels) {
                     HStack(spacing: 8) {
                         Text(state.selectedModel?.name ?? "モデルを選択").font(.system(size: 12, weight: .medium)).lineLimit(1).truncationMode(.tail)
-                        Image(systemName: "chevron.down").font(.system(size: 9))
+                        Image(systemName: state.sharedMode ? "lock.fill" : "chevron.down").font(.system(size: 9))
                     }.frame(maxWidth: 180).frame(height: 36)
-                }.disabled(modelLocked).accessibilityLabel("モデルを選択: " + (state.selectedModel?.name ?? "未選択"))
+                }.disabled(modelLocked || state.sharedMode).accessibilityLabel((state.sharedMode ? "共有モデル: " : "モデルを選択: ") + (state.selectedModel?.name ?? "未選択"))
                     .accessibilityIdentifier("AI.modelMenu")
                 if let run = state.activeRun {
                     Button { Task { await state.cancel() } } label: {
@@ -106,7 +106,7 @@ struct AIModelPicker: View {
                     Text("モデルを選択").font(.system(size: 12, weight: .medium)).foregroundStyle(AIChatStyle.muted).padding(.horizontal, 12).padding(.vertical, 8)
                     ForEach(models) { model in
                         Button {
-                            guard state.activeRun == nil, !state.hasPendingSubmission else { return }
+                            guard !state.sharedMode, state.activeRun == nil, !state.hasPendingSubmission else { return }
                             state.choose(model); onClose()
                         } label: {
                             HStack(alignment: .center, spacing: 10) {
