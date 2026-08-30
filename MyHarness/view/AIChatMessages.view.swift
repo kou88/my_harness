@@ -117,6 +117,12 @@ private struct AIRunMessage: View {
                 }.padding(.bottom, 8)
             }
             if !run.outputText.isEmpty { AIChatMessageText(text: run.outputText, kind: .markdown, copyID: run.id + ".output").padding(.top, 2) }
+            AICodingResult(trace: trace, runID: run.id).padding(.top, 8)
+            ForEach(state.requestsByRun[run.id] ?? []) { request in
+                if run.isActive && ["pending", "answered"].contains(request.status) {
+                    AIAgentRequestView(request: request, state: state).padding(.vertical, 10)
+                }
+            }
             if !run.error.isEmpty { Text(run.error).font(.callout).foregroundStyle(.red).textSelection(.enabled).padding(.vertical, 8) }
             if !run.isActive {
                 HStack(spacing: 0) {
@@ -139,7 +145,7 @@ private struct AIRunMessage: View {
     }
 }
 
-private struct AITraceDisclosure<Content: View>: View {
+struct AITraceDisclosure<Content: View>: View {
     let title: String
     let icon: String
     let completed: Bool
@@ -183,7 +189,7 @@ private struct AIChatMessageText: View {
     }
 }
 
-private struct AIChatCodeBlock: View {
+struct AIChatCodeBlock: View {
     let title: String
     let text: String
     let copyID: String

@@ -3,6 +3,40 @@ import Foundation
 
 @main struct SessionRegression {
     @MainActor static func main() async throws {
+        // A coding chat fixes its harness/repository at creation, independently of model choice.
+        let codingAPI = AIAPIClient()
+        let repository = AIRepository(id: "repository", hostId: "host", hostName: "host", online: true, repository: "test/repo", branches: ["main", "develop"], defaultBranch: "main")
+        codingAPI.repositoryValues = [repository]
+        let coding = AIChatState(apiClient: codingAPI, authSession: CognitoAuthSession(), configurationErrorMessage: nil)
+        await coding.loadList(); coding.choose(codingAPI.model); coding.chooseHarness(.opencode)
+        coding.composerText = "テストを追加してください"; coding.delivery = .draftPR
+        precondition(!coding.canSend, "A coding request needs an explicit repository")
+        coding.chooseRepository(repository, branch: "develop")
+        precondition(coding.canSend)
+        let codingId = await coding.send(conversationId: nil)
+        precondition(codingId != nil)
+        await coding.openConversation(id: codingId!)
+        coding.chooseHarness(.hermes); coding.chooseRepository(repository, branch: "main"); coding.delivery = .changes
+        guard case .opencode(let context) = coding.detail!.context else { fatalError("Harness changed") }
+        precondition(context.baseBranch == "develop" && context.workBranch == "agent/" + codingId!)
+        precondition(coding.harness == .opencode && coding.detail!.runs[0].delivery == .draftPR && coding.delivery == .draftPR)
+        let codingRun = coding.detail!.runs[0].id
+        while codingAPI.listeners[codingRun] == nil { await Task.yield() }
+        let request = AIRequest(id: "permission", runId: codingRun, kind: "permission", payload: [:], status: "pending", createdAt: "test", updatedAt: "test")
+        codingAPI.requestValues[codingRun] = [request]
+        try codingAPI.emit(codingRun, type: "request.created", data: [:])
+        while coding.requestsByRun[codingRun]?.count != 1 { await Task.yield() }
+        coding.newChat()
+        await coding.answer(request, reply: .permission(allow: false))
+        precondition(coding.detail == nil && coding.harness == .hermes && codingAPI.replies == ["permission"])
+        precondition(coding.requestsByRun[codingRun]?.first?.status == "applied")
+        try codingAPI.emit(codingRun, type: "run.completed", data: ["responseId": .string("native-session")])
+        await coding.openConversation(id: codingId!)
+        while coding.activeRun != nil { await Task.yield() }
+        coding.delivery = .changes
+        precondition(coding.delivery == .changes && coding.harness == .opencode)
+        for listener in codingAPI.listeners.values { listener.finish() }
+
         let sharedAPI = AIAPIClient()
         let sharedState = AIChatState(apiClient: sharedAPI, authSession: CognitoAuthSession(), configurationErrorMessage: nil)
         await sharedState.loadList()
@@ -19,8 +53,8 @@ import Foundation
         let api = AIAPIClient()
         let state = AIChatState(apiClient: api, authSession: CognitoAuthSession(), configurationErrorMessage: nil)
         await state.loadList(); state.choose(api.model)
-        _ = try await api.create(id: "a", title: "A")
-        _ = try await api.create(id: "b", title: "B")
+        _ = try await api.create(id: "a", title: "A", context: .hermes)
+        _ = try await api.create(id: "b", title: "B", context: .hermes)
         state.composerText = "new draft"
         await state.openConversation(id: "a"); state.composerText = "draft A"
         await state.openConversation(id: "b"); state.composerText = "draft B"
