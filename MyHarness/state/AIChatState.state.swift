@@ -106,14 +106,17 @@ final class AIChatState {
             guard token == listGeneration else { return }
             conversations = loaded.0; models = loaded.1
             for session in Array(sessions.values) + [newSession] {
-                if let model = session.model { session.model = models.first(where: { $0.id == model.id }) }
+                if let model = session.model {
+                    session.model = models.first(where: { $0.id == model.id })
+                    if session.model == nil { session.error = "選択中のモデルが一覧にありません。モデルを選び直してください。" }
+                }
             }
-            if visible.model == nil { configureNew(visible) }
+            if visible.model == nil && visible.settings == nil { configureNew(visible) }
         } catch { if token == listGeneration && !Task.isCancelled { errorMessage = error.localizedDescription } }
     }
     func newChat() {
         if visible !== newSession { visible = newSession }
-        if visible.model == nil { configureNew(visible) }
+        if visible.model == nil && visible.settings == nil { configureNew(visible) }
     }
     func openConversation(id: String) async {
         let session: Session
@@ -139,9 +142,10 @@ final class AIChatState {
                 loaded.runs.append(run)
             }
             session.detail = loaded; session.error = ""
-            if session.model == nil {
-                if let last = loaded.runs.last, let model = models.first(where: { $0.id == last.modelId }) {
-                    session.model = model; session.settings = last.settings
+            if session.model == nil && session.settings == nil {
+                if let last = loaded.runs.last {
+                    session.model = models.first(where: { $0.id == last.modelId }); session.settings = last.settings
+                    if session.model == nil { session.error = "この会話のモデルが一覧にありません。モデルを選び直してください。" }
                 } else { configureNew(session) }
             }
             if let run = loaded.runs.last { await loadTrace(run.id, session: session) }
@@ -267,7 +271,9 @@ final class AIChatState {
                         if let index = session.detail?.runs.firstIndex(where: { $0.id == runId }) { try session.detail?.runs[index].apply(event) }
                         self.appendTrace(runId, event)
                     }
+                    try Task.checkCancellation()
                     let run = try await api.run(runId)
+                    try Task.checkCancellation()
                     self.replaceRun(run, session: session)
                     if !run.isActive {
                         await self.loadTrace(runId, session: session)
