@@ -4,7 +4,14 @@ struct AISharing: Codable, Equatable {
     var enabled: Bool
     var modelId: String
     var contextLength: Int
+    var maxConcurrentRuns: Int
     var revision: Int
+
+    var capacityIsValid: Bool {
+        (1...8).contains(maxConcurrentRuns)
+            && [8192, 16384, 32768, 65536, 131072, 262144].contains(contextLength)
+            && contextLength <= 262144 / maxConcurrentRuns
+    }
 }
 
 struct AISettings: Codable, Hashable {
