@@ -23,18 +23,45 @@ struct AIChatComposer: View {
                     Button("Webを調べる", systemImage: "globe") { state.composerText += "Webで調べて、出典とともに教えてください。"; focused = true }
                 } label: { Image(systemName: "plus").font(.system(size: 19, weight: .light)).frame(width: 36, height: 36) }
                     .accessibilityLabel("もっと見る").disabled(state.hasPendingSubmission)
+                if let model = state.selectedModel, let settings = state.settings {
+                    Menu {
+                        Text("Reasoning effort")
+                        ForEach(model.reasoningEfforts, id: \.self) { effort in
+                            if let budget = model.reasoningBudgets[effort] {
+                                let candidate = AISettings(contextLength: settings.contextLength,
+                                    maxOutputTokens: max(settings.maxOutputTokens, budget + 256), reasoningEffort: effort)
+                                Button { state.saveSettings(candidate) } label: {
+                                    Label(effort + (candidate.maxOutputTokens > settings.maxOutputTokens
+                                        ? " · 出力上限 \(candidate.maxOutputTokens.formatted())へ変更" : ""),
+                                        systemImage: effort == settings.reasoningEffort ? "checkmark" : "circle")
+                                }.disabled(!model.accepts(candidate))
+                            } else {
+                                Text(effort + " · モデル設定が不正です")
+                            }
+                        }
+                        Divider()
+                        Button("モデル設定", systemImage: "slider.horizontal.3", action: onSettings)
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "brain").font(.system(size: 13))
+                            Text(settings.reasoningEffort).font(.system(size: 12, weight: .medium))
+                            Image(systemName: "chevron.down").font(.system(size: 9))
+                        }.fixedSize().frame(height: 36)
+                    }.disabled(modelLocked).accessibilityLabel("Reasoning effort: " + settings.reasoningEffort)
+                        .accessibilityIdentifier("AI.reasoningEffort")
+                }
                 Spacer(minLength: 0)
                 Button(action: onModels) {
                     HStack(spacing: 8) {
                         Text(state.selectedModel?.name ?? "モデルを選択").font(.system(size: 12, weight: .medium)).lineLimit(1).truncationMode(.tail)
                         Image(systemName: "chevron.down").font(.system(size: 9))
-                    }.frame(maxWidth: 210).frame(height: 36)
+                    }.frame(maxWidth: 180).frame(height: 36)
                 }.disabled(modelLocked).accessibilityLabel("モデルを選択: " + (state.selectedModel?.name ?? "未選択"))
                     .accessibilityIdentifier("AI.modelMenu")
                 if let run = state.activeRun {
                     Button { Task { await state.cancel() } } label: {
-                        Image(systemName: "stop.fill").font(.system(size: 13)).foregroundStyle(.black)
-                            .frame(width: 32, height: 32).background(.white, in: Circle())
+                        Image(systemName: "stop.fill").font(.system(size: 13)).foregroundStyle(AIChatStyle.onAction)
+                            .frame(width: 32, height: 32).background(AIChatStyle.action, in: Circle())
                     }.disabled(run.cancelRequested).accessibilityLabel("実行を停止")
                 } else {
                     Button {
@@ -42,10 +69,10 @@ struct AIChatComposer: View {
                         Task { if let id = await state.send(conversationId: conversationId) { onSent(id) } }
                     } label: {
                         Group {
-                            if state.isSending { ProgressView().tint(.black) }
+                            if state.isSending { ProgressView().tint(AIChatStyle.onAction) }
                             else { Image(systemName: state.hasPendingSubmission ? "arrow.clockwise" : "arrow.up").font(.system(size: 18, weight: .semibold)) }
-                        }.foregroundStyle(.black).frame(width: 32, height: 32)
-                            .background(state.canSend || state.isSending ? Color.white : Color(white: 0.42), in: Circle())
+                        }.foregroundStyle(AIChatStyle.onAction).frame(width: 32, height: 32)
+                            .background(state.canSend || state.isSending ? AIChatStyle.action : AIChatStyle.disabledAction, in: Circle())
                     }.disabled(!state.canSend).accessibilityLabel(state.hasPendingSubmission ? "同じ依頼を再送" : "送信")
                         .accessibilityIdentifier("AI.send")
                 }
@@ -56,7 +83,7 @@ struct AIChatComposer: View {
             }
         }
         .background(AIChatStyle.surface, in: RoundedRectangle(cornerRadius: 24))
-        .overlay(RoundedRectangle(cornerRadius: 24).stroke(focused ? Color(white: 0.3) : AIChatStyle.border, lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 24).stroke(focused ? AIChatStyle.focusedBorder : AIChatStyle.border, lineWidth: 1))
     }
 }
 
@@ -114,6 +141,7 @@ struct AIChatSidebar: View {
     let onClose: () -> Void
     let onNew: () -> Void
     let onOpen: (String) -> Void
+    let onDelete: (String) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -123,7 +151,7 @@ struct AIChatSidebar: View {
                 Button(action: onClose) { Image(systemName: "sidebar.left").frame(width: 44, height: 44) }.accessibilityLabel("サイドバーを閉じる")
             }.padding(.leading, 20).padding(.trailing, 6)
             Button(action: onNew) { Label("新しいチャット", systemImage: "square.and.pencil").frame(maxWidth: .infinity, alignment: .leading).frame(height: 44) }
-                .disabled(state.isSending || state.hasPendingSubmission).padding(.horizontal, 20)
+                .padding(.horizontal, 20)
             HStack(spacing: 10) {
                 Image(systemName: "magnifyingglass")
                 TextField("検索", text: $state.searchText).textFieldStyle(.plain).autocorrectionDisabled()
@@ -134,11 +162,24 @@ struct AIChatSidebar: View {
                     Text("チャット").font(.system(size: 12, weight: .semibold)).foregroundStyle(AIChatStyle.muted).padding(.horizontal, 12).padding(.top, 26).padding(.bottom, 10)
                     if state.isLoading && state.conversations.isEmpty { ProgressView().padding() }
                     ForEach(state.filteredConversations) { conversation in
-                        Button { onOpen(conversation.id) } label: {
-                            Text(conversation.title).lineLimit(1).font(.system(size: 14))
-                                .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 12).frame(minHeight: 42)
-                                .background(selectedId == conversation.id ? AIChatStyle.bubble : .clear, in: RoundedRectangle(cornerRadius: 10))
-                        }.disabled(state.isSending || state.hasPendingSubmission)
+                        HStack(spacing: 0) {
+                            Button { onOpen(conversation.id) } label: {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(conversation.title).lineLimit(1).font(.system(size: 14))
+                                    let activity = state.activity(conversation.id)
+                                    if !activity.isEmpty {
+                                        Text(activity).font(.system(size: 11)).foregroundStyle(AIChatStyle.muted)
+                                    }
+                                }
+                                    .frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 12).frame(minHeight: 42)
+                            }
+                            Menu {
+                                Button("会話を削除", systemImage: "trash", role: .destructive) { onDelete(conversation.id) }
+                                    .disabled(!state.canDelete(conversation.id))
+                            } label: { Image(systemName: "ellipsis").font(.system(size: 14)).frame(width: 36, height: 42) }
+                                .accessibilityLabel(conversation.title + "の操作")
+                        }
+                        .background(selectedId == conversation.id ? AIChatStyle.bubble : .clear, in: RoundedRectangle(cornerRadius: 10))
                     }
                     if !state.isLoading && state.filteredConversations.isEmpty {
                         Text(state.searchText.isEmpty ? "会話はまだありません" : "該当する会話がありません").font(.caption).foregroundStyle(AIChatStyle.muted).padding(12)

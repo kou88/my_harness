@@ -1,13 +1,27 @@
 import SwiftUI
+import UIKit
 
 // Open WebUI's narrow layout: one canvas, an overlay drawer and a two-row composer.
 enum AIChatStyle {
-    static let canvas = Color(red: 0.09, green: 0.09, blue: 0.09)
-    static let surface = Color(red: 0.12, green: 0.12, blue: 0.12)
-    static let sidebar = Color(red: 0.125, green: 0.125, blue: 0.125)
-    static let bubble = Color(red: 0.16, green: 0.16, blue: 0.16)
-    static let muted = Color(white: 0.65)
-    static let border = Color(white: 0.22)
+    // Resolve against the app's appearance, including changes while a chat is open.
+    static let canvas = adaptive(light: 1, dark: 0.09)
+    static let surface = adaptive(light: 1, dark: 0.12)
+    static let sidebar = adaptive(light: 0.975, dark: 0.125)
+    static let bubble = adaptive(light: 0.945, dark: 0.16)
+    static let muted = adaptive(light: 0.42, dark: 0.65)
+    static let border = adaptive(light: 0.87, dark: 0.22)
+    static let focusedBorder = adaptive(light: 0.65, dark: 0.3)
+    static let controls = adaptive(light: 0.33, dark: 0.8)
+    static let action = adaptive(light: 0.08, dark: 1)
+    static let onAction = adaptive(light: 1, dark: 0)
+    static let disabledAction = adaptive(light: 0.82, dark: 0.42)
+    static let code = adaptive(light: 0.975, dark: 0.125)
+
+    private static func adaptive(light: CGFloat, dark: CGFloat) -> Color {
+        Color(uiColor: UIColor { traits in
+            UIColor(white: traits.userInterfaceStyle == .dark ? dark : light, alpha: 1)
+        })
+    }
 }
 
 struct AIChatScreen: View {
@@ -18,7 +32,7 @@ struct AIChatScreen: View {
     @State private var showSidebar = false
     @State private var showModels = false
     @State private var showSettings = false
-    @State private var showDelete = false
+    @State private var deleteTarget: String?
     @State private var showRename = false
     @State private var title = ""
 
@@ -34,7 +48,7 @@ struct AIChatScreen: View {
                     if !state.isSignedIn { signIn }
                     else if isNew { welcome }
                     else if let detail = state.detail, detail.id == conversationId {
-                        AIMessageList(detail: detail, state: state)
+                        AIMessageList(detail: detail, state: state).id(detail.id)
                     } else {
                         VStack(spacing: 12) {
                             if state.isLoading { ProgressView("読み込み中") }
@@ -53,7 +67,7 @@ struct AIChatScreen: View {
                 if showSidebar {
                     Color.black.opacity(0.48).ignoresSafeArea()
                         .onTapGesture { toggleSidebar(false) }.accessibilityHidden(true)
-                    AIChatSidebar(state: state, selectedId: conversationId, onClose: { toggleSidebar(false) }, onNew: newChat, onOpen: openConversation)
+                    AIChatSidebar(state: state, selectedId: conversationId, onClose: { toggleSidebar(false) }, onNew: newChat, onOpen: openConversation, onDelete: { deleteTarget = $0 })
                         .frame(width: min(300, geometry.size.width - 48))
                         .transition(.move(edge: .leading))
                         .zIndex(1)
@@ -67,29 +81,37 @@ struct AIChatScreen: View {
                 }
             }
             .clipped()
+            .simultaneousGesture(DragGesture(minimumDistance: 24).onEnded { value in
+                guard !showModels, !showSettings, abs(value.translation.width) > abs(value.translation.height) * 1.5 else { return }
+                if showSidebar && value.translation.width < -60 { toggleSidebar(false) }
+                else if !showSidebar && value.startLocation.x <= 32 && value.translation.width > 60 {
+                    toggleSidebar(true)
+                    Task { await state.loadList() }
+                }
+            })
         }
         .background(AIChatStyle.canvas.ignoresSafeArea())
-        .foregroundStyle(.white)
-        .tint(.white)
+        .foregroundStyle(.primary)
+        .tint(.primary)
         .toolbar(.hidden, for: .navigationBar, .tabBar)
         .navigationBarBackButtonHidden()
         .task(id: conversationId) {
             if state.models.isEmpty || isNew { await state.loadList() }
             guard !Task.isCancelled else { return }
             if let conversationId { await state.openConversation(id: conversationId) }
-            else { state.closeConversation(); state.detail = nil }
+            else { state.newChat() }
         }
         .sheet(isPresented: $showSettings) {
             if let model = state.selectedModel, let settings = state.settings {
-                AISettingsView(model: model, draft: settings) { state.saveSettings($0) }.preferredColorScheme(.dark)
+                AISettingsView(model: model, draft: settings) { state.saveSettings($0) }
             }
         }
-        .alert("会話を削除しますか？", isPresented: $showDelete) {
+        .alert("会話を削除しますか？", isPresented: Binding(get: { deleteTarget != nil }, set: { if !$0 { deleteTarget = nil } }), presenting: deleteTarget) { id in
             Button("削除", role: .destructive) {
-                Task { if let conversationId, await state.delete(conversationId) { newChat() } }
+                Task { if await state.delete(id), id == conversationId { newChat() } }
             }
             Button("キャンセル", role: .cancel) {}
-        } message: { Text("会話履歴と実行イベントを削除します。Hermesのmemoryと作成したファイルは残ります。") }
+        } message: { _ in Text("会話履歴と実行イベントを削除します。Hermesのmemoryと作成したファイルは残ります。") }
         .alert("会話の名前", isPresented: $showRename) {
             TextField("名前", text: $title)
             Button("保存") { Task { await state.rename(title) } }
@@ -105,7 +127,7 @@ struct AIChatScreen: View {
             if !isNew {
                 Menu {
                     Button("名前を変更", systemImage: "pencil") { title = state.detail?.title ?? ""; showRename = true }
-                    Button("会話を削除", systemImage: "trash", role: .destructive) { showDelete = true }.disabled(state.activeRun != nil)
+                    Button("会話を削除", systemImage: "trash", role: .destructive) { deleteTarget = conversationId }.disabled(state.activeRun != nil)
                 } label: {
                     HStack(spacing: 4) {
                         Text(state.detail?.id == conversationId ? state.detail!.title : "チャット").font(.system(size: 15)).lineLimit(1)
@@ -114,14 +136,14 @@ struct AIChatScreen: View {
                 }.accessibilityLabel("会話の操作")
                 Button(action: newChat) {
                     Image(systemName: "square.and.pencil").font(.system(size: 18)).frame(width: 36, height: 44)
-                }.accessibilityLabel("新しいチャット").disabled(state.isSending || state.hasPendingSubmission)
+                }.accessibilityLabel("新しいチャット")
             } else { Spacer() }
             Button { showSettings = true } label: {
                 Image(systemName: "slider.horizontal.3").font(.system(size: 18)).frame(width: 44, height: 44)
             }.accessibilityLabel("モデル設定").accessibilityIdentifier("AI.settings")
                 .disabled(state.selectedModel == nil || modelLocked)
         }
-        .buttonStyle(.plain).foregroundStyle(Color(white: 0.8)).padding(.horizontal, 2)
+        .buttonStyle(.plain).foregroundStyle(AIChatStyle.controls).padding(.horizontal, 2)
         .background(AIChatStyle.canvas)
     }
 
@@ -131,7 +153,7 @@ struct AIChatScreen: View {
                 VStack(spacing: 0) {
                     HStack(spacing: 16) {
                         Image(systemName: "sparkles").font(.system(size: 20, weight: .semibold))
-                            .foregroundStyle(.black).frame(width: 34, height: 34).background(.white, in: RoundedRectangle(cornerRadius: 10))
+                            .foregroundStyle(AIChatStyle.onAction).frame(width: 34, height: 34).background(AIChatStyle.action, in: RoundedRectangle(cornerRadius: 10))
                         Text(state.selectedModel?.name ?? "モデルを選択")
                             .font(.system(size: 24, weight: .semibold)).lineLimit(1).truncationMode(.tail)
                     }.padding(.horizontal, 16).padding(.bottom, 14)
@@ -153,7 +175,7 @@ struct AIChatScreen: View {
         VStack(spacing: 20) {
             Image(systemName: "sparkles").font(.system(size: 32))
             Text("今日はどのように\nお手伝いしましょうか？").font(.title2.weight(.semibold)).multilineTextAlignment(.center)
-            Button("ログイン") { Task { await state.signIn() } }.buttonStyle(.borderedProminent).tint(.white).foregroundStyle(.black)
+            Button("ログイン") { Task { await state.signIn() } }.buttonStyle(.borderedProminent).tint(AIChatStyle.action).foregroundStyle(AIChatStyle.onAction)
             notices
         }.padding(24).frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -175,12 +197,10 @@ struct AIChatScreen: View {
         withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { showSidebar = value }
     }
     private func newChat() {
-        guard !state.isSending, !state.hasPendingSubmission else { return }
         toggleSidebar(false); state.newChat(); router.aiPath = []
     }
     private func openConversation(_ id: String) {
-        guard !state.isSending, !state.hasPendingSubmission else { return }
         toggleSidebar(false)
-        if id != conversationId { state.composerText = ""; router.aiPath = [.aiConversation(id: id)] }
+        if id != conversationId { router.aiPath = [.aiConversation(id: id)] }
     }
 }

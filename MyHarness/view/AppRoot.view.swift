@@ -116,14 +116,8 @@ struct AppRootView: View {
             .badge(blogPostState.importCandidates.count)
             .tag(AppTab.articles)
 
-            NavigationStack(
-                path: Binding(
-                    get: { router.aiPath },
-                    set: { router.aiPath = $0 }
-                )
-            ) {
+            NavigationStack {
                 AIConversationListView(state: aiChatState)
-                    .navigationDestination(for: AppRoute.self, destination: routeContent)
             }
             .tabItem {
                 Label("AI", systemImage: "sparkles")
@@ -141,7 +135,6 @@ struct AppRootView: View {
             }
             .tag(AppTab.television)
         }
-        .preferredColorScheme(router.selectedTab == .ai ? .dark : nil)
         .environment(router)
         .onOpenURL { url in
             handleDeepLink(url)
