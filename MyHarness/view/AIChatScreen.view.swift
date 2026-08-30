@@ -8,6 +8,7 @@ enum AIChatStyle {
     static let surface = adaptive(light: 1, dark: 0.12)
     static let sidebar = adaptive(light: 0.975, dark: 0.125)
     static let bubble = adaptive(light: 0.945, dark: 0.16)
+    static let pressed = adaptive(light: 0.87, dark: 0.28)
     static let muted = adaptive(light: 0.42, dark: 0.65)
     static let border = adaptive(light: 0.87, dark: 0.22)
     static let focusedBorder = adaptive(light: 0.65, dark: 0.3)
@@ -194,6 +195,8 @@ struct AIChatScreen: View {
     }
 
     private func toggleSidebar(_ value: Bool) {
+        // End the composer's editing/selection before the drawer receives taps.
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { showSidebar = value }
     }
     private func newChat() {
