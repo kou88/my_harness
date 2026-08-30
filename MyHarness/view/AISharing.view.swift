@@ -23,7 +23,7 @@ struct AISharingView: View {
                             ForEach(state.models) { item in Text(item.name + (item.online ? "" : "（オフライン）")).tag(item.id) }
                         }.pickerStyle(.navigationLink).accessibilityIdentifier("AI.sharing.model")
                         Picker("同時実行数", selection: $draft.maxConcurrentRuns) {
-                            ForEach(1...30, id: \.self) { count in Text("\(count)件").tag(count) }
+                            ForEach(1...8, id: \.self) { count in Text("\(count)件").tag(count) }
                         }.pickerStyle(.navigationLink).accessibilityIdentifier("AI.sharing.concurrency")
                         if draft.maxConcurrentRuns > 5 {
                             Label("6件以上は負荷が高く、メモリ不足・速度低下・実行失敗の可能性があります。", systemImage: "exclamationmark.triangle")
@@ -34,7 +34,7 @@ struct AISharingView: View {
                                 Text("\(context / 1024)K").tag(context)
                             }
                         }.accessibilityIdentifier("AI.sharing.context")
-                        Text("合計256Kまで。30件は8K、16件は16K、8件は32K、4件は64K、2件は128Kが上限です。上限を超えたチャットは順番待ちになります。")
+                        Text("合計256Kまで。8件は32K、4件は64K、2件は128Kが上限です。上限を超えたチャットは順番待ちになります。")
                             .font(.caption).foregroundStyle(.secondary)
                         if !draft.capacityIsValid {
                             Text("合計256Kを超えています。同時実行数かコンテキスト長を変更してください。")
