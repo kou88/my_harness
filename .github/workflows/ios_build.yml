@@ -45,6 +45,9 @@ jobs:
       - name: Verify chat session isolation
         run: bash scripts/test-ai-chat-state.sh
 
+      - name: Verify chat code block parsing
+        run: swift test --jobs 2 --filter AIMessageContentTests
+
       - name: Build for simulator
         run: |
           set -euo pipefail

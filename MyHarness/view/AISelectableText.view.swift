@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-/// One native text selection surface per message, including across Markdown paragraphs.
+/// One native text selection surface per prose group, including across Markdown paragraphs.
 struct AISelectableText: UIViewRepresentable {
     enum Kind { case message, markdown, reasoning, code }
     let text: String
