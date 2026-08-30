@@ -1,5 +1,12 @@
 import Foundation
 
+struct AISharing: Codable, Equatable {
+    var enabled: Bool
+    var modelId: String
+    var contextLength: Int
+    var revision: Int
+}
+
 struct AISettings: Codable, Hashable {
     var contextLength: Int
     var maxOutputTokens: Int
