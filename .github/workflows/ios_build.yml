@@ -42,6 +42,9 @@ jobs:
           set -euo pipefail
           pod install
 
+      - name: Verify chat session isolation
+        run: bash scripts/test-ai-chat-state.sh
+
       - name: Build for simulator
         run: |
           set -euo pipefail
