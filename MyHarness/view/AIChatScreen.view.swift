@@ -181,7 +181,11 @@ struct AIChatScreen: View {
                         HStack(spacing: 7) {
                             Image(systemName: state.sharedMode ? "lock.fill" : "square.stack.3d.up")
                             Text("共有モード")
-                            Text(state.sharedMode ? "ON · 2件並列" : "OFF").foregroundStyle(AIChatStyle.muted)
+                            if let sharing = state.sharing, sharing.enabled {
+                                Text("ON · \(sharing.maxConcurrentRuns)件並列").foregroundStyle(AIChatStyle.muted)
+                            } else {
+                                Text("OFF").foregroundStyle(AIChatStyle.muted)
+                            }
                             Image(systemName: "chevron.right").font(.caption2)
                         }.font(.system(size: 13)).padding(.vertical, 14).contentShape(Rectangle())
                     }.buttonStyle(.plain).disabled(state.sharing == nil).accessibilityIdentifier("AI.sharing")
