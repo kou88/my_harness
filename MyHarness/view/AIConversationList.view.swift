@@ -20,7 +20,6 @@ struct AIConversationListView: View {
                         }
                     }.padding(.vertical, 8)
                 }
-                if !state.errorMessage.isEmpty { Section { Text(state.errorMessage).font(.callout).foregroundStyle(.red).textSelection(.enabled) } }
                 Section("会話") {
                     if state.isLoading && state.conversations.isEmpty { ProgressView("読み込み中") }
                     else if state.filteredConversations.isEmpty { Text("会話はまだありません").foregroundStyle(.secondary) }
@@ -37,6 +36,7 @@ struct AIConversationListView: View {
                     }
                 }
             }
+            if !state.errorMessage.isEmpty { Section { Text(state.errorMessage).font(.callout).foregroundStyle(.red).textSelection(.enabled) } }
         }
         .listStyle(.insetGrouped)
         .navigationTitle("AI")
@@ -134,9 +134,15 @@ struct AISettingsView: View {
                     Picker("コンテキスト", selection: $draft.contextLength) {
                         ForEach(model.contextLengths, id: \.self) { Text("\($0 / 1024)K（\($0.formatted()) tokens）").tag($0) }
                     }
-                    Stepper("出力上限 \(draft.maxOutputTokens.formatted())", value: $draft.maxOutputTokens, in: 256...model.maxOutputTokens, step: 256)
+                    HStack {
+                        Text("出力上限")
+                        TextField("tokens", value: $draft.maxOutputTokens, format: .number)
+                            .keyboardType(.numberPad).multilineTextAlignment(.trailing)
+                            .accessibilityLabel("出力上限トークン数")
+                    }
+                    Text("256〜\(model.maxOutputTokens.formatted()) tokens").font(.caption).foregroundStyle(.secondary)
                     Text("出力上限には思考用トークンも含みます。設定はモデルごとに保存します。").font(.caption).foregroundStyle(.secondary)
-                    if !model.accepts(draft) { Text("推論量に対して出力上限が不足しています。出力上限を増やしてください。").foregroundStyle(.red) }
+                    if !model.accepts(draft) { Text("指定した出力上限がモデルの範囲外、または推論量に対して不足しています。").foregroundStyle(.red) }
                 }
             }
             .navigationTitle("モデル設定").navigationBarTitleDisplayMode(.inline)

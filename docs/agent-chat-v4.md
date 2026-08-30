@@ -11,4 +11,4 @@
 
 旧v3 AI経路には接続しない。v4未配備、PCオフライン、設定不足はエラーを表示する。旧AI履歴を取り込む互換コードは追加しない。
 
-検証: Swiftドメインテスト、Release Simulatorビルド。実機バックエンド確認はprivate運用repo cmp170hx_ubuntuへ記録する。認証情報は本repoに含めない。
+検証: Swiftドメインテスト、Release Simulatorビルド。ログイン後の状態をObservableへ反映し、未ログイン時の認証エラーも表示する。出力上限は数値を直接入力できる。実機バックエンド確認はprivate運用repo cmp170hx_ubuntuへ記録する。認証情報は本repoに含めない。
