@@ -147,7 +147,7 @@ struct AIAgentRequestView: View {
                 Text(text(request.payload, "permission")).font(.caption).foregroundStyle(AIChatStyle.muted)
                 if case .array(let patterns) = request.payload["patterns"] {
                     ForEach(Array(patterns.enumerated()), id: \.offset) { item in
-                        if case .string(let value) = item.element { AISelectableText(text: value, kind: .code) }
+                        if case .string(let value) = item.element { AISelectableText(text: value, kind: .code(language: "text")) }
                     }
                 }
                 HStack(spacing: 12) {

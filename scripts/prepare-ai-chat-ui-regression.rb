@@ -11,6 +11,7 @@ target = project.new_target(:application, 'ChatUIRegression', :ios, '17.0')
 sources = %w[
   MyHarness/domain/ai/AIModels.swift
   MyHarness/domain/ai/AIMessageContent.swift
+  MyHarness/domain/ai/AICodeSyntax.swift
   MyHarness/state/AIChatState.state.swift
   MyHarness/view/AIConversationList.view.swift
   MyHarness/view/AIChatScreen.view.swift
@@ -19,11 +20,20 @@ sources = %w[
   MyHarness/view/AISharing.view.swift
   MyHarness/view/AIChatMessages.view.swift
   MyHarness/view/AISelectableText.view.swift
+  MyHarness/view/AIMermaidCodeBlock.view.swift
   MyHarness/view/ProductOpsMarkdown.view.swift
   Tests/AIChatStateRegression/ControlledTransport.swift
   Tests/AIChatUIRegression/FixtureApp.swift
 ]
 sources.each { |path| target.add_file_references([project.main_group.new_file(File.join(root, path))]) }
+%w[
+  MyHarness/Resources/mermaid.html
+  MyHarness/Resources/mermaid-renderer.js
+  MyHarness/Resources/mermaid.min.js
+].each do |path|
+  reference = project.main_group.new_file(File.join(root, path))
+  target.resources_build_phase.add_file_reference(reference)
+end
 target.build_configurations.each do |config|
   config.build_settings.merge!({
     'PRODUCT_BUNDLE_IDENTIFIER' => 'com.kou888.myharness.chat-ui-regression',
