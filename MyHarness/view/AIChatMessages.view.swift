@@ -182,7 +182,11 @@ private struct AIChatMessageText: View {
                         AISelectableText(text: prose.trimmingCharacters(in: .newlines), kind: kind)
                     }
                 case .code(let language, let code):
-                    AIChatCodeBlock(title: language.isEmpty ? "コード" : language, text: code, copyID: copyID + ".\(part.id)")
+                    if AICodeSyntax.normalizedLanguage(language) == "mermaid" {
+                        AIMermaidCodeBlock(text: code, copyID: copyID + ".\(part.id)", isComplete: part.isComplete)
+                    } else {
+                        AIChatCodeBlock(title: language.isEmpty ? "コード" : language, text: code, copyID: copyID + ".\(part.id)")
+                    }
                 }
             }
         }
@@ -211,7 +215,7 @@ struct AIChatCodeBlock: View {
                     .accessibilityIdentifier("AI.copyCode." + copyID)
             }.foregroundStyle(AIChatStyle.muted).padding(.horizontal, 12)
             ScrollView(.horizontal) {
-                AISelectableText(text: text, kind: .code)
+                AISelectableText(text: text, kind: .code(language: title))
                     .fixedSize(horizontal: true, vertical: true).padding(12).frame(maxWidth: .infinity, alignment: .leading)
             }.background(AIChatStyle.code)
         }.background(AIChatStyle.bubble, in: RoundedRectangle(cornerRadius: 10))

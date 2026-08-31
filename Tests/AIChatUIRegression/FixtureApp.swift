@@ -21,6 +21,7 @@ enum AppRoute { case aiConversation(id: String) }
     private let runId: String
     private let otherId: String
     private let codingId: String
+    private let renderingId: String
     @State private var shown = true
     @State private var result = "長文・生成中の再表示テスト"
 
@@ -29,10 +30,11 @@ enum AppRoute { case aiConversation(id: String) }
         let id = UUID().uuidString.lowercased()
         let activeId = UUID().uuidString.lowercased()
         let runs = (0..<12).map { index in
-            AIRun(id: index == 11 ? activeId : UUID().uuidString.lowercased(), conversationId: id,
+            let paragraphs = (0..<(index == 11 ? 70 : 8)).map { "段落\($0): 生成中に会話を開き直しても、回答が画面内に表示されることを確認します。" }.joined(separator: "\n\n")
+            return AIRun(id: index == 11 ? activeId : UUID().uuidString.lowercased(), conversationId: id,
                 hostId: "host", modelId: api.model.id, model: "表示確認モデル", settings: api.model.initialSettings, delivery: .changes,
                 inputText: "再表示テスト \(index + 1)",
-                outputText: (0..<(index == 11 ? 70 : 8)).map { "段落\($0): 生成中に会話を開き直しても、回答が画面内に表示されることを確認します。" }.joined(separator: "\n\n"),
+                outputText: paragraphs,
                 status: index == 11 ? "running" : "completed", cancelRequested: false, lastSeq: 0,
                 error: "", responseId: "", previousResponseId: "", createdAt: "test", updatedAt: "test")
         }
@@ -47,7 +49,28 @@ enum AppRoute { case aiConversation(id: String) }
         api.requestValues[codingRun] = [AIRequest(id: UUID().uuidString.lowercased(), runId: codingRun, kind: "permission", payload: ["permission": .string("bash"), "patterns": .array([.string("rm -rf temporary-build")])], status: "pending", createdAt: "test", updatedAt: "test"),
             AIRequest(id: UUID().uuidString.lowercased(), runId: codingRun, kind: "question", payload: ["questions": .array([.object(["header": .string("対象"), "question": .string("どちらの入力を検証しますか？"), "options": .array([.object(["label": .string("名前"), "description": .string("空の名前を拒否する")]), .object(["label": .string("メール"), "description": .string("メール形式を検証する")])]), "multiple": .bool(false), "custom": .bool(true)])])], status: "pending", createdAt: "test", updatedAt: "test")]
         try! api.emit(codingRun, type: "work.diff", data: ["files": .array([.string("src/input.ts")]), "patch": .string("--- a/src/input.ts\n+++ b/src/input.ts\n@@ -1 +1 @@\n-return input\n+return validate(input)\n"), "truncated": .bool(false)])
+        let rendering = UUID().uuidString.lowercased(), renderingRun = UUID().uuidString.lowercased()
+        api.details[rendering] = AIConversationDetail(id: rendering, title: "コードとMermaid", context: .hermes, createdAt: "test", updatedAt: "test", runs: [
+            AIRun(id: renderingRun, conversationId: rendering, hostId: "host", modelId: api.model.id, model: "表示確認モデル", settings: api.model.initialSettings, delivery: .changes,
+                inputText: "コードと図を表示して", outputText: """
+                Swiftコードは言語別に色分けします。
+
+                ```swift
+                struct Greeting {
+                    let message = "こんにちは"
+                }
+                ```
+
+                Mermaidは図と元コードを切り替えられます。
+
+                ```mermaid
+                flowchart LR
+                    A[MyHarness] --> B[Mermaid]
+                    B --> C[図を表示]
+                ```
+                """, status: "completed", cancelRequested: false, lastSeq: 0, error: "", responseId: "", previousResponseId: "", createdAt: "test", updatedAt: "test")])
         codingId = coding
+        renderingId = rendering
         self.api = api; conversationId = id; runId = activeId
         otherId = other
         _state = State(initialValue: AIChatState(apiClient: api, authSession: CognitoAuthSession(), configurationErrorMessage: nil))
@@ -99,6 +122,7 @@ enum AppRoute { case aiConversation(id: String) }
             }
             result = failures == 0 ? "PASS: 再表示・生成中 16回" : "FAIL: 表示位置 \(failures)回"
             print("CHAT_UI_REGRESSION \(result)")
+            router.aiPath = [.aiConversation(id: renderingId)]
         }
     }
 
