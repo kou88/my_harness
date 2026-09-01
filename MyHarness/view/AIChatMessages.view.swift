@@ -65,6 +65,7 @@ private struct AIRunMessage: View {
     @State private var showInfo = false
     private var trace: AITrace { state.trace(run.id) }
     private var outputText: String { state.displayedOutput(for: run) }
+    private var timeline: [AITraceEntry] { trace.timeline(displayedOutput: outputText) }
     private var status: String {
         if run.cancelRequested && run.isActive { return "停止を要求中" }
         if !trace.status.isEmpty && run.isActive { return trace.status }
@@ -102,26 +103,28 @@ private struct AIRunMessage: View {
                         .accessibilityIdentifier("AI.runStatus")
                 }.padding(.bottom, 10)
             }
-            if !trace.reasoning.isEmpty {
-                AITraceDisclosure(title: run.isActive && run.outputText.isEmpty ? "思考中" : "思考", icon: "sparkle", completed: !run.isActive) {
-                    AIChatMessageText(text: trace.reasoning, kind: .reasoning, copyID: run.id + ".reasoning")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.leading, 12).overlay(alignment: .leading) { Rectangle().fill(AIChatStyle.border).frame(width: 2) }
-                }.padding(.bottom, 8)
-            }
-            ForEach(trace.tools) { tool in
-                AITraceDisclosure(title: tool.name == "execute_code" ? "コード実行 · execute_code" : tool.name, icon: tool.name == "execute_code" ? "terminal" : "wrench", completed: tool.completed) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        AIChatCodeBlock(title: tool.name == "execute_code" ? "python" : "入力", text: tool.displayArguments, copyID: run.id + ".tool.\(tool.id).input")
-                        if tool.completed { AIChatCodeBlock(title: "結果", text: tool.displayOutput, copyID: run.id + ".tool.\(tool.id).output") }
+            ForEach(timeline) { entry in
+                switch entry {
+                case .reasoning(_, let text):
+                    AITraceDisclosure(title: run.isActive && entry.id == timeline.last?.id ? "思考中" : "思考", icon: "sparkle", completed: !run.isActive || entry.id != timeline.last?.id) {
+                        AIChatMessageText(text: text, kind: .reasoning, copyID: run.id + "." + entry.id)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.leading, 12).overlay(alignment: .leading) { Rectangle().fill(AIChatStyle.border).frame(width: 2) }
+                    }.padding(.bottom, 8)
+                case .tool(_, let tool):
+                    AITraceDisclosure(title: tool.name == "execute_code" ? "コード実行 · execute_code" : tool.name, icon: tool.name == "execute_code" ? "terminal" : "wrench", completed: tool.completed) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            AIChatCodeBlock(title: tool.name == "execute_code" ? "python" : "入力", text: tool.displayArguments, copyID: run.id + ".tool.\(tool.id).input")
+                            if tool.completed { AIChatCodeBlock(title: "結果", text: tool.displayOutput, copyID: run.id + ".tool.\(tool.id).output") }
+                        }
+                    }.padding(.bottom, 8)
+                case .message(_, let text):
+                    AIChatMessageText(text: text, kind: .markdown, copyID: run.id + "." + entry.id)
+                        .padding(.top, 2).padding(.bottom, 8)
+                    if run.isActive && entry.id == timeline.last?.id {
+                        Capsule().fill(AIChatStyle.muted).frame(width: 3, height: 14).padding(.top, -3).padding(.bottom, 8)
+                            .accessibilityHidden(true)
                     }
-                }.padding(.bottom, 8)
-            }
-            if !outputText.isEmpty {
-                AIChatMessageText(text: outputText, kind: .markdown, copyID: run.id + ".output").padding(.top, 2)
-                if run.isActive {
-                    Capsule().fill(AIChatStyle.muted).frame(width: 3, height: 14).padding(.top, 5)
-                        .accessibilityHidden(true)
                 }
             }
             AICodingResult(trace: trace, runID: run.id).padding(.top, 8)
