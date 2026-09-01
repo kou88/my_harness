@@ -136,17 +136,17 @@ private func run() -> AIRun {
     #expect(tool.displayOutput == "hi\n")
 }
 
-@Test func sharingCapacityKeepsEightRunsInsideThePool() throws {
+@Test func sharingCapacityKeepsRunsInsideThe384KPool() throws {
     var sharing = AISharing(enabled: true, modelId: "model", contextLength: 32768, maxConcurrentRuns: 8, revision: 1)
     #expect(sharing.capacityIsValid)
     #expect(try JSONDecoder().decode(AISharing.self, from: JSONEncoder().encode(sharing)) == sharing)
     sharing.contextLength = 65536
     #expect(!sharing.capacityIsValid)
+    sharing.maxConcurrentRuns = 6
+    #expect(sharing.capacityIsValid)
+    sharing.maxConcurrentRuns = 3; sharing.contextLength = 131072
+    #expect(sharing.capacityIsValid)
     sharing.maxConcurrentRuns = 4
-    #expect(sharing.capacityIsValid)
-    sharing.maxConcurrentRuns = 5; sharing.contextLength = 32768
-    #expect(sharing.capacityIsValid)
-    sharing.contextLength = 65536
     #expect(!sharing.capacityIsValid)
     sharing.maxConcurrentRuns = 0
     #expect(!sharing.capacityIsValid)
