@@ -48,6 +48,46 @@ private func run() -> AIRun {
     #expect(trace.tools[0].output == "385")
     #expect(trace.tools[0].completed)
 }
+
+@Test func messagesReasoningAndToolsKeepEventOrder() {
+    let trace = AITrace(events: [
+        event(1, "reasoning.delta", ["text": .string("調査します")]),
+        event(2, "text.delta", ["text": .string("まず公式情報を確認します。")]),
+        event(3, "tool.call", ["id": .string("c1"), "name": .string("web_search"), "arguments": .string("気象庁")]),
+        event(4, "tool.result", ["id": .string("c1"), "output": .string("404")]),
+        event(5, "text.delta", ["text": .string("旧URLは404でした。別経路を探します。")]),
+        event(6, "tool.call", ["id": .string("c2"), "name": .string("terminal"), "arguments": .string("fetch")]),
+        event(7, "tool.result", ["id": .string("c2"), "output": .string("ok")]),
+        event(8, "text.delta", ["text": .string("取得できました。")]),
+    ])
+    let entries = trace.timeline(displayedOutput: "まず公式情報を確認します。旧URLは404でした。別経路を探します。取得できました。")
+    let signature = entries.map { entry in
+        switch entry {
+        case .reasoning(_, let text): return "reasoning:" + text
+        case .message(_, let text): return "message:" + text
+        case .tool(_, let tool): return "tool:" + tool.name
+        }
+    }
+    #expect(signature == [
+        "reasoning:調査します", "message:まず公式情報を確認します。", "tool:web_search",
+        "message:旧URLは404でした。別経路を探します。", "tool:terminal", "message:取得できました。",
+    ])
+}
+
+@Test func pacedOutputIsSplitAcrossMessageBoundaries() {
+    let trace = AITrace(events: [
+        event(1, "text.delta", ["text": .string("before")]),
+        event(2, "tool.call", ["id": .string("c1"), "name": .string("terminal"), "arguments": .string("run")]),
+        event(3, "tool.result", ["id": .string("c1"), "output": .string("ok")]),
+        event(4, "text.delta", ["text": .string(" after tool")]),
+    ])
+    let entries = trace.timeline(displayedOutput: "before after")
+    let messages = entries.compactMap { entry -> String? in
+        if case .message(_, let text) = entry { return text }
+        return nil
+    }
+    #expect(messages == ["before", " after"])
+}
 @Test func invalidSettingsAreNotSentToTheModel() {
     let settings = AISettings(contextLength: 65536, maxOutputTokens: 4096, reasoningEffort: "medium")
     let model = AIModel(id: "id", hostId: "host", hostName: "PC", model: "qwen", name: "Qwen", online: true, contextLengths: [65536,262144], maxOutputTokens: 32768, reasoningEfforts: ["medium","max"], reasoningBudgets: ["medium":1024,"max":16384], initialSettings: settings)

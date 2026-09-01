@@ -315,6 +315,20 @@ struct AITool: Identifiable {
     }
 }
 
+enum AITraceEntry: Identifiable {
+    case reasoning(firstSeq: Int, text: String)
+    case message(firstSeq: Int, text: String)
+    case tool(firstSeq: Int, value: AITool)
+
+    var id: String {
+        switch self {
+        case .reasoning(let seq, _): return "reasoning.\(seq)"
+        case .message(let seq, _): return "message.\(seq)"
+        case .tool(_, let tool): return "tool.\(tool.id)"
+        }
+    }
+}
+
 struct AITrace {
     let events: [AIEvent]
     var reasoning: String { events.filter { $0.type == "reasoning.delta" }.map { $0.text("text") }.joined() }
@@ -339,5 +353,77 @@ struct AITrace {
             }
         }
         return result
+    }
+
+    func timeline(displayedOutput: String) -> [AITraceEntry] {
+        var entries: [AITraceEntry] = []
+        var messageIndex: Int?
+        var reasoningIndex: Int?
+        var toolIndexes: [String: Int] = [:]
+
+        for event in events {
+            switch event.type {
+            case "text.delta":
+                let delta = event.text("text")
+                if let index = messageIndex,
+                   case .message(let firstSeq, let text) = entries[index] {
+                    entries[index] = .message(firstSeq: firstSeq, text: text + delta)
+                } else if !delta.isEmpty {
+                    entries.append(.message(firstSeq: event.seq, text: delta))
+                    messageIndex = entries.count - 1
+                }
+                reasoningIndex = nil
+            case "reasoning.delta":
+                let delta = event.text("text")
+                if let index = reasoningIndex,
+                   case .reasoning(let firstSeq, let text) = entries[index] {
+                    entries[index] = .reasoning(firstSeq: firstSeq, text: text + delta)
+                } else if !delta.isEmpty {
+                    entries.append(.reasoning(firstSeq: event.seq, text: delta))
+                    reasoningIndex = entries.count - 1
+                }
+                messageIndex = nil
+            case "tool.call", "tool.result":
+                messageIndex = nil
+                reasoningIndex = nil
+                let id = event.text("id")
+                if let index = toolIndexes[id],
+                   case .tool(let firstSeq, var tool) = entries[index] {
+                    if event.type == "tool.call" {
+                        tool.name = event.text("name")
+                        tool.arguments = event.text("arguments")
+                    } else {
+                        tool.output = event.text("output")
+                        tool.completed = true
+                    }
+                    entries[index] = .tool(firstSeq: firstSeq, value: tool)
+                } else {
+                    let tool = AITool(id: id, name: event.text("name"), arguments: event.text("arguments"),
+                        output: event.text("output"), completed: event.type == "tool.result")
+                    entries.append(.tool(firstSeq: event.seq, value: tool))
+                    toolIndexes[id] = entries.count - 1
+                }
+            default: break
+            }
+        }
+
+        // The presentation text is a paced prefix of AIRun.outputText. Split
+        // that exact prefix across the event-derived message boundaries so a
+        // fast stream stays smooth without losing tool/message chronology.
+        var remaining = displayedOutput[...]
+        var visible: [AITraceEntry] = []
+        for entry in entries {
+            switch entry {
+            case .message(let firstSeq, let rawText):
+                let text = remaining.prefix(rawText.count)
+                remaining = remaining.dropFirst(text.count)
+                if !text.isEmpty { visible.append(.message(firstSeq: firstSeq, text: String(text))) }
+            default: visible.append(entry)
+            }
+        }
+        if !remaining.isEmpty {
+            visible.append(.message(firstSeq: 0, text: String(remaining)))
+        }
+        return visible
     }
 }
