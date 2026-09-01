@@ -10,6 +10,8 @@ struct AIChatComposer: View {
     @FocusState private var focused: Bool
     @State private var selectedImages: [PhotosPickerItem] = []
     @State private var selectedVideo: PhotosPickerItem?
+    @State private var imagePickerPresented = false
+    @State private var videoPickerPresented = false
     @State private var loadingMedia = false
     private var modelLocked: Bool { state.activeRun != nil || state.hasPendingSubmission || state.isSending }
     private var acceptsImages: Bool { state.harness == .hermes && state.selectedModel?.accepts(.image) == true }
@@ -61,14 +63,10 @@ struct AIChatComposer: View {
             HStack(spacing: 6) {
                 Menu {
                     if acceptsImages {
-                        PhotosPicker(selection: $selectedImages, maxSelectionCount: 4, matching: .images) {
-                            Label("写真を追加", systemImage: "photo.on.rectangle.angled")
-                        }
+                        Button("写真を追加", systemImage: "photo.on.rectangle.angled") { imagePickerPresented = true }
                     }
                     if acceptsVideo {
-                        PhotosPicker(selection: $selectedVideo, matching: .videos) {
-                            Label("動画を追加", systemImage: "video")
-                        }
+                        Button("動画を追加", systemImage: "video") { videoPickerPresented = true }
                     }
                     if acceptsImages || acceptsVideo { Divider() }
                     Button("モデル設定", systemImage: "slider.horizontal.3", action: onSettings).disabled(state.selectedModel == nil || modelLocked)
@@ -137,6 +135,8 @@ struct AIChatComposer: View {
         }
         .background(AIChatStyle.surface, in: RoundedRectangle(cornerRadius: 24))
         .overlay(RoundedRectangle(cornerRadius: 24).stroke(focused ? AIChatStyle.focusedBorder : AIChatStyle.border, lineWidth: 1))
+        .photosPicker(isPresented: $imagePickerPresented, selection: $selectedImages, maxSelectionCount: 4, matching: .images)
+        .photosPicker(isPresented: $videoPickerPresented, selection: $selectedVideo, matching: .videos)
         .onChange(of: selectedImages) { _, items in
             guard !items.isEmpty else { return }
             selectedImages = []
