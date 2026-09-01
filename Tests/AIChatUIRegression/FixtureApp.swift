@@ -73,7 +73,8 @@ enum AppRoute { case aiConversation(id: String) }
         renderingId = rendering
         self.api = api; conversationId = id; runId = activeId
         otherId = other
-        _state = State(initialValue: AIChatState(apiClient: api, authSession: CognitoAuthSession(), configurationErrorMessage: nil))
+        _state = State(initialValue: AIChatState(apiClient: api, authSession: CognitoAuthSession(), configurationErrorMessage: nil,
+            reconciliationInterval: .seconds(2)))
     }
 
     var body: some View {

@@ -40,7 +40,7 @@ struct AIMessageList: View {
             })
             .onPreferenceChange(AIChatContentHeightKey.self) { height in
                 // Includes text layout, trace expansion and keyboard/viewport changes.
-                // Do not scroll on every SSE event before UIKit has laid out its text.
+                // Do not scroll on every streamed event before UIKit has laid out its text.
                 if height > 0 && following && !userScrolling { proxy.scrollTo("bottom", anchor: .bottom) }
             }
             .onChange(of: detail.runs.count) { _, _ in following = true }
