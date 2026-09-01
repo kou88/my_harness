@@ -14,6 +14,16 @@ enum AppRoute { case aiConversation(id: String) }
 }
 
 @MainActor private struct ChatUIRegressionView: View {
+    private static let mermaidSource = """
+    flowchart TD
+        A[入力を受け取る] --> B[コード・設定・権限操作を実行]
+        B --> C{監視が異常を検知?}
+        C -->|検知| D[介入 / タスク中断]
+        C -->|検知しない| E[指示を出して続行]
+        D --> F[結果を報告]
+        E --> F
+    """
+
     @State private var router = AppRouter()
     @State private var state: AIChatState
     private let api: AIAPIClient
@@ -64,9 +74,7 @@ enum AppRoute { case aiConversation(id: String) }
                 Mermaidは図と元コードを切り替えられます。
 
                 ```mermaid
-                flowchart LR
-                    A[MyHarness] --> B[Mermaid]
-                    B --> C[図を表示]
+                \(Self.mermaidSource)
                 ```
                 """, status: "completed", cancelRequested: false, lastSeq: 0, error: "", responseId: "", previousResponseId: "", createdAt: "test", updatedAt: "test")])
         codingId = coding
@@ -138,12 +146,15 @@ enum AppRoute { case aiConversation(id: String) }
                 text.isDescendant(of: scroll) && scroll.bounds.intersection(text.convert(text.bounds, to: scroll)).height > 10
             }
         }
-        let latestVisible = texts.contains { text in
-            guard text.text.hasPrefix("段落0:"), text.text.contains("段落69:") else { return false }
+        let latestOutputReady = state.detail?.runs.last.map { state.displayedOutput(for: $0).contains("段落69:") } ?? false
+        let answerVisible = texts.contains { text in
+            guard text.text.contains("段落") else { return false }
             return scrolls.contains { scroll in
-                let frame = text.convert(text.bounds, to: scroll)
-                return text.isDescendant(of: scroll) && frame.maxY > scroll.bounds.minY && frame.maxY <= scroll.bounds.maxY + 1
+                text.isDescendant(of: scroll) && scroll.bounds.intersection(text.convert(text.bounds, to: scroll)).height > 10
             }
+        }
+        let latestVisible = latestOutputReady && answerVisible && scrolls.contains {
+            $0.contentSize.height - $0.bounds.maxY <= 2
         }
         let dimensions = scrolls.map { "offset=\(Int($0.contentOffset.y)) content=\(Int($0.contentSize.height)) viewport=\(Int($0.bounds.height))" }.joined(separator: "; ")
         print("CHAT_UI_FRAME \(label) visible=\(visible) latest=\(latestVisible) texts=\(texts.count) active=\(UIApplication.shared.applicationState.rawValue) loaded=\(state.detail?.runs.count ?? -1) \(dimensions)")
