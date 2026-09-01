@@ -3,9 +3,16 @@ import UIKit
 
 /// One native text selection surface per prose group, including across Markdown paragraphs.
 struct AISelectableText: UIViewRepresentable {
-    enum Kind { case message, markdown, reasoning, code }
+    enum Kind: Equatable { case message, markdown, reasoning, code(language: String) }
     let text: String
     let kind: Kind
+
+    final class Coordinator {
+        var text = ""
+        var kind: Kind?
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeUIView(context: Context) -> UITextView {
         let view = UITextView()
@@ -23,7 +30,10 @@ struct AISelectableText: UIViewRepresentable {
     }
 
     func updateUIView(_ view: UITextView, context: Context) {
+        guard context.coordinator.text != text || context.coordinator.kind != kind else { return }
         let content = attributedText
+        context.coordinator.text = text
+        context.coordinator.kind = kind
         guard !view.attributedText.isEqual(to: content) else { return }
         let selected = view.selectedRange
         view.attributedText = content
@@ -42,7 +52,11 @@ struct AISelectableText: UIViewRepresentable {
         let available: CGFloat
         if let proposed = proposal.width, proposed.isFinite { available = proposed }
         else { available = max(1, natural) }
-        let width = kind == .message || kind == .code ? min(available, max(1, natural)) : available
+        let width: CGFloat
+        switch kind {
+        case .message, .code(_): width = min(available, max(1, natural))
+        case .markdown, .reasoning: width = available
+        }
         let fitted = uiView.sizeThatFits(CGSize(width: width, height: CGFloat.greatestFiniteMagnitude))
         return CGSize(width: width, height: ceil(fitted.height))
     }
@@ -51,7 +65,7 @@ struct AISelectableText: UIViewRepresentable {
         switch kind {
         case .message: return plain(text, font: scaled(16), color: .label)
         case .reasoning: return plain(text, font: scaled(14), color: UIColor(AIChatStyle.muted))
-        case .code: return plain(text, font: UIFontMetrics(forTextStyle: .body).scaledFont(for: .monospacedSystemFont(ofSize: 13, weight: .regular)), color: .label)
+        case .code(let language): return highlightedCode(language: language)
         case .markdown: return markdown
         }
     }
@@ -63,6 +77,27 @@ struct AISelectableText: UIViewRepresentable {
     private func plain(_ value: String, font: UIFont, color: UIColor) -> NSAttributedString {
         let paragraph = NSMutableParagraphStyle(); paragraph.lineSpacing = 3
         return NSAttributedString(string: value, attributes: [.font: font, .foregroundColor: color, .paragraphStyle: paragraph])
+    }
+
+    private func highlightedCode(language: String) -> NSAttributedString {
+        let result = NSMutableAttributedString(string: "")
+        let font = UIFontMetrics(forTextStyle: .body).scaledFont(for: .monospacedSystemFont(ofSize: 13, weight: .regular))
+        let paragraph = NSMutableParagraphStyle(); paragraph.lineSpacing = 3
+        for segment in AICodeSyntax.segments(text, language: language) {
+            let color: UIColor
+            switch segment.kind {
+            case .plain: color = .label
+            case .keyword: color = .systemPurple
+            case .string: color = .systemGreen
+            case .number: color = .systemOrange
+            case .comment: color = .secondaryLabel
+            case .type: color = .systemTeal
+            }
+            result.append(NSAttributedString(string: segment.text, attributes: [
+                .font: font, .foregroundColor: color, .paragraphStyle: paragraph
+            ]))
+        }
+        return result
     }
 
     private var markdown: NSAttributedString {
