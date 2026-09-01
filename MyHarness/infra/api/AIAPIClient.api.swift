@@ -74,24 +74,56 @@ final class AIAPIClient {
             let task = Task { @MainActor in
                 do {
                     var request = try await makeRequest("/runs/\(id)/events?afterSeq=\(after)", method: "GET", body: nil)
-                    request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-                    request.setValue(String(after), forHTTPHeaderField: "Last-Event-ID")
-                    let (bytes, response) = try await session.bytes(for: request)
-                    guard let http = response as? HTTPURLResponse else { throw APIError.invalidResponse }
-                    guard http.statusCode == 200 else { throw APIError.response(http.statusCode, "実行状況への接続に失敗しました") }
-                    for try await line in bytes.lines {
-                        try Task.checkCancellation()
-                        // AI v5 emits one JSON data line per event. Do not rely
-                        // on AsyncLineSequence preserving empty separator lines.
-                        if line.hasPrefix("data:") {
-                            let data = Data(line.dropFirst(5).trimmingCharacters(in: .whitespaces).utf8)
-                            continuation.yield(try decoder.decode(AIEvent.self, from: data))
+                    guard let url = request.url,
+                          var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+                        throw APIError.invalidResponse
+                    }
+                    switch components.scheme {
+                    case "https": components.scheme = "wss"
+                    case "http": components.scheme = "ws"
+                    default: throw APIError.invalidResponse
+                    }
+                    guard let webSocketURL = components.url else { throw APIError.invalidResponse }
+                    request.url = webSocketURL
+                    request.setValue("application/json", forHTTPHeaderField: "Accept")
+                    let socket = session.webSocketTask(with: request)
+                    socket.resume()
+                    let pingTask = Task { @MainActor [weak self] in
+                        while !Task.isCancelled {
+                            do { try await Task.sleep(for: .seconds(10)) }
+                            catch { return }
+                            guard let self else { return }
+                            do { try await self.ping(socket) }
+                            catch { socket.cancel(with: .abnormalClosure, reason: nil); return }
                         }
+                    }
+                    defer {
+                        pingTask.cancel()
+                        socket.cancel(with: .goingAway, reason: nil)
+                    }
+                    while !Task.isCancelled {
+                        try Task.checkCancellation()
+                        let data: Data
+                        switch try await socket.receive() {
+                        case .string(let value): data = Data(value.utf8)
+                        case .data(let value): data = value
+                        @unknown default: throw APIError.invalidResponse
+                        }
+                        continuation.yield(try decoder.decode(AIEvent.self, from: data))
                     }
                     continuation.finish()
                 } catch { continuation.finish(throwing: error) }
             }
             continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    private func ping(_ socket: URLSessionWebSocketTask) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            socket.sendPing { error in
+                if let error { continuation.resume(throwing: error) }
+                else { continuation.resume() }
+            }
         }
     }
 

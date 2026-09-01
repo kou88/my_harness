@@ -27,6 +27,7 @@ import Foundation
     var repositoryValues: [AIRepository] = []
     var requestValues: [String: [AIRequest]] = [:]
     var replies: [String] = []
+    var runRequestCount = 0
     func repositories() async throws -> [AIRepository] { repositoryValues }
     func requests(_ runId: String) async throws -> [AIRequest] { requestValues[runId] ?? [] }
     func reply(_ id: String, value: AIReply) async throws {
@@ -64,6 +65,7 @@ import Foundation
         return run
     }
     func run(_ id: String) async throws -> AIRun {
+        runRequestCount += 1
         guard let run = details.values.flatMap(\.runs).first(where: { $0.id == id }) else { throw APIError.response(404, "Deleted run") }
         return run
     }
