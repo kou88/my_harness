@@ -10,6 +10,7 @@ struct AIMermaidCodeBlock: View {
     @State private var copyCount = 0
     @State private var diagramHeight: CGFloat = 180
     @State private var renderError: String?
+    @State private var showingFullscreen = false
 
     private var sourceIsVisible: Bool { showingSource || !isComplete || renderError != nil }
 
@@ -54,14 +55,33 @@ struct AIMermaidCodeBlock: View {
                 }
                 .background(AIChatStyle.code)
             } else {
-                AIMermaidDiagramView(source: text, height: $diagramHeight, error: $renderError)
-                    .frame(height: diagramHeight)
-                    .background(AIChatStyle.code)
-                    .accessibilityLabel("Mermaid図")
+                ZStack(alignment: .topTrailing) {
+                    AIMermaidDiagramView(source: text, mode: .thumbnail, height: $diagramHeight, error: $renderError)
+                        .frame(height: diagramHeight)
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture { showingFullscreen = true }
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("Mermaid図を全画面表示")
+                        .accessibilityHint("ダブルタップで全画面表示します")
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityIdentifier("AI.mermaidOpen." + copyID)
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(AIChatStyle.muted)
+                        .padding(8)
+                        .background(.thinMaterial, in: Circle())
+                        .padding(8)
+                        .allowsHitTesting(false)
+                }
+                .background(AIChatStyle.code)
             }
         }
         .background(AIChatStyle.bubble, in: RoundedRectangle(cornerRadius: 10))
         .clipShape(RoundedRectangle(cornerRadius: 10))
+        .fullScreenCover(isPresented: $showingFullscreen) {
+            AIMermaidFullscreenView(source: text)
+        }
         .onChange(of: text) { _, _ in
             copied = false
             renderError = nil
@@ -76,8 +96,65 @@ struct AIMermaidCodeBlock: View {
     }
 }
 
+private struct AIMermaidFullscreenView: View {
+    let source: String
+    @Environment(\.dismiss) private var dismiss
+    @State private var ignoredHeight: CGFloat = 0
+    @State private var renderError: String?
+
+    var body: some View {
+        ZStack {
+            Color(uiColor: .systemBackground).ignoresSafeArea()
+            if let renderError {
+                VStack(alignment: .leading, spacing: 12) {
+                    Label(renderError, systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.orange)
+                    ScrollView([.horizontal, .vertical]) {
+                        Text(source)
+                            .font(.system(.body, design: .monospaced))
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                .padding(20)
+            } else {
+                AIMermaidDiagramView(source: source, mode: .fullscreen, height: $ignoredHeight, error: $renderError)
+                    .accessibilityLabel("全画面のMermaid図")
+            }
+        }
+        .safeAreaInset(edge: .top) {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Mermaid").font(.headline)
+                    Text("ピンチで拡大・ドラッグで移動")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark")
+                        .font(.headline.weight(.semibold))
+                        .frame(width: 44, height: 44)
+                        .background(.thinMaterial, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Mermaid図を閉じる")
+                .accessibilityIdentifier("AI.mermaidClose")
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(.bar)
+        }
+    }
+}
+
+private enum AIMermaidPresentationMode: String {
+    case thumbnail
+    case fullscreen
+}
+
 private struct AIMermaidDiagramView: UIViewRepresentable {
     let source: String
+    let mode: AIMermaidPresentationMode
     @Binding var height: CGFloat
     @Binding var error: String?
     @Environment(\.colorScheme) private var colorScheme
@@ -98,15 +175,19 @@ private struct AIMermaidDiagramView: UIViewRepresentable {
         webView.scrollView.backgroundColor = .clear
         webView.scrollView.alwaysBounceHorizontal = false
         webView.scrollView.alwaysBounceVertical = false
+        webView.scrollView.isScrollEnabled = mode == .fullscreen
+        webView.scrollView.pinchGestureRecognizer?.isEnabled = mode == .fullscreen
         webView.allowsLinkPreview = false
-        webView.accessibilityIdentifier = "AI.mermaidDiagram"
-        context.coordinator.update(webView, source: source, theme: theme)
+        webView.accessibilityIdentifier = mode == .fullscreen ? "AI.mermaidFullscreen" : "AI.mermaidDiagram"
+        context.coordinator.update(webView, source: source, theme: theme, mode: mode)
         return webView
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
         context.coordinator.parent = self
-        context.coordinator.update(webView, source: source, theme: theme)
+        webView.scrollView.isScrollEnabled = mode == .fullscreen
+        webView.scrollView.pinchGestureRecognizer?.isEnabled = mode == .fullscreen
+        context.coordinator.update(webView, source: source, theme: theme, mode: mode)
     }
 
     static func dismantleUIView(_ webView: WKWebView, coordinator: Coordinator) {
@@ -121,19 +202,23 @@ private struct AIMermaidDiagramView: UIViewRepresentable {
         private var loaded = false
         private var requestedSource = ""
         private var requestedTheme = ""
+        private var requestedMode = AIMermaidPresentationMode.thumbnail
         private var renderedSource: String?
+        private var renderedMode: AIMermaidPresentationMode?
         private var requestID = 0
 
         init(parent: AIMermaidDiagramView) { self.parent = parent }
 
-        func update(_ webView: WKWebView, source: String, theme: String) {
+        func update(_ webView: WKWebView, source: String, theme: String, mode: AIMermaidPresentationMode) {
             requestedSource = source
+            requestedMode = mode
             if requestedTheme != theme {
                 requestedTheme = theme
                 loaded = false
                 renderedSource = nil
+                renderedMode = nil
                 loadPage(webView)
-            } else if loaded && renderedSource != source {
+            } else if loaded && (renderedSource != source || renderedMode != mode) {
                 render(webView)
             }
         }
@@ -154,14 +239,16 @@ private struct AIMermaidDiagramView: UIViewRepresentable {
         private func render(_ webView: WKWebView) {
             guard loaded else { return }
             renderedSource = requestedSource
+            renderedMode = requestedMode
             requestID += 1
             let currentRequest = requestID
             parent.error = nil
             Task { @MainActor in
                 do {
                     _ = try await webView.callAsyncJavaScript(
-                        "return await renderDiagram(source, requestID, theme);",
-                        arguments: ["source": requestedSource, "requestID": currentRequest, "theme": requestedTheme],
+                        "return await renderDiagram(source, requestID, theme, mode);",
+                        arguments: ["source": requestedSource, "requestID": currentRequest,
+                                    "theme": requestedTheme, "mode": requestedMode.rawValue],
                         contentWorld: .page
                     )
                 } catch where currentRequest == requestID {
@@ -175,7 +262,9 @@ private struct AIMermaidDiagramView: UIViewRepresentable {
                   (payload["requestID"] as? NSNumber)?.intValue == requestID,
                   let status = payload["status"] as? String else { return }
             if status == "rendered", let value = payload["height"] as? NSNumber {
-                parent.height = min(max(CGFloat(value.doubleValue), 120), 640)
+                if parent.mode == .thumbnail {
+                    parent.height = min(max(CGFloat(value.doubleValue), 120), 444)
+                }
                 parent.error = nil
             } else if status == "error" {
                 parent.error = "Mermaidの記法を確認してください"
