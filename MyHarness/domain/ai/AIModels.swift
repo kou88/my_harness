@@ -98,7 +98,7 @@ struct AISharing: Codable, Equatable {
     var capacityIsValid: Bool {
         (1...8).contains(maxConcurrentRuns)
             && [8192, 16384, 32768, 65536, 131072, 262144].contains(contextLength)
-            && contextLength <= 262144 / maxConcurrentRuns
+            && contextLength <= 393216 / maxConcurrentRuns
     }
 }
 

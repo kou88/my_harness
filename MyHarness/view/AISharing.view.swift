@@ -34,10 +34,10 @@ struct AISharingView: View {
                                 Text("\(context / 1024)K").tag(context)
                             }
                         }.accessibilityIdentifier("AI.sharing.context")
-                        Text("合計256Kまで。8件は32K、4件は64K、2件は128Kが上限です。上限を超えたチャットは順番待ちになります。")
+                        Text("合計384Kまで。8件は32K、6件は64K、3件は128Kが上限です。上限を超えたチャットは順番待ちになります。")
                             .font(.caption).foregroundStyle(.secondary)
                         if !draft.capacityIsValid {
-                            Text("合計256Kを超えています。同時実行数かコンテキスト長を変更してください。")
+                            Text("合計384Kを超えています。同時実行数かコンテキスト長を変更してください。")
                                 .font(.caption).foregroundStyle(.red).accessibilityIdentifier("AI.sharing.capacityError")
                         }
                         Text("モデルとコンテキスト長はチャット内では固定。推論量・出力上限は会話ごとに変更できます。")
