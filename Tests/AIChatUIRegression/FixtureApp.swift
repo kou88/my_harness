@@ -32,6 +32,7 @@ enum AppRoute { case aiConversation(id: String) }
     private let otherId: String
     private let codingId: String
     private let renderingId: String
+    private let tableId: String
     @State private var shown = true
     @State private var result = "長文・生成中の再表示テスト"
 
@@ -77,8 +78,25 @@ enum AppRoute { case aiConversation(id: String) }
                 \(Self.mermaidSource)
                 ```
                 """, status: "completed", cancelRequested: false, lastSeq: 0, error: "", responseId: "", previousResponseId: "", createdAt: "test", updatedAt: "test")])
+        let table = UUID().uuidString.lowercased(), tableRun = UUID().uuidString.lowercased()
+        api.details[table] = AIConversationDetail(id: table, title: "Markdown表", context: .hermes, createdAt: "test", updatedAt: "test", runs: [
+            AIRun(id: tableRun, conversationId: table, hostId: "host", modelId: api.model.id, model: "表示確認モデル", settings: api.model.initialSettings, delivery: .changes,
+                inputText: "候補を表で比較して", outputText: """
+                ## モデル比較
+
+                キャッシュ込みの目安です。
+
+                | 順位 | モデル | サイズ |
+                | ---: | :--- | ---: |
+                | 1位 | **Qwen3-Coder-Next** | 約50GB |
+                | 2位 | `gpt-oss-120b` | 約61GB |
+                | 3位 | Qwen3.8-27B | 約17GB |
+
+                太字やインラインコード、列ごとの文字揃えもセル内に反映します。
+                """, status: "completed", cancelRequested: false, lastSeq: 0, error: "", responseId: "", previousResponseId: "", createdAt: "test", updatedAt: "test")])
         codingId = coding
         renderingId = rendering
+        tableId = table
         self.api = api; conversationId = id; runId = activeId
         otherId = other
         _state = State(initialValue: AIChatState(apiClient: api, authSession: CognitoAuthSession(), configurationErrorMessage: nil,
@@ -91,6 +109,8 @@ enum AppRoute { case aiConversation(id: String) }
                 Text(result).font(.caption)
                 Spacer()
                 Button("コード") { router.aiPath = [.aiConversation(id: codingId)] }
+                Button("図") { router.aiPath = [.aiConversation(id: renderingId)] }
+                Button("表") { router.aiPath = [.aiConversation(id: tableId)] }
                 Button("追記") {
                     try? api.emit(runId, type: "text.delta", data: ["text": .string("\n\n手動追加: 過去の文を読んでいる間はスクロール位置を保持します。")])
                 }
@@ -131,7 +151,7 @@ enum AppRoute { case aiConversation(id: String) }
             }
             result = failures == 0 ? "PASS: 再表示・生成中 16回" : "FAIL: 表示位置 \(failures)回"
             print("CHAT_UI_REGRESSION \(result)")
-            router.aiPath = [.aiConversation(id: renderingId)]
+            router.aiPath = [.aiConversation(id: tableId)]
         }
     }
 
