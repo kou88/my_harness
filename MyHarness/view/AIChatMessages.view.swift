@@ -87,13 +87,19 @@ private struct AIRunMessage: View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .trailing, spacing: 0) {
                 if !attachmentGroups.isEmpty {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                            ForEach(attachmentGroups) { attachment in
-                                AIHistoryAttachmentPreview(attachment: attachment, state: state)
+                    GeometryReader { row in
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                ForEach(attachmentGroups) { attachment in
+                                    AIHistoryAttachmentPreview(attachment: attachment, state: state)
+                                }
                             }
+                            .frame(minWidth: row.size.width, alignment: .trailing)
                         }
-                    }.frame(maxWidth: .infinity, alignment: .trailing).padding(.bottom, run.inputText.isEmpty ? 0 : 8)
+                        .defaultScrollAnchor(.trailing)
+                    }
+                    .frame(height: 132)
+                    .padding(.bottom, run.inputText.isEmpty ? 0 : 8)
                 }
                 if !run.inputText.isEmpty {
                     HStack {
