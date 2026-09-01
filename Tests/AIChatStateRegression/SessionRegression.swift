@@ -98,6 +98,11 @@ import Foundation
         try api.emit(runB, type: "text.delta", data: ["text": .string("only B")])
         while state.detail?.runs.last?.outputText != "only B" { await Task.yield() }
         precondition(state.detail?.id == "b")
+        precondition(state.displayedOutput(for: state.detail!.runs.last!).count < "only B".count,
+                     "A live delta should be paced instead of appearing as one UI burst")
+        try await Task.sleep(for: .milliseconds(350))
+        precondition(state.displayedOutput(for: state.detail!.runs.last!) == "only B",
+                     "The presentation must catch up without an artificial typing delay")
         await state.openConversation(id: "a")
         precondition(state.detail?.runs.last?.outputText == "only A")
 

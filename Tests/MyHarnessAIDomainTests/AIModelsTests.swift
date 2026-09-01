@@ -15,6 +15,24 @@ private func run() -> AIRun {
     #expect(value.outputText == "回答")
     #expect(value.lastSeq == 1)
 }
+@Test func streamingPresentationSmoothsABurstWithinFiveFrames() {
+    var presentation = AIStreamingPresentation(text: "")
+    presentation.receive(String(repeating: "速", count: 103))
+    #expect(presentation.displayed.isEmpty)
+    for _ in 0..<4 {
+        let needsMore = presentation.advance()
+        #expect(needsMore)
+    }
+    let needsMore = presentation.advance()
+    #expect(!needsMore)
+    #expect(presentation.displayed == String(repeating: "速", count: 103))
+}
+@Test func streamingPresentationResetsSafelyWhenTextIsReplaced() {
+    var presentation = AIStreamingPresentation(text: "old")
+    presentation.receive("unrelated")
+    #expect(presentation.displayed == "unrelated")
+    #expect(!presentation.needsAdvance)
+}
 @Test func missingEventRequiresReplay() {
     var value = run()
     #expect(throws: AIContractError.self) { try value.apply(event(2, "text.delta", ["text": .string("欠落")])) }

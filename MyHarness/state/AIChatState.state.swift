@@ -44,6 +44,8 @@ final class AIChatState {
     private var listLoading = false
     private var listGeneration = 0
     private var streams: [String: Task<Void, Never>] = [:]
+    private var presentations: [String: AIStreamingPresentation] = [:]
+    private var presentationTasks: [String: Task<Void, Never>] = [:]
     private let api: AIAPIClient?
     private let authSession: CognitoAuthSession?
     private let configurationErrorMessage: String?
@@ -182,13 +184,17 @@ final class AIChatState {
         } catch { if token == listGeneration && !Task.isCancelled { errorMessage = error.localizedDescription } }
     }
     func newChat() {
-        if visible !== newSession { visible = newSession }
+        if visible !== newSession {
+            flushPresentations(in: visible)
+            visible = newSession
+        }
         if visible.model == nil && visible.settings == nil { configureNew(visible) }
     }
     func openConversation(id: String) async {
         let session: Session
         if let existing = sessions[id] { session = existing }
         else { session = Session(); sessions[id] = session }
+        if visible !== session { flushPresentations(in: visible) }
         visible = session
         await refresh(id: id, session: session)
     }
@@ -209,6 +215,7 @@ final class AIChatState {
                 loaded.runs.append(run)
             }
             session.detail = loaded; session.error = ""
+            for run in loaded.runs { synchronizePresentation(run, session: session) }
             if let last = loaded.runs.last { session.delivery = last.delivery }
             if session.model == nil && session.settings == nil {
                 if let last = loaded.runs.last {
@@ -276,7 +283,10 @@ final class AIChatState {
             let run = try await api.send(conversation: pending.conversationId, submission: pending.submission)
             session.pending = nil; session.draft = ""
             guard session.detail != nil else { throw AIContractError.malformedEvent }
-            if !session.detail!.runs.contains(where: { $0.id == run.id }) { session.detail!.runs.append(run) }
+            if !session.detail!.runs.contains(where: { $0.id == run.id }) {
+                session.detail!.runs.append(run)
+                synchronizePresentation(run, session: session)
+            }
             observe(run.id, session: session)
             return visible === session ? pending.conversationId : nil
         } catch let error as AIAPIClient.APIError {
@@ -307,7 +317,12 @@ final class AIChatState {
         do {
             try await api.delete(id)
             if let session = sessions.removeValue(forKey: id) {
-                for run in session.detail?.runs ?? [] { streams.removeValue(forKey: run.id)?.cancel(); eventsByRun.removeValue(forKey: run.id) }
+                for run in session.detail?.runs ?? [] {
+                    streams.removeValue(forKey: run.id)?.cancel()
+                    presentationTasks.removeValue(forKey: run.id)?.cancel()
+                    presentations.removeValue(forKey: run.id)
+                    eventsByRun.removeValue(forKey: run.id)
+                }
                 if visible === session { newChat() }
             }
             conversations.removeAll { $0.id == id }
@@ -325,6 +340,9 @@ final class AIChatState {
         } catch { session.error = error.localizedDescription }
     }
     func trace(_ runId: String) -> AITrace { AITrace(events: eventsByRun[runId] ?? []) }
+    func displayedOutput(for run: AIRun) -> String {
+        run.isActive ? presentations[run.id]?.displayed ?? run.outputText : run.outputText
+    }
     func answer(_ request: AIRequest, reply: AIReply) async {
         guard let api, !replying.contains(request.id) else { return }
         let session = visible
@@ -353,6 +371,7 @@ final class AIChatState {
         guard let index = session.detail?.runs.firstIndex(where: { $0.id == run.id }) else { return }
         if let current = session.detail?.runs[index], current.lastSeq > run.lastSeq { return }
         session.detail?.runs[index] = run
+        synchronizePresentation(run, session: session)
     }
     private func appendTrace(_ runId: String, _ event: AIEvent) {
         if let last = eventsByRun[runId]?.last, last.seq >= event.seq { return }
@@ -369,7 +388,10 @@ final class AIChatState {
                     for try await event in api.stream(runId, after: cursor) {
                         try Task.checkCancellation()
                         session.connection = ""
-                        if let index = session.detail?.runs.firstIndex(where: { $0.id == runId }) { try session.detail?.runs[index].apply(event) }
+                        if let index = session.detail?.runs.firstIndex(where: { $0.id == runId }) {
+                            try session.detail?.runs[index].apply(event)
+                            if let run = session.detail?.runs[index] { self.synchronizePresentation(run, session: session) }
+                        }
                         self.appendTrace(runId, event)
                         if event.type == "request.created" || event.type == "request.resolved" {
                             self.requestsByRun[runId] = try await api.requests(runId)
@@ -390,6 +412,44 @@ final class AIChatState {
                 }
                 do { try await Task.sleep(for: .seconds(1)) } catch { return }
             }
+        }
+    }
+
+    private func synchronizePresentation(_ run: AIRun, session: Session) {
+        if !run.isActive || session !== visible {
+            presentationTasks.removeValue(forKey: run.id)?.cancel()
+            var presentation = presentations[run.id] ?? AIStreamingPresentation(text: run.outputText)
+            presentation.receive(run.outputText)
+            presentation.flush()
+            presentations[run.id] = presentation
+            return
+        }
+        guard var presentation = presentations[run.id] else {
+            // History and a reopened conversation appear immediately. Only
+            // deltas received after this point are visually paced.
+            presentations[run.id] = AIStreamingPresentation(text: run.outputText)
+            return
+        }
+        presentation.receive(run.outputText)
+        presentations[run.id] = presentation
+        guard presentation.needsAdvance, presentationTasks[run.id] == nil else { return }
+        presentationTasks[run.id] = Task { @MainActor [weak self] in
+            defer { self?.presentationTasks.removeValue(forKey: run.id) }
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .milliseconds(50)) }
+                catch { return }
+                guard let self, var current = self.presentations[run.id] else { return }
+                let needsMore = current.advance()
+                self.presentations[run.id] = current
+                if !needsMore { return }
+            }
+        }
+    }
+
+    private func flushPresentations(in session: Session) {
+        for run in session.detail?.runs ?? [] {
+            presentationTasks.removeValue(forKey: run.id)?.cancel()
+            presentations[run.id] = AIStreamingPresentation(text: run.outputText)
         }
     }
 }
