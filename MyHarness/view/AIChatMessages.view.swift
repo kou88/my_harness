@@ -66,6 +66,7 @@ private struct AIRunMessage: View {
     private var trace: AITrace { state.trace(run.id) }
     private var outputText: String { state.displayedOutput(for: run) }
     private var timeline: [AITraceEntry] { trace.timeline(displayedOutput: outputText) }
+    private var timelineSections: [AITraceTimelineSection] { trace.groupedTimeline(displayedOutput: outputText) }
     private var status: String {
         if run.cancelRequested && run.isActive { return "停止を要求中" }
         if !trace.status.isEmpty && run.isActive { return trace.status }
@@ -103,25 +104,17 @@ private struct AIRunMessage: View {
                         .accessibilityIdentifier("AI.runStatus")
                 }.padding(.bottom, 10)
             }
-            ForEach(timeline) { entry in
-                switch entry {
-                case .reasoning(_, let text):
-                    AITraceDisclosure(title: run.isActive && entry.id == timeline.last?.id ? "思考中" : "思考", icon: "sparkle", completed: !run.isActive || entry.id != timeline.last?.id) {
-                        AIChatMessageText(text: text, kind: .reasoning, copyID: run.id + "." + entry.id)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.leading, 12).overlay(alignment: .leading) { Rectangle().fill(AIChatStyle.border).frame(width: 2) }
-                    }.padding(.bottom, 8)
-                case .tool(_, let tool):
-                    AITraceDisclosure(title: tool.name == "execute_code" ? "コード実行 · execute_code" : tool.name, icon: tool.name == "execute_code" ? "terminal" : "wrench", completed: tool.completed) {
-                        VStack(alignment: .leading, spacing: 10) {
-                            AIChatCodeBlock(title: tool.name == "execute_code" ? "python" : "入力", text: tool.displayArguments, copyID: run.id + ".tool.\(tool.id).input")
-                            if tool.completed { AIChatCodeBlock(title: "結果", text: tool.displayOutput, copyID: run.id + ".tool.\(tool.id).output") }
-                        }
-                    }.padding(.bottom, 8)
-                case .message(_, let text):
-                    AIChatMessageText(text: text, kind: .markdown, copyID: run.id + "." + entry.id)
+            ForEach(timelineSections) { section in
+                switch section {
+                case .activities(let firstSeq, let entries):
+                    AITraceActivityGroup(runID: run.id, entries: entries,
+                        isActive: run.isActive && entries.last?.id == timeline.last?.id)
+                        .padding(.bottom, 8)
+                        .accessibilityIdentifier("AI.traceGroup.\(firstSeq)")
+                case .message(let firstSeq, let text):
+                    AIChatMessageText(text: text, kind: .markdown, copyID: run.id + ".message.\(firstSeq)")
                         .padding(.top, 2).padding(.bottom, 8)
-                    if run.isActive && entry.id == timeline.last?.id {
+                    if run.isActive && "message.\(firstSeq)" == timeline.last?.id {
                         Capsule().fill(AIChatStyle.muted).frame(width: 3, height: 14).padding(.top, -3).padding(.bottom, 8)
                             .accessibilityHidden(true)
                     }
@@ -152,6 +145,48 @@ private struct AIRunMessage: View {
             }
         }.frame(maxWidth: .infinity, alignment: .leading)
             .task(id: run.id) { await state.loadTrace(run.id) }
+    }
+}
+
+private struct AITraceActivityGroup: View {
+    let runID: String
+    let entries: [AITraceEntry]
+    let isActive: Bool
+
+    var body: some View {
+        AITraceDisclosure(title: (isActive ? "作業中" : "作業内容") + " · \(entries.count)件",
+            icon: "list.bullet", completed: !isActive) {
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(entries) { entry in
+                    switch entry {
+                    case .reasoning(_, let text):
+                        AITraceDisclosure(title: isActive && entry.id == entries.last?.id ? "思考中" : "思考",
+                            icon: "sparkle", completed: !isActive || entry.id != entries.last?.id) {
+                            AIChatMessageText(text: text, kind: .reasoning, copyID: runID + "." + entry.id)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.leading, 12)
+                                .overlay(alignment: .leading) { Rectangle().fill(AIChatStyle.border).frame(width: 2) }
+                        }
+                    case .tool(_, let tool):
+                        AITraceDisclosure(title: tool.name == "execute_code" ? "コード実行 · execute_code" : tool.name,
+                            icon: tool.name == "execute_code" ? "terminal" : "wrench", completed: tool.completed) {
+                            VStack(alignment: .leading, spacing: 10) {
+                                AIChatCodeBlock(title: tool.name == "execute_code" ? "python" : "入力", text: tool.displayArguments,
+                                    copyID: runID + ".tool.\(tool.id).input")
+                                if tool.completed {
+                                    AIChatCodeBlock(title: "結果", text: tool.displayOutput,
+                                        copyID: runID + ".tool.\(tool.id).output")
+                                }
+                            }
+                        }
+                    case .message:
+                        EmptyView()
+                    }
+                }
+            }
+            .padding(.leading, 12)
+            .overlay(alignment: .leading) { Rectangle().fill(AIChatStyle.border).frame(width: 2) }
+        }
     }
 }
 

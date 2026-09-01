@@ -88,6 +88,31 @@ private func run() -> AIRun {
     }
     #expect(messages == ["before", " after"])
 }
+
+@Test func consecutiveReasoningAndToolsCollapseBetweenVisibleMessages() {
+    let trace = AITrace(events: [
+        event(1, "text.delta", ["text": .string("確認します。")]),
+        event(2, "reasoning.delta", ["text": .string("調査中")]),
+        event(3, "tool.call", ["id": .string("c1"), "name": .string("terminal"), "arguments": .string("run")]),
+        event(4, "tool.result", ["id": .string("c1"), "output": .string("ok")]),
+        event(5, "reasoning.delta", ["text": .string("結果を確認")]),
+        event(6, "tool.call", ["id": .string("c2"), "name": .string("search_files"), "arguments": .string("query")]),
+        event(7, "tool.result", ["id": .string("c2"), "output": .string("found")]),
+        event(8, "text.delta", ["text": .string("完了しました。")]),
+    ])
+
+    let sections = trace.groupedTimeline(displayedOutput: "確認します。完了しました。")
+    #expect(sections.count == 3)
+    guard case .message(_, let firstMessage) = sections[0],
+          case .activities(_, let activities) = sections[1],
+          case .message(_, let lastMessage) = sections[2] else {
+        Issue.record("本文の間に作業グループが必要")
+        return
+    }
+    #expect(firstMessage == "確認します。")
+    #expect(activities.count == 4)
+    #expect(lastMessage == "完了しました。")
+}
 @Test func invalidSettingsAreNotSentToTheModel() {
     let settings = AISettings(contextLength: 65536, maxOutputTokens: 4096, reasoningEffort: "medium")
     let model = AIModel(id: "id", hostId: "host", hostName: "PC", model: "qwen", name: "Qwen", online: true, contextLengths: [65536,262144], maxOutputTokens: 32768, reasoningEfforts: ["medium","max"], reasoningBudgets: ["medium":1024,"max":16384], initialSettings: settings)
