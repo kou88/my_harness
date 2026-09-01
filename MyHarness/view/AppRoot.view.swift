@@ -56,7 +56,8 @@ struct AppRootView: View {
         _aiChatState = State(initialValue: AIChatState(
             apiClient: dependencies.actionInbox.aiClient,
             authSession: dependencies.actionInbox.authSession,
-            configurationErrorMessage: dependencies.actionInbox.configurationErrorMessage
+            configurationErrorMessage: dependencies.actionInbox.configurationErrorMessage,
+            reconciliationInterval: .seconds(2)
         ))
         _pushRegistrationErrorMessage = State(
             initialValue: ActionPushNotificationCoordinator.shared.registrationErrorMessage

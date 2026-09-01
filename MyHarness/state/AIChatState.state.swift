@@ -44,11 +44,13 @@ final class AIChatState {
     private var listLoading = false
     private var listGeneration = 0
     private var streams: [String: Task<Void, Never>] = [:]
+    private var reconciliations: [String: Task<Void, Never>] = [:]
     private var presentations: [String: AIStreamingPresentation] = [:]
     private var presentationTasks: [String: Task<Void, Never>] = [:]
     private let api: AIAPIClient?
     private let authSession: CognitoAuthSession?
     private let configurationErrorMessage: String?
+    private let reconciliationInterval: Duration
     private(set) var isSignedIn: Bool
 
     var detail: AIConversationDetail? { visible.detail }
@@ -84,8 +86,9 @@ final class AIChatState {
         return model.online && model.accepts(settings) && !composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isSending && !visible.loading && activeRun == nil
     }
 
-    init(apiClient: AIAPIClient?, authSession: CognitoAuthSession?, configurationErrorMessage: String?) {
+    init(apiClient: AIAPIClient?, authSession: CognitoAuthSession?, configurationErrorMessage: String?, reconciliationInterval: Duration) {
         api = apiClient; self.authSession = authSession; self.configurationErrorMessage = configurationErrorMessage
+        self.reconciliationInterval = reconciliationInterval
         isSignedIn = authSession?.isSignedIn == true
         let initial = Session(); newSession = initial; visible = initial
     }
@@ -319,6 +322,7 @@ final class AIChatState {
             if let session = sessions.removeValue(forKey: id) {
                 for run in session.detail?.runs ?? [] {
                     streams.removeValue(forKey: run.id)?.cancel()
+                    reconciliations.removeValue(forKey: run.id)?.cancel()
                     presentationTasks.removeValue(forKey: run.id)?.cancel()
                     presentations.removeValue(forKey: run.id)
                     eventsByRun.removeValue(forKey: run.id)
@@ -378,7 +382,36 @@ final class AIChatState {
         eventsByRun[runId, default: []].append(event)
     }
     private func observe(_ runId: String, session: Session) {
-        guard let api, streams[runId] == nil else { return }
+        guard let api else { return }
+        if reconciliations[runId] == nil {
+            reconciliations[runId] = Task { @MainActor [weak self] in
+                defer { self?.reconciliations.removeValue(forKey: runId) }
+                while !Task.isCancelled {
+                    guard let self else { return }
+                    do { try await Task.sleep(for: self.reconciliationInterval) }
+                    catch { return }
+                    guard session.detail?.runs.first(where: { $0.id == runId })?.isActive == true else {
+                        self.streams.removeValue(forKey: runId)?.cancel()
+                        return
+                    }
+                    do {
+                        let run = try await api.run(runId)
+                        try Task.checkCancellation()
+                        self.replaceRun(run, session: session)
+                        session.connection = ""
+                        if !run.isActive {
+                            await self.loadTrace(runId, session: session)
+                            self.streams.removeValue(forKey: runId)?.cancel()
+                            return
+                        }
+                    } catch {
+                        if Task.isCancelled { return }
+                        session.connection = "接続を再確立中（PCでの実行は継続）"
+                    }
+                }
+            }
+        }
+        guard streams[runId] == nil else { return }
         streams[runId] = Task { @MainActor [weak self] in
             guard let self else { return }
             defer { self.streams.removeValue(forKey: runId) }
@@ -395,6 +428,11 @@ final class AIChatState {
                         self.appendTrace(runId, event)
                         if event.type == "request.created" || event.type == "request.resolved" {
                             self.requestsByRun[runId] = try await api.requests(runId)
+                        }
+                        if session.detail?.runs.first(where: { $0.id == runId })?.isActive == false {
+                            await self.loadTrace(runId, session: session)
+                            session.connection = ""
+                            return
                         }
                     }
                     try Task.checkCancellation()
