@@ -64,14 +64,15 @@ private struct AIRunMessage: View {
     @Bindable var state: AIChatState
     @State private var showInfo = false
     private var trace: AITrace { state.trace(run.id) }
+    private var outputText: String { state.displayedOutput(for: run) }
     private var status: String {
         if run.cancelRequested && run.isActive { return "停止を要求中" }
         if !trace.status.isEmpty && run.isActive { return trace.status }
         if run.status == "queued" { return "待機中（PCで順番に処理します）" }
         if run.status == "running" {
             if trace.tools.contains(where: { !$0.completed }) { return "ツール実行中" }
-            if run.outputText.isEmpty && !trace.reasoning.isEmpty { return "思考中" }
-            return run.outputText.isEmpty ? "初期化中" : "回答中"
+            if outputText.isEmpty && !trace.reasoning.isEmpty { return "思考中" }
+            return outputText.isEmpty ? "初期化中" : "回答中"
         }
         return run.status == "failed" ? "実行失敗" : run.status == "cancelled" ? "停止済み" : "完了"
     }
@@ -116,7 +117,13 @@ private struct AIRunMessage: View {
                     }
                 }.padding(.bottom, 8)
             }
-            if !run.outputText.isEmpty { AIChatMessageText(text: run.outputText, kind: .markdown, copyID: run.id + ".output").padding(.top, 2) }
+            if !outputText.isEmpty {
+                AIChatMessageText(text: outputText, kind: .markdown, copyID: run.id + ".output").padding(.top, 2)
+                if run.isActive {
+                    Capsule().fill(AIChatStyle.muted).frame(width: 3, height: 14).padding(.top, 5)
+                        .accessibilityHidden(true)
+                }
+            }
             AICodingResult(trace: trace, runID: run.id).padding(.top, 8)
             ForEach(state.requestsByRun[run.id] ?? []) { request in
                 if run.isActive && ["pending", "answered"].contains(request.status) {

@@ -186,6 +186,54 @@ struct AIRun: Codable, Identifiable, Hashable {
     }
 }
 
+struct AIStreamingPresentation: Equatable {
+    private(set) var displayed: String
+    private(set) var target: String
+    private var charactersPerTick = 0
+
+    init(text: String) {
+        displayed = text
+        target = text
+    }
+
+    var needsAdvance: Bool { displayed != target }
+
+    mutating func receive(_ text: String) {
+        guard text.hasPrefix(displayed) else {
+            displayed = text
+            target = text
+            charactersPerTick = 0
+            return
+        }
+        target = text
+        let remaining = target.dropFirst(displayed.count).count
+        if remaining > 0 {
+            // Five 50 ms frames catch up with a burst in about 250 ms while
+            // keeping the UI below 20 layout updates per second.
+            charactersPerTick = max(charactersPerTick, (remaining + 4) / 5)
+        }
+    }
+
+    @discardableResult mutating func advance() -> Bool {
+        guard displayed != target else { charactersPerTick = 0; return false }
+        guard target.hasPrefix(displayed) else {
+            displayed = target
+            charactersPerTick = 0
+            return false
+        }
+        let remaining = target.dropFirst(displayed.count)
+        let count = min(remaining.count, max(1, charactersPerTick))
+        displayed += String(remaining.prefix(count))
+        if displayed == target { charactersPerTick = 0 }
+        return displayed != target
+    }
+
+    mutating func flush() {
+        displayed = target
+        charactersPerTick = 0
+    }
+}
+
 enum AIContractError: Error { case sequenceGap, malformedEvent }
 
 struct AIEvent: Codable, Identifiable, Hashable {
