@@ -99,6 +99,15 @@ final class AIAPIClient {
     func events(_ id: String, after: Int) async throws -> AIEventPage {
         try await request("/runs/\(id)/events?afterSeq=\(after)", method: "GET", body: nil)
     }
+    func cronSnapshots() async throws -> [AICronHostSnapshot] {
+        try await request("/cron/snapshots", method: "GET", body: nil)
+    }
+    func queueCronOperation(_ submission: AICronOperationSubmission) async throws -> AICronOperation {
+        try await request("/cron/operations", method: "POST", body: encoder.encode(submission))
+    }
+    func cronOperation(_ id: String) async throws -> AICronOperation {
+        try await request("/cron/operations/\(id)", method: "GET", body: nil)
+    }
 
     func stream(_ id: String, after: Int) -> AsyncThrowingStream<AIEvent, Error> {
         AsyncThrowingStream { continuation in

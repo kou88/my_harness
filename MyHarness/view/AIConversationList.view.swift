@@ -3,11 +3,12 @@ import SwiftUI
 struct AIConversationListView: View {
     @Environment(AppRouter.self) private var router
     @Bindable var state: AIChatState
+    @Bindable var cronState: AICronState
     private var conversationId: String? {
         guard case .aiConversation(let id) = router.aiPath.last else { return nil }
         return id
     }
-    var body: some View { AIChatScreen(state: state, conversationId: conversationId) }
+    var body: some View { AIChatScreen(state: state, cronState: cronState, conversationId: conversationId) }
 }
 
 struct AISettingsView: View {
