@@ -1,3 +1,4 @@
+import PhotosUI
 import SwiftUI
 
 struct AIChatComposer: View {
@@ -7,7 +8,16 @@ struct AIChatComposer: View {
     let onSettings: () -> Void
     let onSent: (String) -> Void
     @FocusState private var focused: Bool
+    @State private var selectedImages: [PhotosPickerItem] = []
+    @State private var selectedVideo: PhotosPickerItem?
+    @State private var loadingMedia = false
     private var modelLocked: Bool { state.activeRun != nil || state.hasPendingSubmission || state.isSending }
+    private var acceptsImages: Bool { state.harness == .hermes && state.selectedModel?.accepts(.image) == true }
+    private var acceptsVideo: Bool { state.harness == .hermes && state.selectedModel?.accepts(.video) == true }
+    private var attachmentGroups: [AIComposerAttachment] {
+        var seen = Set<String>()
+        return state.composerAttachments.filter { seen.insert($0.groupId).inserted }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -25,13 +35,47 @@ struct AIChatComposer: View {
                 .padding(.horizontal, 16).padding(.top, 15).padding(.bottom, 4)
                 .focused($focused).disabled(state.hasPendingSubmission)
                 .accessibilityIdentifier("AI.prompt")
+            if !attachmentGroups.isEmpty || loadingMedia {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(attachmentGroups) { attachment in
+                            ZStack(alignment: .topTrailing) {
+                                if let image = UIImage(data: attachment.data) {
+                                    Image(uiImage: image).resizable().scaledToFill().frame(width: 72, height: 72).clipped()
+                                        .overlay(alignment: .bottomLeading) {
+                                            if attachment.kind == .videoFrame {
+                                                Label("動画", systemImage: "play.fill").font(.caption2).foregroundStyle(.white)
+                                                    .padding(5).background(.black.opacity(0.58), in: Capsule())
+                                            }
+                                        }
+                                }
+                                Button { state.removeComposerAttachment(groupId: attachment.groupId) } label: {
+                                    Image(systemName: "xmark.circle.fill").symbolRenderingMode(.palette).foregroundStyle(.white, .black.opacity(0.65))
+                                }.offset(x: 5, y: -5).accessibilityLabel("\(attachment.fileName)を削除")
+                            }.clipShape(RoundedRectangle(cornerRadius: 12))
+                        }
+                        if loadingMedia { ProgressView().frame(width: 72, height: 72) }
+                    }.padding(.horizontal, 16).padding(.top, 8)
+                }
+            }
             HStack(spacing: 6) {
                 Menu {
+                    if acceptsImages {
+                        PhotosPicker(selection: $selectedImages, maxSelectionCount: 4, matching: .images) {
+                            Label("写真を追加", systemImage: "photo.on.rectangle.angled")
+                        }
+                    }
+                    if acceptsVideo {
+                        PhotosPicker(selection: $selectedVideo, matching: .videos) {
+                            Label("動画を追加", systemImage: "video")
+                        }
+                    }
+                    if acceptsImages || acceptsVideo { Divider() }
                     Button("モデル設定", systemImage: "slider.horizontal.3", action: onSettings).disabled(state.selectedModel == nil || modelLocked)
                     Button("コードを実行", systemImage: "terminal") { state.composerText += state.harness == .hermes ? "execute_codeを使ってPythonで" : "このrepoのテストを実行して結果を確認してください。"; focused = true }
                     Button("Webを調べる", systemImage: "globe") { state.composerText += "Webで調べて、出典とともに教えてください。"; focused = true }
                 } label: { Image(systemName: "plus").font(.system(size: 19, weight: .light)).frame(width: 36, height: 36) }
-                    .accessibilityLabel("もっと見る").disabled(state.hasPendingSubmission)
+                    .accessibilityLabel("もっと見る").disabled(state.hasPendingSubmission || loadingMedia)
                 if let model = state.selectedModel, let settings = state.settings {
                     Menu {
                         Text("Reasoning effort")
@@ -81,8 +125,8 @@ struct AIChatComposer: View {
                             if state.isSending { ProgressView().tint(AIChatStyle.onAction) }
                             else { Image(systemName: state.hasPendingSubmission ? "arrow.clockwise" : "arrow.up").font(.system(size: 18, weight: .semibold)) }
                         }.foregroundStyle(AIChatStyle.onAction).frame(width: 32, height: 32)
-                            .background(state.canSend || state.isSending ? AIChatStyle.action : AIChatStyle.disabledAction, in: Circle())
-                    }.disabled(!state.canSend).accessibilityLabel(state.hasPendingSubmission ? "同じ依頼を再送" : "送信")
+                            .background((state.canSend && !loadingMedia) || state.isSending ? AIChatStyle.action : AIChatStyle.disabledAction, in: Circle())
+                    }.disabled(!state.canSend || loadingMedia).accessibilityLabel(state.hasPendingSubmission ? "同じ依頼を再送" : "送信")
                         .accessibilityIdentifier("AI.send")
                 }
             }.buttonStyle(.plain).padding(.horizontal, 8).padding(.bottom, 7)
@@ -93,6 +137,34 @@ struct AIChatComposer: View {
         }
         .background(AIChatStyle.surface, in: RoundedRectangle(cornerRadius: 24))
         .overlay(RoundedRectangle(cornerRadius: 24).stroke(focused ? AIChatStyle.focusedBorder : AIChatStyle.border, lineWidth: 1))
+        .onChange(of: selectedImages) { _, items in
+            guard !items.isEmpty else { return }
+            selectedImages = []
+            loadingMedia = true
+            Task {
+                defer { loadingMedia = false }
+                do {
+                    var attachments: [AIComposerAttachment] = []
+                    for (index, item) in items.enumerated() {
+                        guard let data = try await item.loadTransferable(type: Data.self) else { throw AIMediaProcessingError.unreadableImage }
+                        attachments.append(try await AIMediaProcessor.image(data: data, fileName: "画像\(index + 1).jpg"))
+                    }
+                    state.addComposerAttachments(attachments)
+                } catch { state.errorMessage = error.localizedDescription }
+            }
+        }
+        .onChange(of: selectedVideo) { _, item in
+            guard let item else { return }
+            selectedVideo = nil
+            loadingMedia = true
+            Task {
+                defer { loadingMedia = false }
+                do {
+                    guard let video = try await item.loadTransferable(type: AIImportedVideo.self) else { throw AIMediaProcessingError.unreadableVideo }
+                    state.addComposerAttachments(try await AIMediaProcessor.video(url: video.url, fileName: "動画.mov"))
+                } catch { state.errorMessage = error.localizedDescription }
+            }
+        }
     }
 }
 
@@ -125,6 +197,8 @@ struct AIModelPicker: View {
                                     HStack(spacing: 5) {
                                         Circle().fill(model.online ? Color.green : Color.gray).frame(width: 5, height: 5)
                                         Text(model.online ? model.hostName : "オフライン").font(.system(size: 11)).foregroundStyle(AIChatStyle.muted)
+                                        if model.accepts(.image) { Image(systemName: "photo").font(.system(size: 10)).foregroundStyle(AIChatStyle.muted) }
+                                        if model.accepts(.video) { Image(systemName: "video").font(.system(size: 10)).foregroundStyle(AIChatStyle.muted) }
                                     }
                                 }
                                 Spacer(minLength: 0)
