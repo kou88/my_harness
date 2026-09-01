@@ -23,6 +23,7 @@ final class AIAPIClient {
         let inputText: String
         let settings: AISettings
         let delivery: AIDelivery
+        let attachmentIds: [String]
     }
     private let config: ActionInboxConfig
     private let authSession: CognitoAuthSession
@@ -56,6 +57,36 @@ final class AIAPIClient {
     }
     func send(conversation: String, submission: Submission) async throws -> AIRun {
         try await request("/conversations/\(conversation)/runs", method: "POST", body: encoder.encode(submission))
+    }
+    func upload(conversation: String, attachment: AIComposerAttachment) async throws -> AIAttachment {
+        struct Metadata: Encodable {
+            let id: String; let kind: AIAttachmentKind; let groupId: String; let fileName: String
+            let contentType: String; let frameIndex: Int; let frameCount: Int
+        }
+        let boundary = "MyHarness-" + UUID().uuidString.lowercased()
+        let metadata = try encoder.encode(Metadata(id: attachment.id, kind: attachment.kind, groupId: attachment.groupId,
+            fileName: attachment.fileName, contentType: attachment.contentType, frameIndex: attachment.frameIndex, frameCount: attachment.frameCount))
+        var body = Data()
+        func append(_ value: String) { body.append(Data(value.utf8)) }
+        append("--\(boundary)\r\nContent-Disposition: form-data; name=\"metadata\"\r\nContent-Type: application/json\r\n\r\n")
+        body.append(metadata); append("\r\n")
+        append("--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"upload.jpg\"\r\nContent-Type: \(attachment.contentType)\r\n\r\n")
+        body.append(attachment.data); append("\r\n--\(boundary)--\r\n")
+        var request = try await makeRequest("/conversations/\(conversation)/attachments", method: "POST", body: body)
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        return try await response(request)
+    }
+    func attachment(_ id: String) async throws -> Data {
+        let request = try await makeRequest("/attachments/\(id)", method: "GET", body: nil)
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode), !data.isEmpty else {
+            throw APIError.invalidResponse
+        }
+        return data
+    }
+    func deleteAttachment(_ id: String) async throws {
+        struct Deleted: Decodable { let deleted: Bool }
+        let _: Deleted = try await request("/attachments/\(id)", method: "DELETE", body: nil)
     }
     func cancel(_ id: String) async throws -> AIRun { try await request("/runs/\(id)/cancel", method: "POST", body: Data("{}".utf8)) }
     func delete(_ id: String) async throws {
@@ -129,6 +160,9 @@ final class AIAPIClient {
 
     private func request<Value: Decodable>(_ path: String, method: String, body: Data?) async throws -> Value {
         let request = try await makeRequest(path, method: method, body: body)
+        return try await response(request)
+    }
+    private func response<Value: Decodable>(_ request: URLRequest) async throws -> Value {
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw APIError.invalidResponse }
         guard (200..<300).contains(http.statusCode) else {

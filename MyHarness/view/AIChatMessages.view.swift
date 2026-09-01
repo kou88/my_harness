@@ -67,6 +67,10 @@ private struct AIRunMessage: View {
     private var outputText: String { state.displayedOutput(for: run) }
     private var timeline: [AITraceEntry] { trace.timeline(displayedOutput: outputText) }
     private var timelineSections: [AITraceTimelineSection] { trace.groupedTimeline(displayedOutput: outputText) }
+    private var attachmentGroups: [AIAttachment] {
+        var seen = Set<String>()
+        return run.attachments.filter { seen.insert($0.groupId).inserted }
+    }
     private var status: String {
         if run.cancelRequested && run.isActive { return "停止を要求中" }
         if !trace.status.isEmpty && run.isActive { return trace.status }
@@ -82,18 +86,29 @@ private struct AIRunMessage: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .trailing, spacing: 0) {
-                HStack {
-                    Spacer(minLength: 30)
-                    AIChatMessageText(text: run.inputText, kind: .message, copyID: run.id + ".input")
-                        .padding(.horizontal, 16).padding(.vertical, 10)
-                        .background(AIChatStyle.bubble, in: RoundedRectangle(cornerRadius: 24))
+                if !attachmentGroups.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(attachmentGroups) { attachment in
+                                AIHistoryAttachmentPreview(attachment: attachment, state: state)
+                            }
+                        }
+                    }.frame(maxWidth: .infinity, alignment: .trailing).padding(.bottom, run.inputText.isEmpty ? 0 : 8)
                 }
-                Button { UIPasteboard.general.string = run.inputText } label: {
-                    Image(systemName: "doc.on.doc").font(.system(size: 14))
-                        .frame(width: 44, height: 44).contentShape(Rectangle())
-                }.buttonStyle(.plain).foregroundStyle(AIChatStyle.muted)
-                    .accessibilityLabel("送信したメッセージを全文コピー")
-                    .accessibilityIdentifier("AI.copyInput.\(run.id)")
+                if !run.inputText.isEmpty {
+                    HStack {
+                        Spacer(minLength: 30)
+                        AIChatMessageText(text: run.inputText, kind: .message, copyID: run.id + ".input")
+                            .padding(.horizontal, 16).padding(.vertical, 10)
+                            .background(AIChatStyle.bubble, in: RoundedRectangle(cornerRadius: 24))
+                    }
+                    Button { UIPasteboard.general.string = run.inputText } label: {
+                        Image(systemName: "doc.on.doc").font(.system(size: 14))
+                            .frame(width: 44, height: 44).contentShape(Rectangle())
+                    }.buttonStyle(.plain).foregroundStyle(AIChatStyle.muted)
+                        .accessibilityLabel("送信したメッセージを全文コピー")
+                        .accessibilityIdentifier("AI.copyInput.\(run.id)")
+                }
             }.padding(.bottom, 12)
             Text(run.model).font(.system(size: 14, weight: .semibold)).lineLimit(1).truncationMode(.tail)
                 .accessibilityLabel("回答モデル: " + run.model).padding(.bottom, 8)
@@ -145,6 +160,30 @@ private struct AIRunMessage: View {
             }
         }.frame(maxWidth: .infinity, alignment: .leading)
             .task(id: run.id) { await state.loadTrace(run.id) }
+    }
+}
+
+private struct AIHistoryAttachmentPreview: View {
+    let attachment: AIAttachment
+    @Bindable var state: AIChatState
+
+    var body: some View {
+        ZStack(alignment: .bottomLeading) {
+            if let data = state.cachedAttachmentData(attachment.id), let image = UIImage(data: data) {
+                Image(uiImage: image).resizable().scaledToFill()
+            } else {
+                Rectangle().fill(AIChatStyle.bubble)
+                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            if attachment.kind == .videoFrame {
+                Label("動画 · \(attachment.frameCount)フレーム", systemImage: "play.fill")
+                    .font(.caption2).foregroundStyle(.white).padding(6).background(.black.opacity(0.62), in: Capsule()).padding(6)
+            }
+        }
+        .frame(width: attachment.kind == .videoFrame ? 180 : 132, height: 132).clipped()
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .accessibilityLabel(attachment.kind == .videoFrame ? "動画 \(attachment.frameCount)フレーム" : "添付画像 \(attachment.fileName)")
+        .task(id: attachment.id) { await state.loadAttachmentData(attachment.id) }
     }
 }
 

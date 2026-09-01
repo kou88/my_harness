@@ -10,6 +10,7 @@ final class AIChatState {
         var model: AIModel?
         var settings: AISettings?
         var draft = ""
+        var attachments: [AIComposerAttachment] = []
         var error = ""
         var connection = ""
         var sending = false
@@ -27,6 +28,7 @@ final class AIChatState {
         let isNew: Bool
         let context: AIContextInput
         let submission: AIAPIClient.Submission
+        let uploads: [AIComposerAttachment]
     }
     var conversations: [AIConversation] = []
     var models: [AIModel] = []
@@ -47,6 +49,7 @@ final class AIChatState {
     private var reconciliations: [String: Task<Void, Never>] = [:]
     private var presentations: [String: AIStreamingPresentation] = [:]
     private var presentationTasks: [String: Task<Void, Never>] = [:]
+    private var attachmentDataById: [String: Data] = [:]
     private let api: AIAPIClient?
     private let authSession: CognitoAuthSession?
     private let configurationErrorMessage: String?
@@ -63,6 +66,7 @@ final class AIChatState {
     var selectedModel: AIModel? { visible.model }
     var settings: AISettings? { visible.settings }
     var composerText: String { get { visible.draft } set { visible.draft = newValue } }
+    var composerAttachments: [AIComposerAttachment] { visible.attachments }
     var errorMessage: String { get { visible.error } set { visible.error = newValue } }
     var connectionMessage: String { visible.connection }
     var isSending: Bool { visible.sending }
@@ -83,7 +87,10 @@ final class AIChatState {
                       repo.online, repo.hostId == model.hostId, repo.branches.contains(branch) else { return false }
             }
         }
-        return model.online && model.accepts(settings) && !composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isSending && !visible.loading && activeRun == nil
+        let modalitiesAccepted = visible.attachments.allSatisfy { model.accepts($0.modality) }
+        let hasInput = !composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !visible.attachments.isEmpty
+        return model.online && model.accepts(settings) && modalitiesAccepted && (visible.attachments.isEmpty || harness == .hermes)
+            && hasInput && !isSending && !visible.loading && activeRun == nil
     }
 
     init(apiClient: AIAPIClient?, authSession: CognitoAuthSession?, configurationErrorMessage: String?, reconciliationInterval: Duration) {
@@ -98,11 +105,43 @@ final class AIChatState {
     }
     func choose(_ model: AIModel) {
         guard !sharedMode, !visible.sending, visible.activeRun == nil, visible.pending == nil else { return }
+        guard visible.attachments.allSatisfy({ model.accepts($0.modality) }) else {
+            errorMessage = "添付中の画像・動画に対応するモデルを選んでください。"
+            return
+        }
         configure(visible, model: model)
         UserDefaults.standard.set(model.id, forKey: "agent-chat-selected-model")
     }
+    func addComposerAttachments(_ attachments: [AIComposerAttachment]) {
+        guard visible.pending == nil, visible.activeRun == nil, !visible.sending, harness == .hermes, let model = selectedModel else { return }
+        guard attachments.allSatisfy({ model.accepts($0.modality) }) else {
+            errorMessage = "選択中のモデルはこの画像・動画入力に対応していません。"; return
+        }
+        let combined = visible.attachments + attachments
+        let images = combined.filter { $0.kind == .image }
+        let videoGroups = Set(combined.filter { $0.kind == .videoFrame }.map(\.groupId))
+        guard images.count <= 4, videoGroups.count <= 1, combined.count <= 12 else {
+            errorMessage = "画像は4枚、動画は1本（最大8フレーム）まで追加できます。"; return
+        }
+        visible.attachments = combined
+        errorMessage = ""
+    }
+    func removeComposerAttachment(groupId: String) {
+        guard visible.pending == nil, !visible.sending else { return }
+        visible.attachments.removeAll { $0.groupId == groupId }
+    }
+    func cachedAttachmentData(_ id: String) -> Data? { attachmentDataById[id] }
+    func loadAttachmentData(_ id: String) async {
+        guard attachmentDataById[id] == nil, let api else { return }
+        do { attachmentDataById[id] = try await api.attachment(id) }
+        catch { if !Task.isCancelled { errorMessage = error.localizedDescription } }
+    }
     func chooseHarness(_ value: AIHarness) {
         guard visible.detail == nil, !isSending, !hasPendingSubmission else { return }
+        guard visible.attachments.isEmpty || value == .hermes else {
+            errorMessage = "画像・動画を削除してからOpenCodeへ切り替えてください。"
+            return
+        }
         visible.harness = value
         if value == .hermes { visible.delivery = .changes }
     }
@@ -266,8 +305,10 @@ final class AIChatState {
                 }
                 context = .opencode(repositoryId: repo.id, baseBranch: branch)
             } else { context = .hermes }
-            session.pending = Pending(conversationId: id, title: String(text.prefix(80)), isNew: conversationId == nil,
-                context: context, submission: AIAPIClient.Submission(id: UUID().uuidString.lowercased(), modelId: selectedModel.id, inputText: text, settings: settings, delivery: session.delivery))
+            let title = text.isEmpty ? (session.attachments.contains(where: { $0.kind == .videoFrame }) ? "動画について" : "画像について") : String(text.prefix(80))
+            session.pending = Pending(conversationId: id, title: title, isNew: conversationId == nil,
+                context: context, submission: AIAPIClient.Submission(id: UUID().uuidString.lowercased(), modelId: selectedModel.id, inputText: text,
+                    settings: settings, delivery: session.delivery, attachmentIds: session.attachments.map(\.id)), uploads: session.attachments)
             sessions[id] = session
             if session === newSession { newSession = Session(); configureNew(newSession) }
         }
@@ -283,8 +324,12 @@ final class AIChatState {
                 listGeneration += 1; listLoading = false
                 if !conversations.contains(where: { $0.id == created.id }) { conversations.insert(created, at: 0) }
             }
+            for attachment in pending.uploads {
+                _ = try await api.upload(conversation: pending.conversationId, attachment: attachment)
+            }
             let run = try await api.send(conversation: pending.conversationId, submission: pending.submission)
-            session.pending = nil; session.draft = ""
+            for attachment in pending.uploads { attachmentDataById[attachment.id] = attachment.data }
+            session.pending = nil; session.draft = ""; session.attachments = []
             guard session.detail != nil else { throw AIContractError.malformedEvent }
             if !session.detail!.runs.contains(where: { $0.id == run.id }) {
                 session.detail!.runs.append(run)
@@ -293,7 +338,10 @@ final class AIChatState {
             observe(run.id, session: session)
             return visible === session ? pending.conversationId : nil
         } catch let error as AIAPIClient.APIError {
-            if case .response(let status, _) = error, (400..<500).contains(status) { session.pending = nil }
+            if case .response(let status, _) = error, (400..<500).contains(status) {
+                session.pending = nil
+                for attachment in pending.uploads { try? await api.deleteAttachment(attachment.id) }
+            }
             session.error = error.localizedDescription
         } catch { session.error = "送信結果を確認できません。同じ実行IDで再送できます。\n" + error.localizedDescription }
         return nil
