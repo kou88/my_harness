@@ -29,11 +29,13 @@ struct AIChatScreen: View {
     @Environment(AppRouter.self) private var router
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Bindable var state: AIChatState
+    @Bindable var cronState: AICronState
     let conversationId: String?
     @State private var showSidebar = false
     @State private var showModels = false
     @State private var showSettings = false
     @State private var showSharing = false
+    @State private var showCron = false
     @State private var deleteTarget: String?
     @State private var showRename = false
     @State private var title = ""
@@ -130,6 +132,9 @@ struct AIChatScreen: View {
         .sheet(isPresented: $showSharing) {
             if let sharing = state.sharing { AISharingView(state: state, draft: sharing) }
         }
+        .fullScreenCover(isPresented: $showCron) {
+            NavigationStack { AICronView(state: cronState) }
+        }
         .alert("会話を削除しますか？", isPresented: Binding(get: { deleteTarget != nil }, set: { if !$0 { deleteTarget = nil } }), presenting: deleteTarget) { id in
             Button("削除", role: .destructive) {
                 Task { if await state.delete(id), id == conversationId { newChat() } }
@@ -162,6 +167,9 @@ struct AIChatScreen: View {
                     Image(systemName: "square.and.pencil").font(.system(size: 18)).frame(width: 36, height: 44)
                 }.accessibilityLabel("新しいチャット")
             } else { Spacer() }
+            Button { showCron = true } label: {
+                Image(systemName: "calendar.badge.clock").font(.system(size: 18)).frame(width: 40, height: 44)
+            }.accessibilityLabel("定期タスク").accessibilityIdentifier("AI.cron")
             Button { showSettings = true } label: {
                 Image(systemName: "slider.horizontal.3").font(.system(size: 18)).frame(width: 44, height: 44)
             }.accessibilityLabel("モデル設定").accessibilityIdentifier("AI.settings")
