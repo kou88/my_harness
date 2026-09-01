@@ -329,6 +329,18 @@ enum AITraceEntry: Identifiable {
     }
 }
 
+enum AITraceTimelineSection: Identifiable {
+    case activities(firstSeq: Int, entries: [AITraceEntry])
+    case message(firstSeq: Int, text: String)
+
+    var id: String {
+        switch self {
+        case .activities(let seq, _): return "activities.\(seq)"
+        case .message(let seq, _): return "message.\(seq)"
+        }
+    }
+}
+
 struct AITrace {
     let events: [AIEvent]
     var reasoning: String { events.filter { $0.type == "reasoning.delta" }.map { $0.text("text") }.joined() }
@@ -425,5 +437,23 @@ struct AITrace {
             visible.append(.message(firstSeq: 0, text: String(remaining)))
         }
         return visible
+    }
+
+    func groupedTimeline(displayedOutput: String) -> [AITraceTimelineSection] {
+        var sections: [AITraceTimelineSection] = []
+        for entry in timeline(displayedOutput: displayedOutput) {
+            switch entry {
+            case .message(let firstSeq, let text):
+                sections.append(.message(firstSeq: firstSeq, text: text))
+            case .reasoning(let firstSeq, _), .tool(let firstSeq, _):
+                if case .activities(let groupSeq, var entries) = sections.last {
+                    entries.append(entry)
+                    sections[sections.count - 1] = .activities(firstSeq: groupSeq, entries: entries)
+                } else {
+                    sections.append(.activities(firstSeq: firstSeq, entries: [entry]))
+                }
+            }
+        }
+        return sections
     }
 }
