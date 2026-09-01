@@ -224,7 +224,11 @@ private struct AIChatMessageText: View {
                 switch part.kind {
                 case .text(let prose):
                     if !prose.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        AISelectableText(text: prose.trimmingCharacters(in: .newlines), kind: kind)
+                        if kind == .markdown {
+                            AIChatMarkdownText(markdown: prose)
+                        } else {
+                            AISelectableText(text: prose.trimmingCharacters(in: .newlines), kind: kind)
+                        }
                     }
                 case .code(let language, let code):
                     if AICodeSyntax.normalizedLanguage(language) == "mermaid" {
@@ -235,6 +239,92 @@ private struct AIChatMessageText: View {
                 }
             }
         }
+    }
+}
+
+private struct AIChatMarkdownText: View {
+    let markdown: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ForEach(AIMarkdownContent.parse(markdown)) { part in
+                switch part.kind {
+                case .markdown(let text):
+                    AISelectableText(text: text, kind: .markdown)
+                case .table(let table):
+                    AIMarkdownTableView(table: table)
+                }
+            }
+        }
+    }
+}
+
+private struct AIMarkdownTableView: View {
+    let table: AIMarkdownContent.Table
+
+    var body: some View {
+        ScrollView(.horizontal) {
+            Grid(horizontalSpacing: 0, verticalSpacing: 0) {
+                GridRow {
+                    ForEach(table.headers.indices, id: \.self) { column in
+                        cell(table.headers[column], column: column, isHeader: true)
+                    }
+                }
+                ForEach(table.rows.indices, id: \.self) { row in
+                    GridRow {
+                        ForEach(table.headers.indices, id: \.self) { column in
+                            cell(table.rows[row][column], column: column, isHeader: false)
+                        }
+                    }
+                }
+            }
+        }
+        .scrollIndicators(.visible)
+        .background(AIChatStyle.bubble)
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(Color(uiColor: .separator), lineWidth: 0.5)
+        }
+        .textSelection(.enabled)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Markdown表、\(table.headers.count)列、\(table.rows.count)行")
+        .accessibilityIdentifier("AI.markdownTable")
+    }
+
+    private func cell(_ source: String, column: Int, isHeader: Bool) -> some View {
+        Text(inlineMarkdown(source))
+            .font(.system(size: 14, weight: isHeader ? .semibold : .regular))
+            .foregroundStyle(.primary)
+            .lineSpacing(2)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(minWidth: 96, maxWidth: 220, minHeight: 42, alignment: alignment(for: column))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(isHeader ? AIChatStyle.code : Color.clear)
+            .overlay(alignment: .trailing) {
+                Rectangle().fill(Color(uiColor: .separator)).frame(width: 0.5)
+            }
+            .overlay(alignment: .bottom) {
+                Rectangle().fill(Color(uiColor: .separator)).frame(height: 0.5)
+            }
+            .accessibilityAddTraits(isHeader ? .isHeader : [])
+    }
+
+    private func alignment(for column: Int) -> Alignment {
+        switch table.alignments[column] {
+        case .leading: .leading
+        case .center: .center
+        case .trailing: .trailing
+        }
+    }
+
+    private func inlineMarkdown(_ source: String) -> AttributedString {
+        let options = AttributedString.MarkdownParsingOptions(
+            interpretedSyntax: .inlineOnlyPreservingWhitespace,
+            failurePolicy: .returnPartiallyParsedIfPossible
+        )
+        return (try? AttributedString(markdown: source, options: options)) ?? AttributedString(source)
     }
 }
 
