@@ -6,7 +6,7 @@ private func event(_ seq: Int, _ type: String, _ data: [String: AIJSON]) -> AIEv
     AIEvent(seq: seq, type: type, data: data, createdAt: "2026-08-30T00:00:00Z")
 }
 private func run() -> AIRun {
-    AIRun(id: UUID().uuidString.lowercased(), conversationId: UUID().uuidString.lowercased(), hostId: UUID().uuidString.lowercased(), modelId: UUID().uuidString.lowercased(), model: "qwen", settings: AISettings(contextLength: 65536, maxOutputTokens: 4096, reasoningEffort: "medium"), delivery: .changes, inputText: "test", outputText: "", status: "queued", cancelRequested: false, lastSeq: 0, error: "", responseId: "", previousResponseId: "", createdAt: "", updatedAt: "")
+    AIRun(id: UUID().uuidString.lowercased(), conversationId: UUID().uuidString.lowercased(), hostId: UUID().uuidString.lowercased(), modelId: UUID().uuidString.lowercased(), model: "qwen", settings: AISettings(contextLength: 65536, maxOutputTokens: 4096, reasoningEffort: "medium"), delivery: .changes, inputText: "test", attachments: [], outputText: "", status: "queued", cancelRequested: false, lastSeq: 0, error: "", responseId: "", previousResponseId: "", createdAt: "", updatedAt: "")
 }
 @Test func replayDoesNotDuplicateOutput() throws {
     var value = run()
@@ -115,7 +115,7 @@ private func run() -> AIRun {
 }
 @Test func invalidSettingsAreNotSentToTheModel() {
     let settings = AISettings(contextLength: 65536, maxOutputTokens: 4096, reasoningEffort: "medium")
-    let model = AIModel(id: "id", hostId: "host", hostName: "PC", model: "qwen", name: "Qwen", online: true, contextLengths: [65536,262144], maxOutputTokens: 32768, reasoningEfforts: ["medium","max"], reasoningBudgets: ["medium":1024,"max":16384], initialSettings: settings)
+    let model = AIModel(id: "id", hostId: "host", hostName: "PC", model: "qwen", name: "Qwen", online: true, contextLengths: [65536,262144], maxOutputTokens: 32768, reasoningEfforts: ["medium","max"], reasoningBudgets: ["medium":1024,"max":16384], initialSettings: settings, inputModalities: [.text])
     #expect(model.accepts(settings))
     #expect(!model.accepts(AISettings(contextLength: 65536, maxOutputTokens: 4096, reasoningEffort: "max")))
 }

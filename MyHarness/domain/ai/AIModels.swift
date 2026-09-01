@@ -107,6 +107,9 @@ struct AISettings: Codable, Hashable {
     var maxOutputTokens: Int
     var reasoningEffort: String
 }
+enum AIInputModality: String, Codable, Hashable {
+    case text, image, video
+}
 
 struct AIModel: Codable, Identifiable, Hashable {
     let id: String
@@ -120,6 +123,9 @@ struct AIModel: Codable, Identifiable, Hashable {
     let reasoningEfforts: [String]
     let reasoningBudgets: [String: Int]
     let initialSettings: AISettings
+    let inputModalities: [AIInputModality]
+
+    func accepts(_ modality: AIInputModality) -> Bool { inputModalities.contains(modality) }
 
     func accepts(_ settings: AISettings) -> Bool {
         guard let budget = reasoningBudgets[settings.reasoningEffort] else { return false }
@@ -129,6 +135,37 @@ struct AIModel: Codable, Identifiable, Hashable {
             && settings.maxOutputTokens <= maxOutputTokens
             && settings.maxOutputTokens < settings.contextLength
     }
+}
+
+enum AIAttachmentKind: String, Codable, Hashable {
+    case image
+    case videoFrame = "video_frame"
+}
+
+struct AIAttachment: Codable, Identifiable, Hashable {
+    let id: String
+    let conversationId: String
+    let kind: AIAttachmentKind
+    let groupId: String
+    let fileName: String
+    let contentType: String
+    let byteSize: Int
+    let frameIndex: Int
+    let frameCount: Int
+    let createdAt: String
+}
+
+struct AIComposerAttachment: Identifiable, Hashable {
+    let id: String
+    let kind: AIAttachmentKind
+    let groupId: String
+    let fileName: String
+    let contentType: String
+    let frameIndex: Int
+    let frameCount: Int
+    let data: Data
+
+    var modality: AIInputModality { kind == .image ? .image : .video }
 }
 
 struct AIConversation: Codable, Identifiable, Hashable {
@@ -157,6 +194,7 @@ struct AIRun: Codable, Identifiable, Hashable {
     let settings: AISettings
     let delivery: AIDelivery
     let inputText: String
+    let attachments: [AIAttachment]
     var outputText: String
     var status: String
     var cancelRequested: Bool
