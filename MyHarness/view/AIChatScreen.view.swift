@@ -36,6 +36,7 @@ struct AIChatScreen: View {
     @State private var showSettings = false
     @State private var showSharing = false
     @State private var showCron = false
+    @State private var showInference = false
     @State private var deleteTarget: String?
     @State private var showRename = false
     @State private var title = ""
@@ -129,6 +130,7 @@ struct AIChatScreen: View {
                 AISettingsView(model: model, draft: settings, sharedMode: state.sharedMode) { state.saveSettings($0) }
             }
         }
+        .sheet(isPresented: $showInference) { AIInferenceView(state: state) }
         .sheet(isPresented: $showSharing) {
             if let sharing = state.sharing { AISharingView(state: state, draft: sharing) }
         }
@@ -170,10 +172,13 @@ struct AIChatScreen: View {
             Button { showCron = true } label: {
                 Image(systemName: "calendar.badge.clock").font(.system(size: 18)).frame(width: 40, height: 44)
             }.accessibilityLabel("定期タスク").accessibilityIdentifier("AI.cron")
-            Button { showSettings = true } label: {
+            Menu {
+                Button("モデル設定", systemImage: "slider.horizontal.3") { showSettings = true }
+                    .disabled(state.selectedModel == nil || state.activeRun != nil || state.hasPendingSubmission)
+                Button("GPUの実行枠", systemImage: "cpu") { showInference = true }
+            } label: {
                 Image(systemName: "slider.horizontal.3").font(.system(size: 18)).frame(width: 44, height: 44)
-            }.accessibilityLabel("モデル設定").accessibilityIdentifier("AI.settings")
-                .disabled(state.selectedModel == nil || state.activeRun != nil || state.hasPendingSubmission)
+            }.accessibilityLabel("チャットとGPUの設定").accessibilityIdentifier("AI.settings")
         }
         .buttonStyle(.plain).foregroundStyle(AIChatStyle.controls).padding(.horizontal, 2)
         .background(AIChatStyle.canvas)
@@ -200,13 +205,15 @@ struct AIChatScreen: View {
                             Image(systemName: state.sharedMode ? "lock.fill" : "square.stack.3d.up")
                             Text("共有モード")
                             if let sharing = state.sharing, sharing.enabled {
-                                Text("ON · \(sharing.maxConcurrentRuns)件並列").foregroundStyle(AIChatStyle.muted)
+                                Text("ON").foregroundStyle(AIChatStyle.muted)
                             } else {
                                 Text("OFF").foregroundStyle(AIChatStyle.muted)
                             }
                             Image(systemName: "chevron.right").font(.caption2)
                         }.font(.system(size: 13)).padding(.vertical, 14).contentShape(Rectangle())
                     }.buttonStyle(.plain).disabled(state.sharing == nil).accessibilityIdentifier("AI.sharing")
+                    Button("GPUの実行枠", systemImage: "cpu") { showInference = true }
+                        .font(.system(size: 13)).padding(.vertical, 8).accessibilityIdentifier("AI.inference")
                     notices.padding(.top, 12)
                     Text("MyHarness · " + state.harness.name).font(.system(size: 12)).foregroundStyle(AIChatStyle.muted).padding(.top, 20)
                 }

@@ -30,6 +30,27 @@ final class AIChatState {
         let submission: AIAPIClient.Submission
         let uploads: [AIComposerAttachment]
     }
+    var inferenceHosts: [AIInferenceHost] = []
+    var inferenceError = ""
+    private var inferenceLoading = false
+    func refreshInference() async {
+        guard !inferenceLoading else { return }
+        guard let api, isSignedIn else { inferenceError = "推論管理にはログインとサーバー設定が必要です。"; return }
+        inferenceLoading = true
+        defer { inferenceLoading = false }
+        do { inferenceHosts = try await api.inferenceHosts(); inferenceError = "" }
+        catch { inferenceError = error.localizedDescription }
+    }
+    func saveInference(hostId: String, policy: AIInferencePolicy) async -> Bool {
+        guard let api else { inferenceError = "サーバーが設定されていません。"; return false }
+        do {
+            let saved = try await api.saveInferencePolicy(hostId: hostId, policy: policy)
+            if let index = inferenceHosts.firstIndex(where: { $0.hostId == hostId }) { inferenceHosts[index].desiredPolicy = saved }
+            inferenceError = ""
+            await loadList()
+            return true
+        } catch { inferenceError = error.localizedDescription; return false }
+    }
     var conversations: [AIConversation] = []
     var models: [AIModel] = []
     var repositories: [AIRepository] = []
