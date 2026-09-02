@@ -99,6 +99,12 @@ final class AIAPIClient {
     func events(_ id: String, after: Int) async throws -> AIEventPage {
         try await request("/runs/\(id)/events?afterSeq=\(after)", method: "GET", body: nil)
     }
+    func inferenceHosts() async throws -> [AIInferenceHost] {
+        try await request("/inference/hosts", method: "GET", body: nil)
+    }
+    func saveInferencePolicy(hostId: String, policy: AIInferencePolicy) async throws -> AIInferencePolicy {
+        try await request("/inference/hosts/\(hostId)/policy", method: "PUT", body: encoder.encode(policy))
+    }
     func cronSnapshots() async throws -> [AICronHostSnapshot] {
         try await request("/cron/snapshots", method: "GET", body: nil)
     }
