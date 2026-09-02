@@ -13,6 +13,8 @@ import Foundation
         contextLengths: [65536], maxOutputTokens: 32768, reasoningEfforts: ["low"], reasoningBudgets: ["low": 512],
         initialSettings: AISettings(contextLength: 65536, maxOutputTokens: 1024, reasoningEffort: "low"), inputModalities: [.text, .image, .video])
     var sharingValue = AISharing(enabled: false, modelId: "", contextLength: 65536, maxConcurrentRuns: 2, revision: 1)
+    func inferenceHosts() async throws -> [AIInferenceHost] { [] }
+    func saveInferencePolicy(hostId: String, policy: AIInferencePolicy) async throws -> AIInferencePolicy { policy }
     func sharing() async throws -> AISharing { sharingValue }
     func saveSharing(_ value: AISharing) async throws -> AISharing { sharingValue = value; sharingValue.revision += 1; return sharingValue }
     var details: [String: AIConversationDetail] = [:]

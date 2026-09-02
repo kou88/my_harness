@@ -4,7 +4,7 @@ cd "$(dirname "$0")/.."
 test_dir=$(mktemp -d)
 trap 'rm -rf "$test_dir"' EXIT
 # A unique executable name isolates UserDefaults from the real app and tests.
-xcrun swiftc -parse-as-library MyHarness/domain/ai/AIModels.swift \
+xcrun swiftc -parse-as-library MyHarness/domain/ai/AIModels.swift MyHarness/domain/ai/AIInferenceModels.swift \
   MyHarness/state/AIChatState.state.swift Tests/AIChatStateRegression/ControlledTransport.swift \
   Tests/AIChatStateRegression/SessionRegression.swift \
   -o "$test_dir/ai-chat-regression-$(uuidgen)"
