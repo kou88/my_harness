@@ -57,6 +57,44 @@ import Testing
     #expect(url.absoluteString == "myharness://ai/conversations/\(conversationId)")
 }
 
+@Test func suppressesTerminalAiPushOnlyWhileItsConversationIsVisible() {
+    let visibleConversationId = "4037e551-2d12-4f17-86f0-8f7e8f20545c"
+    let completion: [AnyHashable: Any] = [
+        "eventType": "ai_run_completed",
+        "entityType": "ai_run",
+        "entityId": "28747265-1250-42ad-80d9-0d20c4d53b80",
+        "route": "myharness://ai/conversations/\(visibleConversationId)"
+    ]
+
+    #expect(!PushNotificationRouting.shouldPresentInForeground(
+        userInfo: completion,
+        visibleAIConversationId: visibleConversationId
+    ))
+    #expect(PushNotificationRouting.shouldPresentInForeground(
+        userInfo: completion,
+        visibleAIConversationId: "1ef02b60-0e17-4d43-9393-1f6b26598eb1"
+    ))
+    #expect(PushNotificationRouting.shouldPresentInForeground(
+        userInfo: completion,
+        visibleAIConversationId: nil
+    ))
+}
+
+@Test func keepsApprovalPushVisibleInsideTheConversation() {
+    let conversationId = "4037e551-2d12-4f17-86f0-8f7e8f20545c"
+    let approval: [AnyHashable: Any] = [
+        "eventType": "ai_approval_required",
+        "entityType": "ai_approval",
+        "entityId": "28747265-1250-42ad-80d9-0d20c4d53b80",
+        "route": "myharness://ai/conversations/\(conversationId)"
+    ]
+
+    #expect(PushNotificationRouting.shouldPresentInForeground(
+        userInfo: approval,
+        visibleAIConversationId: conversationId
+    ))
+}
+
 @Test func routesImportedBlogPostToArticleDetail() {
     let byEntity = PushNotificationRouting.deepLinkURL(from: [
         "entityType": "blog_post",

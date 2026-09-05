@@ -57,6 +57,11 @@ enum PushNotificationTopic: Hashable {
 }
 
 enum PushNotificationRouting {
+    private static let aiTerminalEventTypes: Set<String> = [
+        "ai_run_completed",
+        "ai_run_failed"
+    ]
+
     private static let allowedRouteHosts: Set<String> = [
         "next-actions",
         "suggestions",
@@ -172,6 +177,21 @@ enum PushNotificationRouting {
         return URL(string: "myharness://\(route)/\(entityId)") ?? nextActionsURL
     }
 
+    static func shouldPresentInForeground(
+        userInfo: [AnyHashable: Any],
+        visibleAIConversationId: String?
+    ) -> Bool {
+        guard
+            let visibleAIConversationId = nonEmptyString(visibleAIConversationId),
+            let eventType = stringValue(userInfo["eventType"] ?? userInfo["event_type"])?.lowercased(),
+            aiTerminalEventTypes.contains(eventType),
+            aiConversationId(from: userInfo) == visibleAIConversationId
+        else {
+            return true
+        }
+        return false
+    }
+
     static let nextActionsURL = URL(string: "myharness://next-actions")!
 
     private static func entityType(from userInfo: [AnyHashable: Any]) -> String? {
@@ -180,6 +200,27 @@ enum PushNotificationRouting {
 
     private static func entityId(from userInfo: [AnyHashable: Any]) -> String? {
         stringValue(userInfo["entityId"] ?? userInfo["entity_id"] ?? userInfo["id"])
+    }
+
+    private static func aiConversationId(from userInfo: [AnyHashable: Any]) -> String? {
+        guard
+            let route = stringValue(userInfo["route"]),
+            let url = URL(string: route),
+            url.scheme?.lowercased() == "myharness",
+            url.host?.lowercased() == "ai"
+        else {
+            return nil
+        }
+        let components = url.pathComponents.filter { $0 != "/" }
+        guard components.first?.lowercased() == "conversations" else { return nil }
+        return nonEmptyString(components.dropFirst().first)
+    }
+
+    private static func nonEmptyString(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
     }
 
     private static func stringValue(_ value: Any?) -> String? {
