@@ -121,7 +121,7 @@ WebSocketが切断を検知できず待機する場合にも依存しないよ�
 
 ## 回答完了のPush通知
 
-APIは`run.completed`を保存して会話とrunを完了状態へ更新した後、`ai_run_completed:<run id>`を重複防止キーにして即時Push通知を送る。通知をタップすると`myharness://ai/conversations/<conversation id>`で対象会話を開く。アプリがバックグラウンド、終了中、または別の画面を表示中ならバナーと音で知らせる。同じ会話を前面で読んでいる場合は内容を再取得するだけにして、重複するバナーと通知音を出さない。承認要求は操作が必要なため、会話を表示中でも従来どおり通知する。
+APIは`run.completed`を保存して会話とrunを完了状態へ更新した後、`ai_run_completed:<run id>`を重複防止キーにして即時Push通知を送る。通知をタップすると`myharness://ai/conversations/<conversation id>`で対象会話を開く。アプリがバックグラウンド、終了中、または別の画面を表示中ならバナーと音で知らせる。通常のAIタブと通知から開いた会話のどちらでも、同じ会話を前面で読んでいる場合は内容を再取得するだけにして、重複するバナーと通知音を出さない。承認要求は操作が必要なため、会話を表示中でも従来どおり通知する。
 
 TestFlightはApp Store Connect APIでBundle IDのPush Notifications capabilityと`my-harness-app-store-push-v3`配布プロファイルを用意し、`aps-environment`を含むプロファイルだけを受け入れる。既存の`my-harness-app-store-push-v2`は署名証明書の参照元として残し、削除しない。Push Notificationsに対応しないプロファイルでentitlementを削って配布する経路は廃止し、署名検査で失敗させる。
 
