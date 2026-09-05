@@ -51,6 +51,7 @@ final class ActionPushNotificationCoordinator {
     private let center = UNUserNotificationCenter.current()
     private let defaults = UserDefaults.standard
     private var apiClient: ActionInboxAPIClient?
+    private var visibleAIConversationId: String?
 
     func configure(apiClient: ActionInboxAPIClient?, registerStoredToken: Bool = true) {
         self.apiClient = apiClient
@@ -260,6 +261,15 @@ final class ActionPushNotificationCoordinator {
 
     func openSuggestion(id: String) {
         openDeepLink(URL(string: "myharness://suggestions/\(id)"))
+    }
+
+    func setVisibleAIConversation(id: String) {
+        visibleAIConversationId = id
+    }
+
+    func clearVisibleAIConversation(id: String) {
+        guard visibleAIConversationId == id else { return }
+        visibleAIConversationId = nil
     }
 
     private func openDeepLink(_ url: URL?) {
@@ -478,6 +488,12 @@ final class ActionPushNotificationCoordinator {
         guard preferences.allows(topic) else { return [] }
         if topic == .article || topic == .ai {
             NotificationCenter.default.post(name: .actionInboxShouldReload, object: nil)
+        }
+        guard PushNotificationRouting.shouldPresentInForeground(
+            userInfo: userInfo,
+            visibleAIConversationId: visibleAIConversationId
+        ) else {
+            return []
         }
         return [.banner, .sound, .badge]
     }
