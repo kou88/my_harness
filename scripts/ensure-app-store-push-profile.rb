@@ -81,8 +81,7 @@ abort "Bundle ID not found: #{bundle_identifier}" unless bundle_id
 capabilities = request_json(
   :get,
   "/bundleIds/#{bundle_id.fetch('id')}/bundleIdCapabilities",
-  token,
-  query: { 'limit' => '200' }
+  token
 )
 push_enabled = capabilities.fetch('data').any? do |capability|
   capability.dig('attributes', 'capabilityType') == 'PUSH_NOTIFICATIONS'
