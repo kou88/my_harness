@@ -72,6 +72,10 @@ struct SettingsView: View {
                 .disabled(state.isSaving)
             }
 
+            Section("家電") {
+                NavigationLink("家電リモコン", destination: HomeControlView())
+            }
+
             Section("ウィジェット") {
                 Picker("表示", selection: $state.widgetTextDirection) {
                     ForEach(WidgetTextDirection.allCases) { direction in

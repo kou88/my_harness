@@ -1083,6 +1083,9 @@ struct MyHarnessWidgetBundle: WidgetBundle {
         MyHarnessButtonWidget()
         MyHarnessOpenWidget()
         ActionSuggestionsWidget()
+        HomeControlWidget()
+        LightControlWidget()
+        AirConditionerControlWidget()
     }
 }
 
