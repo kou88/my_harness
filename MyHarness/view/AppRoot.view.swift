@@ -8,6 +8,7 @@ struct AppRootView: View {
     @StateObject private var televisionPlayerController: TelevisionPlayerController
 
     @State private var router = AppRouter()
+    @State private var showsHomeControl = false
     @State private var todayState: TodayState
     @State private var settingsState: SettingsState
     @State private var actionInboxState: ActionInboxState
@@ -142,6 +143,15 @@ struct AppRootView: View {
             }
             .tag(AppTab.television)
         }
+        .sheet(isPresented: $showsHomeControl) {
+            NavigationStack {
+                HomeControlView().toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("閉じる") { showsHomeControl = false }
+                    }
+                }
+            }
+        }
         .environment(router)
         .onOpenURL { url in
             handleDeepLink(url)
@@ -239,6 +249,10 @@ struct AppRootView: View {
     }
 
     private func handleDeepLink(_ url: URL) {
+        if url.scheme == "myharness", url.host == "home-control" {
+            showsHomeControl = true
+            return
+        }
         router.handleDeepLink(url)
         if actionInboxState.isSignedIn {
             ActionPushNotificationCoordinator.shared.clearPendingDeepLink()
