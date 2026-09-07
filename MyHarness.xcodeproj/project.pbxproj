@@ -14,6 +14,10 @@
 		72F811381A1386A901735843 /* libPods-MyHarness.a in Frameworks */ = {isa = PBXBuildFile; fileRef = CC833407C6326AFB4D55081B /* libPods-MyHarness.a */; };
 		A1B2C3D4E5F6071829345678 /* MyHarnessWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = B2C3D4E5F607182934567890 /* MyHarnessWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		AABBCCDDEEFF001122334455 /* MyHarnessWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBCCDDEEFF00112233445566 /* MyHarnessWidget.swift */; };
+		EE2200000000000000000000 /* HomeControlWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE1100000000000000000000 /* HomeControlWidget.swift */; };
+		EE2200000000000000000001 /* HomeControlClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE1100000000000000000001 /* HomeControlClient.swift */; };
+		EE2200000000000000000002 /* HomeControlSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE1100000000000000000002 /* HomeControlSession.swift */; };
+		EE2200000000000000000003 /* ActionInboxConfig.auth.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE1100000000000000000003 /* ActionInboxConfig.auth.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -63,6 +67,10 @@
 		CC833407C6326AFB4D55081B /* libPods-MyHarness.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-MyHarness.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 		CCDDEEFF0011223344556677 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		DDEEFF001122334455667788 /* MyHarnessWidget.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MyHarnessWidget.entitlements; sourceTree = "<group>"; };
+		EE1100000000000000000000 /* HomeControlWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = HomeControlWidget.swift; path = MyHarnessWidget/HomeControlWidget.swift; sourceTree = SOURCE_ROOT; };
+		EE1100000000000000000001 /* HomeControlClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = HomeControlClient.swift; path = MyHarness/infra/home_control/HomeControlClient.swift; sourceTree = SOURCE_ROOT; };
+		EE1100000000000000000002 /* HomeControlSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = HomeControlSession.swift; path = MyHarness/infra/home_control/HomeControlSession.swift; sourceTree = SOURCE_ROOT; };
+		EE1100000000000000000003 /* ActionInboxConfig.auth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ActionInboxConfig.auth.swift; path = MyHarness/infra/auth/ActionInboxConfig.auth.swift; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -157,6 +165,10 @@
 			isa = PBXGroup;
 			children = (
 				BBCCDDEEFF00112233445566 /* MyHarnessWidget.swift */,
+				EE1100000000000000000003 /* ActionInboxConfig.auth.swift */,
+				EE1100000000000000000002 /* HomeControlSession.swift */,
+				EE1100000000000000000001 /* HomeControlClient.swift */,
+				EE1100000000000000000000 /* HomeControlWidget.swift */,
 				CCDDEEFF0011223344556677 /* Info.plist */,
 				DDEEFF001122334455667788 /* MyHarnessWidget.entitlements */,
 			);
@@ -343,6 +355,10 @@
 			buildActionMask = 2147483647;
 			files = (
 				AABBCCDDEEFF001122334455 /* MyHarnessWidget.swift in Sources */,
+				EE2200000000000000000003 /* ActionInboxConfig.auth.swift in Sources */,
+				EE2200000000000000000002 /* HomeControlSession.swift in Sources */,
+				EE2200000000000000000001 /* HomeControlClient.swift in Sources */,
+				EE2200000000000000000000 /* HomeControlWidget.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -613,6 +629,11 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
+                ACTION_API_BASE_URL = "https://api.kou88.dev";
+                COGNITO_CLIENT_ID = 3r8q22c8t8li22bpa3524ngj2;
+                COGNITO_HOSTED_UI_BASE_URL = "https://auth.kou88.dev";
+                COGNITO_REDIRECT_URI = "myharness://auth";
+                COGNITO_SCOPES = "openid email profile";
 				CODE_SIGN_ENTITLEMENTS = MyHarnessWidget/MyHarnessWidget.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -643,6 +664,11 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
+                ACTION_API_BASE_URL = "https://api.kou88.dev";
+                COGNITO_CLIENT_ID = 3r8q22c8t8li22bpa3524ngj2;
+                COGNITO_HOSTED_UI_BASE_URL = "https://auth.kou88.dev";
+                COGNITO_REDIRECT_URI = "myharness://auth";
+                COGNITO_SCOPES = "openid email profile";
 				CODE_SIGN_ENTITLEMENTS = MyHarnessWidget/MyHarnessWidget.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
