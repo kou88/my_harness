@@ -64,7 +64,7 @@ struct HomeControlIntent: AppIntent {
         case .lightOff: command = .power(.light, false)
         case .acOff: command = .power(.airConditioner, false)
         case .acOn:
-            guard let mode else { throw HomeControlError.message("ウィジェットを長押しして運転設定を選んでください。") }
+            guard let mode else { throw HomeControlError.message("ウィジェットの編集画面で運転設定を選んでください。") }
             if mode == .resume { command = .power(.airConditioner, true) }
             else {
                 guard let temperature, (16...30).contains(temperature), let fan else {
@@ -144,6 +144,7 @@ private struct HomeProvider: AppIntentTimelineProvider {
     }
 }
 private struct ApplianceControls: View {
+    @Environment(\.widgetFamily) private var family
     let device: HomeAppliance
     let configuration: HomeControlConfiguration
     let feedback: HomeFeedback?
@@ -152,6 +153,53 @@ private struct ApplianceControls: View {
         return feedback.phase == .sending && Date().timeIntervalSince(feedback.date) < 20
     }
     var body: some View {
+        if family == .accessoryRectangular {
+            lockScreenControls
+        } else {
+            homeScreenControls
+        }
+    }
+    private var lockScreenControls: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 4) {
+                Label(device == .light ? "ライト" : "エアコン", systemImage: device == .light ? "lightbulb.fill" : "air.conditioner.horizontal.fill")
+                    .font(.caption.weight(.semibold)).fixedSize()
+                if device == .airConditioner {
+                    Text(configuration.startLabel)
+                        .font(.system(size: 10)).lineLimit(1).minimumScaleFactor(0.8)
+                }
+            }
+            HStack(spacing: 6) {
+                lockScreenButton(device == .light ? .lightOn : .acOn, title: device == .light ? "つける" : "運転")
+                    .disabled(device == .airConditioner && !configuration.isConfigured)
+                    .opacity(device == .airConditioner && !configuration.isConfigured ? 0.4 : 1)
+                lockScreenButton(device == .light ? .lightOff : .acOff, title: device == .light ? "消す" : "停止")
+            }
+            .disabled(isSending)
+            .opacity(isSending ? 0.4 : 1)
+            if let feedback {
+                HStack(spacing: 3) {
+                    if feedback.phase == .failed { Image(systemName: "exclamationmark.triangle") }
+                    Text(feedback.label).lineLimit(1)
+                    if feedback.phase == .sent { Text(feedback.date, style: .time).fixedSize() }
+                }
+                .font(.system(size: 9))
+                .accessibilityElement(children: .combine)
+            }
+        }
+    }
+    private func lockScreenButton(_ action: HomeWidgetAction, title: String) -> some View {
+        Button(intent: HomeControlIntent(action, configuration: configuration)) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .frame(maxWidth: .infinity, minHeight: 30)
+                .background(.primary.opacity(0.15), in: Capsule())
+                .overlay(Capsule().strokeBorder(.primary.opacity(0.5), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(device == .light ? "ライト" : "エアコン")を\(title)")
+    }
+    private var homeScreenControls: some View {
         VStack(alignment: .leading, spacing: 10) {
             Label(device == .light ? "ライト" : "エアコン", systemImage: device == .light ? "lightbulb.fill" : "air.conditioner.horizontal.fill")
                 .font(.headline)
@@ -218,8 +266,8 @@ struct LightControlWidget: Widget {
                 .containerBackground(.background, for: .widget).widgetURL(URL(string: "myharness://home-control"))
         }
         .configurationDisplayName("ライト")
-        .description("ワンタップでライトをつける・消す。")
-        .supportedFamilies([.systemSmall])
+        .description("ホーム画面・ロック画面からライトをつける・消す。")
+        .supportedFamilies([.systemSmall, .accessoryRectangular])
     }
 }
 struct AirConditionerControlWidget: Widget {
@@ -229,10 +277,16 @@ struct AirConditionerControlWidget: Widget {
                 .containerBackground(.background, for: .widget).widgetURL(URL(string: "myharness://home-control"))
         }
         .configurationDisplayName("エアコン")
-        .description("運転・停止。長押しして運転モード・温度・風量を選べます。")
-        .supportedFamilies([.systemSmall])
+        .description("ホーム画面・ロック画面から運転・停止。編集で運転モード・温度・風量を選べます。")
+        .supportedFamilies([.systemSmall, .accessoryRectangular])
     }
 }
 #Preview(as: .systemMedium) { HomeControlWidget() } timeline: {
+    HomeEntry(date: Date(), configuration: HomeControlConfiguration(), light: nil, airConditioner: nil)
+}
+#Preview("ライト・ロック画面", as: .accessoryRectangular) { LightControlWidget() } timeline: {
+    HomeEntry(date: Date(), configuration: HomeControlConfiguration(), light: nil, airConditioner: nil)
+}
+#Preview("エアコン・ロック画面", as: .accessoryRectangular) { AirConditionerControlWidget() } timeline: {
     HomeEntry(date: Date(), configuration: HomeControlConfiguration(), light: nil, airConditioner: nil)
 }
