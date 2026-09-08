@@ -36,4 +36,4 @@ https://developer.apple.com/documentation/security/sharing-access-to-keychain-it
 
 MyHarness schemeのSimulator build、既存のSwift tests、チャット回帰テストを実行する。`swift test --filter HomeControlSessionTests`でログイン更新・失効・更新中のログアウト・更新不要時の通信なしを検証する。Simulatorの実ウィジェットでレイアウト、未設定運転の無効化、設定画面、認証、背景タップのdeep linkを確認する。APIは別repoの`docs/home-control.md`を正本とする。実機の点灯/運転状態の確認は赤外線受信側で行う。
 
-ロック画面追加時のローカル確認（2026-09-08）: iPhone 17 Pro Simulator（`AD933F96-24D3-4D6C-A728-8FA3E1DEBD2C`）向けbuild成功、共有セッションの5テスト成功。App Groupを使うため、起動確認用buildには`CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=-`を指定し、更新版アプリの起動を確認した。Simulatorの設定に壁紙編集項目がなく、Widget scheme実行でもホーム画面が表示されたため、ロック画面用`#Preview`を用意した。Canvasの確認中にMacがロックされ、横長表示・ロック画面での設定操作・認証後の実機操作は未確認。
+ロック画面追加時のローカル確認（2026-09-08）: iPhone 17 Pro Simulator（`AD933F96-24D3-4D6C-A728-8FA3E1DEBD2C`）向けbuild成功、共有セッションの5テスト成功。App Groupを使うため、起動確認用buildには`CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=-`を指定し、更新版アプリの起動を確認した。Simulatorの設定に壁紙編集項目がなく、Widget scheme実行でもホーム画面が表示されたため、ロック画面用`#Preview`を用意した。Macのロック解除後、Xcode Canvasでライト・エアコンの`accessoryRectangular`を実寸表示し、時計下のラベル・オンオフの収まり、エアコン未設定時の運転ボタンの減光を確認した。ロック画面での設定操作・Face IDなどの認証後の実機操作は未確認。
