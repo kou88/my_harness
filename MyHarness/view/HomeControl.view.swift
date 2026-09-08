@@ -20,8 +20,14 @@ struct HomeControlView: View {
                 Text("ボタンはMyHarnessを開かず操作できます。背景をタップするとこの画面が開きます。")
                     .font(.footnote).foregroundStyle(.secondary)
             }
+            Section("ロック画面に追加") {
+                Text("ロック画面を長押しして「カスタマイズ」→「ロック画面」→時計の下のウィジェット枠をタップし、「my harness」を選びます。")
+                Label("ライト／エアコン：それぞれ横長サイズ", systemImage: "rectangle")
+                Text("2つを並べて配置できます。操作にはFace IDなどでの認証が必要ですが、MyHarnessを開く必要はありません。")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
             Section("エアコンの運転設定") {
-                Text("追加したウィジェットを長押しして「ウィジェットを編集」を選びます。")
+                Text("ホーム画面では長押しして「ウィジェットを編集」、ロック画面ではカスタマイズ中に配置したエアコンをタップします。設定はウィジェットごとに選びます。")
                 Text("前回の設定で運転する場合は「前回設定」を選択。指定して運転する場合はモード・温度・風量をすべて選択してください。")
                 Text("設定を変更しただけでは送信しません。「運転」を押すと送信します。「停止」は運転設定なしでも使えます。")
                     .font(.footnote).foregroundStyle(.secondary)
