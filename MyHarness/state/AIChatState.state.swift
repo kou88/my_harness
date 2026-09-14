@@ -10,22 +10,52 @@ final class AIChatState {
         var model: AIModel?
         var settings: AISettings?
         var draft = ""
+        var attachments: [AIComposerAttachment] = []
         var error = ""
         var connection = ""
         var sending = false
         var loading = false
         var loadGeneration = 0
         var pending: Pending?
+        var harness: AIHarness = .hermes
+        var repository: AIRepositorySelection = .unselected
+        var delivery: AIDelivery = .changes
         var activeRun: AIRun? { detail?.runs.last(where: { $0.isActive }) }
     }
     fileprivate struct Pending {
         let conversationId: String
         let title: String
         let isNew: Bool
+        let context: AIContextInput
         let submission: AIAPIClient.Submission
+        let uploads: [AIComposerAttachment]
+    }
+    var inferenceHosts: [AIInferenceHost] = []
+    var inferenceError = ""
+    private var inferenceLoading = false
+    func refreshInference() async {
+        guard !inferenceLoading else { return }
+        guard let api, isSignedIn else { inferenceError = "推論管理にはログインとサーバー設定が必要です。"; return }
+        inferenceLoading = true
+        defer { inferenceLoading = false }
+        do { inferenceHosts = try await api.inferenceHosts(); inferenceError = "" }
+        catch { inferenceError = error.localizedDescription }
+    }
+    func saveInference(hostId: String, policy: AIInferencePolicy) async -> Bool {
+        guard let api else { inferenceError = "サーバーが設定されていません。"; return false }
+        do {
+            let saved = try await api.saveInferencePolicy(hostId: hostId, policy: policy)
+            if let index = inferenceHosts.firstIndex(where: { $0.hostId == hostId }) { inferenceHosts[index].desiredPolicy = saved }
+            inferenceError = ""
+            await loadList()
+            return true
+        } catch { inferenceError = error.localizedDescription; return false }
     }
     var conversations: [AIConversation] = []
     var models: [AIModel] = []
+    var repositories: [AIRepository] = []
+    var requestsByRun: [String: [AIRequest]] = [:]
+    var replying: Set<String> = []
     private(set) var sharing: AISharing?
     private(set) var savingSharing = false
     var sharedMode: Bool { sharing?.enabled == true }
@@ -37,15 +67,27 @@ final class AIChatState {
     private var listLoading = false
     private var listGeneration = 0
     private var streams: [String: Task<Void, Never>] = [:]
+    private var reconciliations: [String: Task<Void, Never>] = [:]
+    private var presentations: [String: AIStreamingPresentation] = [:]
+    private var presentationTasks: [String: Task<Void, Never>] = [:]
+    private var attachmentDataById: [String: Data] = [:]
     private let api: AIAPIClient?
     private let authSession: CognitoAuthSession?
     private let configurationErrorMessage: String?
+    private let reconciliationInterval: Duration
     private(set) var isSignedIn: Bool
 
     var detail: AIConversationDetail? { visible.detail }
+    var harness: AIHarness { visible.detail?.context.harness ?? visible.harness }
+    var repositorySelection: AIRepositorySelection { visible.repository }
+    var delivery: AIDelivery {
+        get { visible.delivery }
+        set { if activeRun == nil && !isSending && !hasPendingSubmission { visible.delivery = newValue } }
+    }
     var selectedModel: AIModel? { visible.model }
     var settings: AISettings? { visible.settings }
     var composerText: String { get { visible.draft } set { visible.draft = newValue } }
+    var composerAttachments: [AIComposerAttachment] { visible.attachments }
     var errorMessage: String { get { visible.error } set { visible.error = newValue } }
     var connectionMessage: String { visible.connection }
     var isSending: Bool { visible.sending }
@@ -58,11 +100,23 @@ final class AIChatState {
     var canSend: Bool {
         if visible.pending != nil { return !isSending }
         guard sharing != nil, !savingSharing, let model = selectedModel, let settings else { return false }
-        return model.online && model.accepts(settings) && !composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isSending && !visible.loading && activeRun == nil
+        if harness == .opencode {
+            if case .opencode(let context) = visible.detail?.context {
+                guard context.hostId == model.hostId else { return false }
+            } else {
+                guard case .selected(let repo, let branch) = visible.repository,
+                      repo.online, repo.hostId == model.hostId, repo.branches.contains(branch) else { return false }
+            }
+        }
+        let modalitiesAccepted = visible.attachments.allSatisfy { model.accepts($0.modality) }
+        let hasInput = !composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !visible.attachments.isEmpty
+        return model.online && model.accepts(settings) && modalitiesAccepted && (visible.attachments.isEmpty || harness == .hermes)
+            && hasInput && !isSending && !visible.loading && activeRun == nil
     }
 
-    init(apiClient: AIAPIClient?, authSession: CognitoAuthSession?, configurationErrorMessage: String?) {
+    init(apiClient: AIAPIClient?, authSession: CognitoAuthSession?, configurationErrorMessage: String?, reconciliationInterval: Duration) {
         api = apiClient; self.authSession = authSession; self.configurationErrorMessage = configurationErrorMessage
+        self.reconciliationInterval = reconciliationInterval
         isSignedIn = authSession?.isSignedIn == true
         let initial = Session(); newSession = initial; visible = initial
     }
@@ -72,8 +126,49 @@ final class AIChatState {
     }
     func choose(_ model: AIModel) {
         guard !sharedMode, !visible.sending, visible.activeRun == nil, visible.pending == nil else { return }
+        guard visible.attachments.allSatisfy({ model.accepts($0.modality) }) else {
+            errorMessage = "添付中の画像・動画に対応するモデルを選んでください。"
+            return
+        }
         configure(visible, model: model)
         UserDefaults.standard.set(model.id, forKey: "agent-chat-selected-model")
+    }
+    func addComposerAttachments(_ attachments: [AIComposerAttachment]) {
+        guard visible.pending == nil, visible.activeRun == nil, !visible.sending, harness == .hermes, let model = selectedModel else { return }
+        guard attachments.allSatisfy({ model.accepts($0.modality) }) else {
+            errorMessage = "選択中のモデルはこの画像・動画入力に対応していません。"; return
+        }
+        let combined = visible.attachments + attachments
+        let images = combined.filter { $0.kind == .image }
+        let videoGroups = Set(combined.filter { $0.kind == .videoFrame }.map(\.groupId))
+        guard images.count <= 4, videoGroups.count <= 1, combined.count <= 12 else {
+            errorMessage = "画像は4枚、動画は1本（最大8フレーム）まで追加できます。"; return
+        }
+        visible.attachments = combined
+        errorMessage = ""
+    }
+    func removeComposerAttachment(groupId: String) {
+        guard visible.pending == nil, !visible.sending else { return }
+        visible.attachments.removeAll { $0.groupId == groupId }
+    }
+    func cachedAttachmentData(_ id: String) -> Data? { attachmentDataById[id] }
+    func loadAttachmentData(_ id: String) async {
+        guard attachmentDataById[id] == nil, let api else { return }
+        do { attachmentDataById[id] = try await api.attachment(id) }
+        catch { if !Task.isCancelled { errorMessage = error.localizedDescription } }
+    }
+    func chooseHarness(_ value: AIHarness) {
+        guard visible.detail == nil, !isSending, !hasPendingSubmission else { return }
+        guard visible.attachments.isEmpty || value == .hermes else {
+            errorMessage = "画像・動画を削除してからOpenCodeへ切り替えてください。"
+            return
+        }
+        visible.harness = value
+        if value == .hermes { visible.delivery = .changes }
+    }
+    func chooseRepository(_ repository: AIRepository, branch: String) {
+        guard visible.detail == nil, !isSending, !hasPendingSubmission, repository.branches.contains(branch) else { return }
+        visible.repository = .selected(repository, branch: branch)
     }
     private func configure(_ session: Session, model: AIModel) {
         session.model = model
@@ -136,9 +231,11 @@ final class AIChatState {
             async let list = api.conversations()
             async let catalog = api.models()
             async let mode = api.sharing()
-            let loaded = try await (list, catalog, mode)
+            async let repos = api.repositories()
+            let loaded = try await (list, catalog, mode, repos)
             guard token == listGeneration else { return }
             conversations = loaded.0; models = loaded.1; sharing = loaded.2
+            repositories = loaded.3
             for session in Array(sessions.values) + [newSession] {
                 if let model = session.model {
                     session.model = models.first(where: { $0.id == model.id })
@@ -150,13 +247,17 @@ final class AIChatState {
         } catch { if token == listGeneration && !Task.isCancelled { errorMessage = error.localizedDescription } }
     }
     func newChat() {
-        if visible !== newSession { visible = newSession }
+        if visible !== newSession {
+            flushPresentations(in: visible)
+            visible = newSession
+        }
         if visible.model == nil && visible.settings == nil { configureNew(visible) }
     }
     func openConversation(id: String) async {
         let session: Session
         if let existing = sessions[id] { session = existing }
         else { session = Session(); sessions[id] = session }
+        if visible !== session { flushPresentations(in: visible) }
         visible = session
         await refresh(id: id, session: session)
     }
@@ -177,6 +278,8 @@ final class AIChatState {
                 loaded.runs.append(run)
             }
             session.detail = loaded; session.error = ""
+            for run in loaded.runs { synchronizePresentation(run, session: session) }
+            if let last = loaded.runs.last { session.delivery = last.delivery }
             if session.model == nil && session.settings == nil {
                 if let last = loaded.runs.last {
                     session.model = models.first(where: { $0.id == last.modelId }); session.settings = last.settings
@@ -214,8 +317,19 @@ final class AIChatState {
             guard let selectedModel = session.model, let settings = session.settings else { return nil }
             let text = session.draft.trimmingCharacters(in: .whitespacesAndNewlines)
             let id = conversationId ?? UUID().uuidString.lowercased()
-            session.pending = Pending(conversationId: id, title: String(text.prefix(80)), isNew: conversationId == nil,
-                submission: AIAPIClient.Submission(id: UUID().uuidString.lowercased(), modelId: selectedModel.id, inputText: text, settings: settings))
+            let context: AIContextInput
+            if let detail = session.detail, case .opencode(let value) = detail.context {
+                context = .opencode(repositoryId: value.repositoryId, baseBranch: value.baseBranch)
+            } else if session.harness == .opencode {
+                guard case .selected(let repo, let branch) = session.repository else {
+                    session.error = "作業repoとブランチを選んでください。"; return nil
+                }
+                context = .opencode(repositoryId: repo.id, baseBranch: branch)
+            } else { context = .hermes }
+            let title = text.isEmpty ? (session.attachments.contains(where: { $0.kind == .videoFrame }) ? "動画について" : "画像について") : String(text.prefix(80))
+            session.pending = Pending(conversationId: id, title: title, isNew: conversationId == nil,
+                context: context, submission: AIAPIClient.Submission(id: UUID().uuidString.lowercased(), modelId: selectedModel.id, inputText: text,
+                    settings: settings, delivery: session.delivery, attachmentIds: session.attachments.map(\.id)), uploads: session.attachments)
             sessions[id] = session
             if session === newSession { newSession = Session(); configureNew(newSession) }
         }
@@ -224,20 +338,31 @@ final class AIChatState {
         defer { session.sending = false }
         do {
             if pending.isNew {
-                let created = try await api.create(id: pending.conversationId, title: pending.title)
+                let created = try await api.create(id: pending.conversationId, title: pending.title, context: pending.context)
+                if session.detail == nil {
+                    session.detail = AIConversationDetail(id: created.id, title: created.title, context: created.context, createdAt: created.createdAt, updatedAt: created.updatedAt, runs: [])
+                }
                 listGeneration += 1; listLoading = false
                 if !conversations.contains(where: { $0.id == created.id }) { conversations.insert(created, at: 0) }
             }
+            for attachment in pending.uploads {
+                _ = try await api.upload(conversation: pending.conversationId, attachment: attachment)
+            }
             let run = try await api.send(conversation: pending.conversationId, submission: pending.submission)
-            session.pending = nil; session.draft = ""
-            if session.detail == nil {
-                session.detail = AIConversationDetail(id: pending.conversationId, title: pending.title,
-                    createdAt: run.createdAt, updatedAt: run.updatedAt, runs: [run])
-            } else if !session.detail!.runs.contains(where: { $0.id == run.id }) { session.detail!.runs.append(run) }
+            for attachment in pending.uploads { attachmentDataById[attachment.id] = attachment.data }
+            session.pending = nil; session.draft = ""; session.attachments = []
+            guard session.detail != nil else { throw AIContractError.malformedEvent }
+            if !session.detail!.runs.contains(where: { $0.id == run.id }) {
+                session.detail!.runs.append(run)
+                synchronizePresentation(run, session: session)
+            }
             observe(run.id, session: session)
             return visible === session ? pending.conversationId : nil
         } catch let error as AIAPIClient.APIError {
-            if case .response(let status, _) = error, (400..<500).contains(status) { session.pending = nil }
+            if case .response(let status, _) = error, (400..<500).contains(status) {
+                session.pending = nil
+                for attachment in pending.uploads { try? await api.deleteAttachment(attachment.id) }
+            }
             session.error = error.localizedDescription
         } catch { session.error = "送信結果を確認できません。同じ実行IDで再送できます。\n" + error.localizedDescription }
         return nil
@@ -264,7 +389,13 @@ final class AIChatState {
         do {
             try await api.delete(id)
             if let session = sessions.removeValue(forKey: id) {
-                for run in session.detail?.runs ?? [] { streams.removeValue(forKey: run.id)?.cancel(); eventsByRun.removeValue(forKey: run.id) }
+                for run in session.detail?.runs ?? [] {
+                    streams.removeValue(forKey: run.id)?.cancel()
+                    reconciliations.removeValue(forKey: run.id)?.cancel()
+                    presentationTasks.removeValue(forKey: run.id)?.cancel()
+                    presentations.removeValue(forKey: run.id)
+                    eventsByRun.removeValue(forKey: run.id)
+                }
                 if visible === session { newChat() }
             }
             conversations.removeAll { $0.id == id }
@@ -282,6 +413,17 @@ final class AIChatState {
         } catch { session.error = error.localizedDescription }
     }
     func trace(_ runId: String) -> AITrace { AITrace(events: eventsByRun[runId] ?? []) }
+    func displayedOutput(for run: AIRun) -> String {
+        run.isActive ? presentations[run.id]?.displayed ?? run.outputText : run.outputText
+    }
+    func answer(_ request: AIRequest, reply: AIReply) async {
+        guard let api, !replying.contains(request.id) else { return }
+        let session = visible
+        replying.insert(request.id)
+        defer { replying.remove(request.id) }
+        do { try await api.reply(request.id, value: reply); requestsByRun[request.runId] = try await api.requests(request.runId) }
+        catch { session.error = error.localizedDescription }
+    }
     func loadTrace(_ runId: String) async { await loadTrace(runId, session: visible) }
     private func loadTrace(_ runId: String, session: Session) async {
         guard let api else { return }
@@ -295,19 +437,50 @@ final class AIChatState {
                 cursor = last.seq
                 if cursor >= page.run.lastSeq { break }
             }
+            requestsByRun[runId] = try await api.requests(runId)
         } catch { if !Task.isCancelled { session.error = error.localizedDescription } }
     }
     private func replaceRun(_ run: AIRun, session: Session) {
         guard let index = session.detail?.runs.firstIndex(where: { $0.id == run.id }) else { return }
         if let current = session.detail?.runs[index], current.lastSeq > run.lastSeq { return }
         session.detail?.runs[index] = run
+        synchronizePresentation(run, session: session)
     }
     private func appendTrace(_ runId: String, _ event: AIEvent) {
         if let last = eventsByRun[runId]?.last, last.seq >= event.seq { return }
         eventsByRun[runId, default: []].append(event)
     }
     private func observe(_ runId: String, session: Session) {
-        guard let api, streams[runId] == nil else { return }
+        guard let api else { return }
+        if reconciliations[runId] == nil {
+            reconciliations[runId] = Task { @MainActor [weak self] in
+                defer { self?.reconciliations.removeValue(forKey: runId) }
+                while !Task.isCancelled {
+                    guard let self else { return }
+                    do { try await Task.sleep(for: self.reconciliationInterval) }
+                    catch { return }
+                    guard session.detail?.runs.first(where: { $0.id == runId })?.isActive == true else {
+                        self.streams.removeValue(forKey: runId)?.cancel()
+                        return
+                    }
+                    do {
+                        let run = try await api.run(runId)
+                        try Task.checkCancellation()
+                        self.replaceRun(run, session: session)
+                        session.connection = ""
+                        if !run.isActive {
+                            await self.loadTrace(runId, session: session)
+                            self.streams.removeValue(forKey: runId)?.cancel()
+                            return
+                        }
+                    } catch {
+                        if Task.isCancelled { return }
+                        session.connection = "接続を再確立中（PCでの実行は継続）"
+                    }
+                }
+            }
+        }
+        guard streams[runId] == nil else { return }
         streams[runId] = Task { @MainActor [weak self] in
             guard let self else { return }
             defer { self.streams.removeValue(forKey: runId) }
@@ -317,8 +490,19 @@ final class AIChatState {
                     for try await event in api.stream(runId, after: cursor) {
                         try Task.checkCancellation()
                         session.connection = ""
-                        if let index = session.detail?.runs.firstIndex(where: { $0.id == runId }) { try session.detail?.runs[index].apply(event) }
+                        if let index = session.detail?.runs.firstIndex(where: { $0.id == runId }) {
+                            try session.detail?.runs[index].apply(event)
+                            if let run = session.detail?.runs[index] { self.synchronizePresentation(run, session: session) }
+                        }
                         self.appendTrace(runId, event)
+                        if event.type == "request.created" || event.type == "request.resolved" {
+                            self.requestsByRun[runId] = try await api.requests(runId)
+                        }
+                        if session.detail?.runs.first(where: { $0.id == runId })?.isActive == false {
+                            await self.loadTrace(runId, session: session)
+                            session.connection = ""
+                            return
+                        }
                     }
                     try Task.checkCancellation()
                     let run = try await api.run(runId)
@@ -335,6 +519,44 @@ final class AIChatState {
                 }
                 do { try await Task.sleep(for: .seconds(1)) } catch { return }
             }
+        }
+    }
+
+    private func synchronizePresentation(_ run: AIRun, session: Session) {
+        if !run.isActive || session !== visible {
+            presentationTasks.removeValue(forKey: run.id)?.cancel()
+            var presentation = presentations[run.id] ?? AIStreamingPresentation(text: run.outputText)
+            presentation.receive(run.outputText)
+            presentation.flush()
+            presentations[run.id] = presentation
+            return
+        }
+        guard var presentation = presentations[run.id] else {
+            // History and a reopened conversation appear immediately. Only
+            // deltas received after this point are visually paced.
+            presentations[run.id] = AIStreamingPresentation(text: run.outputText)
+            return
+        }
+        presentation.receive(run.outputText)
+        presentations[run.id] = presentation
+        guard presentation.needsAdvance, presentationTasks[run.id] == nil else { return }
+        presentationTasks[run.id] = Task { @MainActor [weak self] in
+            defer { self?.presentationTasks.removeValue(forKey: run.id) }
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .milliseconds(50)) }
+                catch { return }
+                guard let self, var current = self.presentations[run.id] else { return }
+                let needsMore = current.advance()
+                self.presentations[run.id] = current
+                if !needsMore { return }
+            }
+        }
+    }
+
+    private func flushPresentations(in session: Session) {
+        for run in session.detail?.runs ?? [] {
+            presentationTasks.removeValue(forKey: run.id)?.cancel()
+            presentations[run.id] = AIStreamingPresentation(text: run.outputText)
         }
     }
 }

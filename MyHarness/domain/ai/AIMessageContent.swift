@@ -10,6 +10,7 @@ enum AIMessageContent {
         // Ordinal view identity stays stable as a streamed block grows.
         let id: Int
         let kind: Kind
+        let isComplete: Bool
     }
 
     static func parse(_ source: String) -> [Part] {
@@ -21,7 +22,7 @@ enum AIMessageContent {
         var index = 0
 
         func flushProse() {
-            if !prose.isEmpty { parts.append(Part(id: parts.count, kind: .text(prose))) }
+            if !prose.isEmpty { parts.append(Part(id: parts.count, kind: .text(prose), isComplete: true)) }
             prose = ""
         }
 
@@ -42,8 +43,9 @@ enum AIMessageContent {
                 if index < lines.count - 1 { code += "\n" }
                 index += 1
             }
-            parts.append(Part(id: parts.count, kind: .code(language: fence.language, text: code)))
-            if index < lines.count { index += 1 }
+            let isComplete = index < lines.count
+            parts.append(Part(id: parts.count, kind: .code(language: fence.language, text: code), isComplete: isComplete))
+            if isComplete { index += 1 }
             // An unfinished fence intentionally exposes the code received so far.
         }
         flushProse()

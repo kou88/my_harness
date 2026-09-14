@@ -8,12 +8,14 @@ struct AppRootView: View {
     @StateObject private var televisionPlayerController: TelevisionPlayerController
 
     @State private var router = AppRouter()
+    @State private var showsHomeControl = false
     @State private var todayState: TodayState
     @State private var settingsState: SettingsState
     @State private var actionInboxState: ActionInboxState
     @State private var productOpsState: ProductOpsState
     @State private var blogPostState: BlogPostState
     @State private var aiChatState: AIChatState
+    @State private var aiCronState: AICronState
     @State private var lastForegroundRefreshAt = Date.distantPast
     @State private var pushRegistrationErrorMessage: String?
 
@@ -54,6 +56,12 @@ struct AppRootView: View {
             importCandidateRepository: dependencies.sharedXImportCandidates
         ))
         _aiChatState = State(initialValue: AIChatState(
+            apiClient: dependencies.actionInbox.aiClient,
+            authSession: dependencies.actionInbox.authSession,
+            configurationErrorMessage: dependencies.actionInbox.configurationErrorMessage,
+            reconciliationInterval: .seconds(2)
+        ))
+        _aiCronState = State(initialValue: AICronState(
             apiClient: dependencies.actionInbox.aiClient,
             authSession: dependencies.actionInbox.authSession,
             configurationErrorMessage: dependencies.actionInbox.configurationErrorMessage
@@ -117,7 +125,7 @@ struct AppRootView: View {
             .tag(AppTab.articles)
 
             NavigationStack {
-                AIConversationListView(state: aiChatState)
+                AIConversationListView(state: aiChatState, cronState: aiCronState)
             }
             .tabItem {
                 Label("AI", systemImage: "sparkles")
@@ -134,6 +142,15 @@ struct AppRootView: View {
                 Label("テレビ", systemImage: "tv")
             }
             .tag(AppTab.television)
+        }
+        .sheet(isPresented: $showsHomeControl) {
+            NavigationStack {
+                HomeControlView().toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("閉じる") { showsHomeControl = false }
+                    }
+                }
+            }
         }
         .environment(router)
         .onOpenURL { url in
@@ -232,6 +249,10 @@ struct AppRootView: View {
     }
 
     private func handleDeepLink(_ url: URL) {
+        if url.scheme == "myharness", url.host == "home-control" {
+            showsHomeControl = true
+            return
+        }
         router.handleDeepLink(url)
         if actionInboxState.isSignedIn {
             ActionPushNotificationCoordinator.shared.clearPendingDeepLink()
@@ -264,7 +285,7 @@ struct AppRootView: View {
         case .article(let id):
             ArticleDetailView(id: id, state: blogPostState)
         case .aiConversation(let id):
-            AIConversationDetailView(id: id, state: aiChatState)
+            AIConversationDetailView(id: id, state: aiChatState, cronState: aiCronState)
         }
     }
 

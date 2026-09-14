@@ -3,15 +3,11 @@ import CryptoKit
 import Foundation
 import Security
 import UIKit
+import WidgetKit
 
 @MainActor
 final class CognitoAuthSession: NSObject, ASWebAuthenticationPresentationContextProviding {
-    private struct StoredToken: Codable {
-        var accessToken: String
-        var refreshToken: String?
-        var idToken: String?
-        var expiresAt: Date
-    }
+    private typealias StoredToken = SharedCognitoToken
 
     private struct TokenResponse: Decodable {
         var accessToken: String
@@ -64,7 +60,6 @@ final class CognitoAuthSession: NSObject, ASWebAuthenticationPresentationContext
     private let config: ActionInboxConfig
     private let keychain: KeychainStore
     private let tokenAccount = "action-inbox-token"
-    private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
     private var currentSession: ASWebAuthenticationSession?
 
@@ -114,7 +109,9 @@ final class CognitoAuthSession: NSObject, ASWebAuthenticationPresentationContext
     }
 
     func signOut() throws {
+        try HomeControlTokenStore().remove()
         try keychain.removeData(for: tokenAccount)
+        WidgetCenter.shared.reloadAllTimelines()
     }
 
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
@@ -226,14 +223,20 @@ final class CognitoAuthSession: NSObject, ASWebAuthenticationPresentationContext
     }
 
     private func loadToken() throws -> StoredToken? {
-        guard let data = try keychain.data(for: tokenAccount) else {
-            return nil
-        }
-        return try decoder.decode(StoredToken.self, from: data)
+        let shared = HomeControlTokenStore()
+        if let token = try shared.read() { return token }
+        // 既存TestFlightのログインを一度だけ移行する。保存成功後に旧項目を削除する。
+        guard let data = try keychain.data(for: tokenAccount) else { return nil }
+        let token = try decoder.decode(StoredToken.self, from: data)
+        try shared.save(token)
+        try keychain.removeData(for: tokenAccount)
+        WidgetCenter.shared.reloadAllTimelines()
+        return token
     }
 
     private func saveToken(_ token: StoredToken) throws {
-        try keychain.setData(encoder.encode(token), for: tokenAccount)
+        try HomeControlTokenStore().save(token)
+        WidgetCenter.shared.reloadAllTimelines()
     }
 
     private static func formBody(_ fields: [String: String]) -> Data {

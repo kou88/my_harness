@@ -3,8 +3,44 @@ import Foundation
 
 @main struct SessionRegression {
     @MainActor static func main() async throws {
+        // A coding chat fixes its harness/repository at creation, independently of model choice.
+        let codingAPI = AIAPIClient()
+        let repository = AIRepository(id: "repository", hostId: "host", hostName: "host", online: true, repository: "test/repo", branches: ["main", "develop"], defaultBranch: "main")
+        codingAPI.repositoryValues = [repository]
+        let coding = AIChatState(apiClient: codingAPI, authSession: CognitoAuthSession(), configurationErrorMessage: nil,
+            reconciliationInterval: .milliseconds(20))
+        await coding.loadList(); coding.choose(codingAPI.model); coding.chooseHarness(.opencode)
+        coding.composerText = "テストを追加してください"; coding.delivery = .draftPR
+        precondition(!coding.canSend, "A coding request needs an explicit repository")
+        coding.chooseRepository(repository, branch: "develop")
+        precondition(coding.canSend)
+        let codingId = await coding.send(conversationId: nil)
+        precondition(codingId != nil)
+        await coding.openConversation(id: codingId!)
+        coding.chooseHarness(.hermes); coding.chooseRepository(repository, branch: "main"); coding.delivery = .changes
+        guard case .opencode(let context) = coding.detail!.context else { fatalError("Harness changed") }
+        precondition(context.baseBranch == "develop" && context.workBranch == "agent/" + codingId!)
+        precondition(coding.harness == .opencode && coding.detail!.runs[0].delivery == .draftPR && coding.delivery == .draftPR)
+        let codingRun = coding.detail!.runs[0].id
+        while codingAPI.listeners[codingRun] == nil { await Task.yield() }
+        let request = AIRequest(id: "permission", runId: codingRun, kind: "permission", payload: [:], status: "pending", createdAt: "test", updatedAt: "test")
+        codingAPI.requestValues[codingRun] = [request]
+        try codingAPI.emit(codingRun, type: "request.created", data: [:])
+        while coding.requestsByRun[codingRun]?.count != 1 { await Task.yield() }
+        coding.newChat()
+        await coding.answer(request, reply: .permission(allow: false))
+        precondition(coding.detail == nil && coding.harness == .hermes && codingAPI.replies == ["permission"])
+        precondition(coding.requestsByRun[codingRun]?.first?.status == "applied")
+        try codingAPI.emit(codingRun, type: "run.completed", data: ["responseId": .string("native-session")])
+        await coding.openConversation(id: codingId!)
+        while coding.activeRun != nil { await Task.yield() }
+        coding.delivery = .changes
+        precondition(coding.delivery == .changes && coding.harness == .opencode)
+        for listener in codingAPI.listeners.values { listener.finish() }
+
         let sharedAPI = AIAPIClient()
-        let sharedState = AIChatState(apiClient: sharedAPI, authSession: CognitoAuthSession(), configurationErrorMessage: nil)
+        let sharedState = AIChatState(apiClient: sharedAPI, authSession: CognitoAuthSession(), configurationErrorMessage: nil,
+            reconciliationInterval: .milliseconds(20))
         await sharedState.loadList()
         sharedState.choose(sharedAPI.model)
         let saved = await sharedState.saveSharing(AISharing(enabled: true, modelId: sharedAPI.model.id, contextLength: 65536, maxConcurrentRuns: 2, revision: 1))
@@ -16,11 +52,26 @@ import Foundation
         let changed = await sharedState.send(conversationId: nil)
         precondition(changed == nil && sharedState.composerText == "shared draft")
         precondition(sharedAPI.details.isEmpty, "Remote setting change must not submit a run")
+
+        let mediaAPI = AIAPIClient()
+        let mediaState = AIChatState(apiClient: mediaAPI, authSession: CognitoAuthSession(), configurationErrorMessage: nil,
+            reconciliationInterval: .milliseconds(20))
+        await mediaState.loadList(); mediaState.choose(mediaAPI.model)
+        let imageId = UUID().uuidString.lowercased()
+        mediaState.addComposerAttachments([AIComposerAttachment(id: imageId, kind: .image, groupId: imageId, fileName: "sample.jpg",
+            contentType: "image/jpeg", frameIndex: 1, frameCount: 1, data: Data([0xff, 0xd8, 0xff, 0xd9]))])
+        precondition(mediaState.canSend, "A capable model must accept an image without mandatory text")
+        let mediaConversation = await mediaState.send(conversationId: nil)
+        precondition(mediaConversation != nil && mediaAPI.details[mediaConversation!]!.runs[0].attachments.first?.id == imageId)
+        precondition(mediaState.composerAttachments.isEmpty, "Accepted media must leave the composer")
+        for listener in mediaAPI.listeners.values { listener.finish() }
+
         let api = AIAPIClient()
-        let state = AIChatState(apiClient: api, authSession: CognitoAuthSession(), configurationErrorMessage: nil)
+        let state = AIChatState(apiClient: api, authSession: CognitoAuthSession(), configurationErrorMessage: nil,
+            reconciliationInterval: .milliseconds(20))
         await state.loadList(); state.choose(api.model)
-        _ = try await api.create(id: "a", title: "A")
-        _ = try await api.create(id: "b", title: "B")
+        _ = try await api.create(id: "a", title: "A", context: .hermes)
+        _ = try await api.create(id: "b", title: "B", context: .hermes)
         state.composerText = "new draft"
         await state.openConversation(id: "a"); state.composerText = "draft A"
         await state.openConversation(id: "b"); state.composerText = "draft B"
@@ -64,6 +115,11 @@ import Foundation
         try api.emit(runB, type: "text.delta", data: ["text": .string("only B")])
         while state.detail?.runs.last?.outputText != "only B" { await Task.yield() }
         precondition(state.detail?.id == "b")
+        precondition(state.displayedOutput(for: state.detail!.runs.last!).count < "only B".count,
+                     "A live delta should be paced instead of appearing as one UI burst")
+        try await Task.sleep(for: .milliseconds(350))
+        precondition(state.displayedOutput(for: state.detail!.runs.last!) == "only B",
+                     "The presentation must catch up without an artificial typing delay")
         await state.openConversation(id: "a")
         precondition(state.detail?.runs.last?.outputText == "only A")
 
@@ -78,18 +134,31 @@ import Foundation
         await reopening.value
         precondition(state.detail?.runs.last?.outputText == "only A while reopening")
 
-        // Foreground recovery obtains missed events without moving focus away from B.
+        // A dropped WebSocket can remain suspended after the network returns. The
+        // authoritative run snapshot must still recover output and completion.
         await state.openConversation(id: "b")
+        let stalled = api.listeners.removeValue(forKey: runB)
+        try api.emit(runB, type: "text.delta", data: ["text": .string(" after network")])
+        try api.emit(runB, type: "run.completed", data: ["responseId": .string("response-b")])
+        let recoveryDeadline = ContinuousClock.now + .seconds(1)
+        while state.activeRun != nil && ContinuousClock.now < recoveryDeadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        precondition(state.activeRun == nil && state.detail?.runs.last?.outputText == "only B after network",
+                     "A silently stalled stream must reconcile to the terminal server run")
+        precondition(api.runRequestCount > 0, "Active runs must be reconciled while WebSocket is suspended")
+        stalled?.finish()
+
+        // Foreground recovery obtains missed events without moving focus away from B.
         let detached = api.listeners.removeValue(forKey: runA)
         try api.emit(runA, type: "text.delta", data: ["text": .string(" after background")])
         await state.restoreAfterForeground()
-        precondition(state.detail?.id == "b" && state.detail?.runs.last?.outputText == "only B")
+        precondition(state.detail?.id == "b" && state.detail?.runs.last?.outputText == "only B after network")
         await state.openConversation(id: "a")
         precondition(state.detail?.runs.last?.outputText == "only A while reopening after background")
         api.listeners[runA] = detached
         await state.cancel(); precondition(api.cancelled == [runA], "Stop targets the visible run only")
         try api.emit(runA, type: "run.completed", data: ["responseId": .string("response-a")])
-        try api.emit(runB, type: "run.completed", data: ["responseId": .string("response-b")])
         while !state.canDelete("a") || !state.canDelete("b") { await Task.yield() }
         await state.openConversation(id: "b"); state.composerText = "B remains"
         let deleted = await state.delete("a")
@@ -101,6 +170,6 @@ import Foundation
         await state.loadList()
         precondition(state.selectedModel == nil, "A removed model requires explicit reselection")
         for listener in api.listeners.values { listener.finish() }
-        print("PASS: draft isolation, delayed navigation, concurrent streams, cached reopen, foreground recovery, targeted stop and deletion")
+        print("PASS: draft isolation, delayed navigation, concurrent streams, network and foreground recovery, targeted stop and deletion")
     }
 }

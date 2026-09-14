@@ -2,6 +2,17 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>ActionAPIBaseURL</key>
+	<string>$(ACTION_API_BASE_URL)</string>
+	<key>CognitoHostedUIBaseURL</key>
+	<string>$(COGNITO_HOSTED_UI_BASE_URL)</string>
+	<key>CognitoClientID</key>
+	<string>$(COGNITO_CLIENT_ID)</string>
+	<key>CognitoRedirectURI</key>
+	<string>$(COGNITO_REDIRECT_URI)</string>
+	<key>CognitoScopes</key>
+	<string>$(COGNITO_SCOPES)</string>
+
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>

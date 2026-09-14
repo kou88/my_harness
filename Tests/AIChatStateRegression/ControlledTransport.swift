@@ -8,11 +8,13 @@ import Foundation
 }
 @MainActor final class AIAPIClient {
     enum APIError: Error { case response(Int, String) }
-    struct Submission { let id: String; let modelId: String; let inputText: String; let settings: AISettings }
+    struct Submission { let id: String; let modelId: String; let inputText: String; let settings: AISettings; let delivery: AIDelivery; let attachmentIds: [String] }
     let model = AIModel(id: "regression-model", hostId: "host", hostName: "host", model: "test", name: "test", online: true,
         contextLengths: [65536], maxOutputTokens: 32768, reasoningEfforts: ["low"], reasoningBudgets: ["low": 512],
-        initialSettings: AISettings(contextLength: 65536, maxOutputTokens: 1024, reasoningEffort: "low"))
+        initialSettings: AISettings(contextLength: 65536, maxOutputTokens: 1024, reasoningEffort: "low"), inputModalities: [.text, .image, .video])
     var sharingValue = AISharing(enabled: false, modelId: "", contextLength: 65536, maxConcurrentRuns: 2, revision: 1)
+    func inferenceHosts() async throws -> [AIInferenceHost] { [] }
+    func saveInferencePolicy(hostId: String, policy: AIInferencePolicy) async throws -> AIInferencePolicy { policy }
     func sharing() async throws -> AISharing { sharingValue }
     func saveSharing(_ value: AISharing) async throws -> AISharing { sharingValue = value; sharingValue.revision += 1; return sharingValue }
     var details: [String: AIConversationDetail] = [:]
@@ -24,13 +26,34 @@ import Foundation
     var hideModel = false
     var sendWaiter: CheckedContinuation<Void, Never>?
     var cancelled: [String] = []
+    var repositoryValues: [AIRepository] = []
+    var requestValues: [String: [AIRequest]] = [:]
+    var replies: [String] = []
+    var runRequestCount = 0
+    var uploaded: [String: AIAttachment] = [:]
+    var attachmentValues: [String: Data] = [:]
+    func repositories() async throws -> [AIRepository] { repositoryValues }
+    func requests(_ runId: String) async throws -> [AIRequest] { requestValues[runId] ?? [] }
+    func reply(_ id: String, value: AIReply) async throws {
+        replies.append(id)
+        for run in requestValues.keys {
+            requestValues[run] = requestValues[run]!.map { request in
+                request.id == id ? AIRequest(id: id, runId: run, kind: request.kind, payload: request.payload, status: "applied", createdAt: "test", updatedAt: "test") : request
+            }
+        }
+    }
     func models() async throws -> [AIModel] { hideModel ? [] : [model] }
     func conversations() async throws -> [AIConversation] {
-        details.values.map { AIConversation(id: $0.id, title: $0.title, createdAt: $0.createdAt, updatedAt: $0.updatedAt) }
+        details.values.map { AIConversation(id: $0.id, title: $0.title, context: $0.context, createdAt: $0.createdAt, updatedAt: $0.updatedAt) }
     }
-    func create(id: String, title: String) async throws -> AIConversation {
-        details[id] = AIConversationDetail(id: id, title: title, createdAt: "test", updatedAt: "test", runs: [])
-        return AIConversation(id: id, title: title, createdAt: "test", updatedAt: "test")
+    func create(id: String, title: String, context: AIContextInput) async throws -> AIConversation {
+        let value: AIContext
+        switch context {
+        case .hermes: value = .hermes
+        case .opencode(let repo, let branch): value = .opencode(AICodingContext(repositoryId: repo, repository: "test/repo", hostId: "host", baseBranch: branch, workBranch: "agent/" + id))
+        }
+        details[id] = AIConversationDetail(id: id, title: title, context: value, createdAt: "test", updatedAt: "test", runs: [])
+        return AIConversation(id: id, title: title, context: value, createdAt: "test", updatedAt: "test")
     }
     func conversation(_ id: String) async throws -> AIConversationDetail {
         let snapshot = details[id]!
@@ -40,12 +63,24 @@ import Foundation
     func send(conversation: String, submission: Submission) async throws -> AIRun {
         if pauseSend { await withCheckedContinuation { sendWaiter = $0 } }
         let run = AIRun(id: submission.id, conversationId: conversation, hostId: "host", modelId: model.id, model: model.model,
-            settings: submission.settings, inputText: submission.inputText, outputText: "", status: "queued", cancelRequested: false,
+            settings: submission.settings, delivery: submission.delivery, inputText: submission.inputText,
+            attachments: submission.attachmentIds.compactMap { uploaded[$0] }, outputText: "", status: "queued", cancelRequested: false,
             lastSeq: 0, error: "", responseId: "", previousResponseId: "", createdAt: "test", updatedAt: "test")
         details[conversation]!.runs.append(run)
         return run
     }
+    func upload(conversation: String, attachment: AIComposerAttachment) async throws -> AIAttachment {
+        let value = AIAttachment(id: attachment.id, conversationId: conversation, kind: attachment.kind, groupId: attachment.groupId,
+            fileName: attachment.fileName, contentType: attachment.contentType, byteSize: attachment.data.count,
+            frameIndex: attachment.frameIndex, frameCount: attachment.frameCount, createdAt: "test")
+        uploaded[attachment.id] = value
+        attachmentValues[attachment.id] = attachment.data
+        return value
+    }
+    func attachment(_ id: String) async throws -> Data { attachmentValues[id] ?? Data() }
+    func deleteAttachment(_ id: String) async throws {}
     func run(_ id: String) async throws -> AIRun {
+        runRequestCount += 1
         guard let run = details.values.flatMap(\.runs).first(where: { $0.id == id }) else { throw APIError.response(404, "Deleted run") }
         return run
     }
@@ -70,4 +105,3 @@ import Foundation
         listeners[id]?.yield(event)
     }
 }
-

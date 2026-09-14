@@ -80,12 +80,12 @@ group.com.kou888.myharness
 
 ## AIタブ
 
-4つ目の「AI」タブは、`my_api` の `/api/v3/ai` を会話履歴の正本として利用し、Mac上のOS Agentを経由してCodex app-serverを実行します。
+4つ目の「AI」タブは、`my_api` の `/api/v5/ai` を会話履歴の正本として利用し、OS Agentを経由してHermesまたはOpenCodeを実行します。
 
 - OpenAIはChatGPTサブスクリプションでログインした専用Codex runtimeを使い、OpenAI APIキーは使用しません。
 - OpenRouterは実行ホストだけが保持するAPIキーを使います。キーやChatGPT認証情報をiPhoneへ渡しません。
 - 相談モードは隔離ディレクトリ・読み取り専用・MCP無効、作業モードは選択済みWorkspaceだけを書き込み対象にします。
-- RunイベントはSSEで表示し、`seq`を使って切断後の続きから再開します。バックグラウンド中もMac側の実行は継続します。
+- RunイベントはWebSocketで表示し、`seq`を使って切断後の続きから再開します。実行中は2秒ごとに正本runも照合するため、接続が無反応のまま残っても本文と完了状態を回収します。バックグラウンド中もホスト側の実行は継続します。
 - 承認待ち・完了・失敗Pushのdeep linkは `myharness://ai/conversations/{conversationId}` です。
 - AI実行には登録済みのMacまたはPCがオンラインである必要があります。オフライン時も保存済み会話は閲覧できます。
 

@@ -240,7 +240,14 @@ jobs:
           RUBY
           }
 
-          download_profile "my-harness-app-store-push-v2" "$APP_PROFILE_PATH"
+          ASC_KEY_ID="$ASC_KEY_ID" \
+            ASC_ISSUER_ID="$ASC_ISSUER_ID" \
+            ASC_KEY_P8_PATH="$ASC_KEY_P8_PATH" \
+            BUNDLE_IDENTIFIER="com.kou888.myharness" \
+            PROFILE_NAME="my-harness-app-store-push-v3" \
+            SOURCE_PROFILE_NAME="my-harness-app-store-push-v2" \
+            PROFILE_PATH="$APP_PROFILE_PATH" \
+            ruby scripts/ensure-app-store-push-profile.rb
           download_profile "my-harness-widget-app-store" "$WIDGET_PROFILE_PATH"
           download_profile "my-harness-share-app-store" "$SHARE_PROFILE_PATH"
 
@@ -321,7 +328,7 @@ jobs:
           echo "Team ID: $APP_TEAM_ID"
           security find-identity -v -p codesigning
 
-      - name: Disable push entitlement when profile does not support it
+      - name: Verify push entitlement
         run: |
           set -euo pipefail
           if [ "${APP_PROFILE_SUPPORTS_PUSH:-0}" = "1" ]; then
@@ -329,11 +336,8 @@ jobs:
             exit 0
           fi
 
-          echo "::warning::App provisioning profile does not include Push Notifications. Stripping aps-environment for this TestFlight archive."
-          /usr/libexec/PlistBuddy -c "Delete :aps-environment" MyHarness/MyHarness.entitlements || true
-          perl -0pi -e 's/\n\t\t\t\tAPS_ENVIRONMENT = (development|production);//g' MyHarness.xcodeproj/project.pbxproj
-          perl -0pi -e 's/\n\t\t\t\t\t\t\t\tcom\.apple\.Push = \{\n\t\t\t\t\t\t\t\t\tenabled = 1;\n\t\t\t\t\t\t\t\t\};//g' MyHarness.xcodeproj/project.pbxproj
-          plutil -lint MyHarness/MyHarness.entitlements
+          echo "::error::App provisioning profile must include Push Notifications. Refusing to upload a build that cannot receive completion notifications."
+          exit 1
 
       - name: Patch signing settings
         run: |

@@ -48,6 +48,9 @@ jobs:
       - name: Verify chat code block parsing
         run: swift test --jobs 2 --filter AIMessageContentTests
 
+      - name: Verify widget session refresh
+        run: swift test --jobs 2 --filter HomeControlSessionTests
+
       - name: Build for simulator
         run: |
           set -euo pipefail

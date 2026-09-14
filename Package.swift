@@ -13,6 +13,13 @@ let package = Package(
     ],
     targets: [
         .target(
+            name: "MyHarnessHomeControl",
+            path: "MyHarness/infra",
+            exclude: ["api", "media", "notification", "read_store", "repository", "auth/CognitoAuthSession.auth.swift", "auth/KeychainStore.auth.swift"],
+            sources: ["home_control/HomeControlSession.swift", "home_control/HomeControlClient.swift", "auth/ActionInboxConfig.auth.swift"]
+        ),
+        .testTarget(name: "MyHarnessHomeControlTests", dependencies: ["MyHarnessHomeControl"]),
+        .target(
             name: "MyHarnessNotificationDomain",
             path: "MyHarness/domain/model",
             exclude: [
