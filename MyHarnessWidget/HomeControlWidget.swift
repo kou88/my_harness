@@ -77,6 +77,16 @@ struct HomeControlIntent: AppIntent {
         return .result()
     }
 }
+struct RefreshHomeControlWidgetIntent: AppIntent {
+    static var title: LocalizedStringResource = "家電リモコンの表示を更新"
+    static var openAppWhenRun = false
+
+    func perform() async throws -> some IntentResult {
+        HomeFeedbackStore.reloadWidgets()
+        return .result()
+    }
+}
+
 private struct HomeFeedback: Codable {
     enum Phase: String, Codable { case sending, sent, failed }
     let phase: Phase
@@ -96,6 +106,9 @@ private enum HomeFeedbackStore {
     }
     static func save(_ feedback: HomeFeedback, device: HomeAppliance) throws {
         try defaults().set(JSONEncoder().encode(feedback), forKey: "home-control.\(device.rawValue)")
+        reloadWidgets()
+    }
+    static func reloadWidgets() {
         WidgetCenter.shared.reloadTimelines(ofKind: "HomeControlWidget")
         WidgetCenter.shared.reloadTimelines(ofKind: "LightControlWidget")
         WidgetCenter.shared.reloadTimelines(ofKind: "AirConditionerControlWidget")
@@ -231,17 +244,41 @@ private struct ApplianceControls: View {
         }
     }
 }
+private struct HomeControlWidgetSurface<Content: View>: View {
+    @Environment(\.widgetContentMargins) private var margins
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        content
+            .padding(margins)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background {
+                // widgetURLを外すだけでは標準のアプリ起動が残る。
+                // 余白まで表示更新ボタンで覆い、手前の家電操作ボタンを優先する。
+                Button(intent: RefreshHomeControlWidgetIntent()) {
+                    Color.clear
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("家電リモコンの表示を更新")
+            }
+            .containerBackground(.background, for: .widget)
+    }
+}
+
 struct HomeControlWidget: Widget {
     var body: some WidgetConfiguration {
         AppIntentConfiguration(kind: "HomeControlWidget", intent: HomeControlConfiguration.self, provider: HomeProvider()) { entry in
-            HStack(alignment: .top, spacing: 14) {
-                ApplianceControls(device: .light, configuration: entry.configuration, feedback: entry.light)
-                Divider()
-                ApplianceControls(device: .airConditioner, configuration: entry.configuration, feedback: entry.airConditioner)
+            HomeControlWidgetSurface {
+                HStack(alignment: .top, spacing: 14) {
+                    ApplianceControls(device: .light, configuration: entry.configuration, feedback: entry.light)
+                    Divider()
+                    ApplianceControls(device: .airConditioner, configuration: entry.configuration, feedback: entry.airConditioner)
+                }
             }
-            .containerBackground(.background, for: .widget)
-            .widgetURL(URL(string: "myharness://home-control"))
         }
+        .contentMarginsDisabled()
         .configurationDisplayName("家電リモコン")
         .description("ライトとエアコンをアプリを開かず操作します。エアコンの運転設定はウィジェットを編集して選べます。")
         .supportedFamilies([.systemMedium])
@@ -262,9 +299,11 @@ private struct LightProvider: TimelineProvider {
 struct LightControlWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: "LightControlWidget", provider: LightProvider()) { entry in
-            ApplianceControls(device: .light, configuration: entry.configuration, feedback: entry.light)
-                .containerBackground(.background, for: .widget).widgetURL(URL(string: "myharness://home-control"))
+            HomeControlWidgetSurface {
+                ApplianceControls(device: .light, configuration: entry.configuration, feedback: entry.light)
+            }
         }
+        .contentMarginsDisabled()
         .configurationDisplayName("ライト")
         .description("ホーム画面・ロック画面からライトをつける・消す。")
         .supportedFamilies([.systemSmall, .accessoryRectangular])
@@ -273,9 +312,11 @@ struct LightControlWidget: Widget {
 struct AirConditionerControlWidget: Widget {
     var body: some WidgetConfiguration {
         AppIntentConfiguration(kind: "AirConditionerControlWidget", intent: HomeControlConfiguration.self, provider: HomeProvider()) { entry in
-            ApplianceControls(device: .airConditioner, configuration: entry.configuration, feedback: entry.airConditioner)
-                .containerBackground(.background, for: .widget).widgetURL(URL(string: "myharness://home-control"))
+            HomeControlWidgetSurface {
+                ApplianceControls(device: .airConditioner, configuration: entry.configuration, feedback: entry.airConditioner)
+            }
         }
+        .contentMarginsDisabled()
         .configurationDisplayName("エアコン")
         .description("ホーム画面・ロック画面から運転・停止。編集で運転モード・温度・風量を選べます。")
         .supportedFamilies([.systemSmall, .accessoryRectangular])

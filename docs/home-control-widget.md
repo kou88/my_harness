@@ -8,7 +8,7 @@
 2. ホーム画面からmy harnessのウィジェットを追加する。「家電リモコン」は中サイズで両機器、「ライト」「エアコン」は個別の小サイズ。
 3. エアコンを含むウィジェットは長押し→編集で運転モードを選ぶ。「前回設定」は前回の設定で運転。その他はモード・温度・風量の指定が必要。未設定時は運転ボタンを無効化するが停止は使える。
 4. 設定の変更だけでは送信しない。運転・停止・点灯・消灯ボタンで送信する。
-5. 背景のタップ、またはアプリの設定→家電リモコンから接続確認・使い方を開ける。
+5. 見出し・背景・余白のタップは、保存済み送信履歴の表示更新だけを行う。家電への送信やアプリ起動は行わない。接続確認・使い方はアプリの設定→家電リモコンから開く。
 
 通信エラーや権限不足はウィジェットに表示する。赤外線操作のため、成功表示は「信号を送信しました」と送信時刻であり電源状態を表さない。再送はユーザーの明示操作のみ。通信中の同一機器連打は抑制する。
 
@@ -34,6 +34,10 @@ https://developer.apple.com/documentation/security/sharing-access-to-keychain-it
 
 ## 検証
 
-MyHarness schemeのSimulator build、既存のSwift tests、チャット回帰テストを実行する。`swift test --filter HomeControlSessionTests`でログイン更新・失効・更新中のログアウト・更新不要時の通信なしを検証する。Simulatorの実ウィジェットでレイアウト、未設定運転の無効化、設定画面、認証、背景タップのdeep linkを確認する。APIは別repoの`docs/home-control.md`を正本とする。実機の点灯/運転状態の確認は赤外線受信側で行う。
+MyHarness schemeのSimulator build、既存のSwift tests、チャット回帰テストを実行する。`swift test --filter HomeControlSessionTests`でログイン更新・失効・更新中のログアウト・更新不要時の通信なしを検証する。Simulatorの実ウィジェットでレイアウト、未設定運転の無効化、設定画面、認証を確認する。見出し・背景・四辺の余白のタップでアプリを開かず家電へ送信しないことと、操作ボタンのタップで指定したコマンドだけを送信することを、個別小サイズ・一体型中サイズ・ロック画面それぞれで確認する。APIは別repoの`docs/home-control.md`を正本とする。実機の点灯/運転状態の確認は赤外線受信側で行う。
+
+2026-09-15の起動抑止修正: 家電用3種類の`widgetURL`を外し、`HomeControlWidgetSurface`の背景にアプリを開かない表示更新用App Intentボタンを配置した。`contentMarginsDisabled()`と`widgetContentMargins`による内側paddingを併用し、従来の見た目の余白を保ちつつ四辺もボタン領域へ含める。家電操作ボタンは背景ボタンより手前に置く。その他のウィジェットには適用しない。iPhone 17 Pro（iOS 26.4）向けSimulator build、Swift tests（XCTest 39件・Swift Testing 67件）、チャット状態回帰テスト成功。Simulatorは停止中のため、表示・タップ領域の実行確認と実機検証は未実施。
+
+実装の参照: [Appleの対話型ウィジェット](https://developer.apple.com/documentation/widgetkit/adding-interactivity-to-widgets-and-live-activities)、[ウィジェットの余白](https://developer.apple.com/documentation/swiftui/environmentvalues/widgetcontentmargins)。
 
 ロック画面追加時のローカル確認（2026-09-08）: iPhone 17 Pro Simulator（`AD933F96-24D3-4D6C-A728-8FA3E1DEBD2C`）向けbuild成功、共有セッションの5テスト成功。App Groupを使うため、起動確認用buildには`CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=-`を指定し、更新版アプリの起動を確認した。Simulatorの設定に壁紙編集項目がなく、Widget scheme実行でもホーム画面が表示されたため、ロック画面用`#Preview`を用意した。Macのロック解除後、Xcode Canvasでライト・エアコンの`accessoryRectangular`を実寸表示し、時計下のラベル・オンオフの収まり、エアコン未設定時の運転ボタンの減光を確認した。ロック画面での設定操作・Face IDなどの認証後の実機操作は未確認。
