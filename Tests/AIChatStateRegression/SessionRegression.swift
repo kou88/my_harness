@@ -3,6 +3,28 @@ import Foundation
 
 @main struct SessionRegression {
     @MainActor static func main() async throws {
+        // Switching from W8/128K must use Flash-Next's server policy, not the old context or its maximum.
+        func flashModel(online: Bool, context: Int) -> AIModel {
+            AIModel(id: "flash", hostId: "host", hostName: "PC-02", model: "flash", name: "Flash-Next", online: online,
+                contextLengths: [8192, 16384, 32768], maxOutputTokens: 16384, reasoningEfforts: ["medium"],
+                reasoningBudgets: ["medium": 1024], initialSettings: AISettings(contextLength: context,
+                    maxOutputTokens: 4096, reasoningEffort: "medium"), inputModalities: [.text])
+        }
+        let flash = flashModel(online: true, context: 32768)
+        var sharingDraft = AISharing(enabled: true, modelId: "w8", contextLength: 131072, maxConcurrentRuns: 1, revision: 4)
+        sharingDraft.modelId = flash.id
+        precondition(!sharingDraft.validationMessage(models: [flash]).isEmpty)
+        sharingDraft.selectModel(flash)
+        precondition(sharingDraft.contextLength == 32768 && sharingDraft.revision == 4)
+        precondition(sharingDraft.validationMessage(models: [flash]).isEmpty)
+        let smallerPolicy = flashModel(online: true, context: 16384)
+        sharingDraft.selectModel(smallerPolicy)
+        precondition(sharingDraft.contextLength == 16384, "Use configured chat context, not maximum capacity")
+        let offline = flashModel(online: false, context: 32768)
+        precondition(sharingDraft.validationMessage(models: [offline]).contains("オフライン"))
+        sharingDraft.enabled = false
+        precondition(sharingDraft.validationMessage(models: [offline]).isEmpty, "Turning sharing off does not require an online PC")
+
         // A coding chat fixes its harness/repository at creation, independently of model choice.
         let codingAPI = AIAPIClient()
         let repository = AIRepository(id: "repository", hostId: "host", hostName: "host", online: true, repository: "test/repo", branches: ["main", "develop"], defaultBranch: "main")

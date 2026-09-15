@@ -95,6 +95,24 @@ struct AISharing: Codable, Equatable {
     var maxConcurrentRuns: Int
     var revision: Int
 
+    mutating func selectModel(_ model: AIModel) {
+        modelId = model.id
+        // The catalog supplies the model's current chat policy from the server.
+        contextLength = model.initialSettings.contextLength
+        maxConcurrentRuns = 1
+    }
+
+    func validationMessage(models: [AIModel]) -> String {
+        if enabled {
+            guard let model = models.first(where: { $0.id == modelId }) else { return "モデルを選択してください。" }
+            guard model.online else { return "選択したPCがオフラインです。PCを起動してから保存してください。" }
+            guard model.contextLengths.contains(contextLength) else {
+                return "選択したモデルは\(contextLength / 1024)Kに対応していません。「GPUの実行枠」の設定を確認してください。"
+            }
+        }
+        return capacityIsValid ? "" : "コンテキストと実行枠の設定を確認してください。"
+    }
+
     var capacityIsValid: Bool {
         (1...8).contains(maxConcurrentRuns)
             && [8192, 16384, 32768, 65536, 131072, 262144].contains(contextLength)
