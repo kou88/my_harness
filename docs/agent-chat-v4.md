@@ -142,3 +142,5 @@ TestFlightはApp Store Connect APIでBundle IDのPush Notifications capability�
 モデル未選択、PCオフライン、対応しないコンテキスト、容量不整合は保存を止める理由を画面に表示する。既存のオンライン条件・保存時のrevision競合検査は維持する。モデル切替で共有設定を自動保存せず、保存ボタンで確定する。
 
 回帰テストは128Kから32Kへの切替、32K対応モデルに設定された16Kの尊重、revision維持、オフライン時の理由、共有OFFを確認する。
+
+検証結果: 状態管理回帰テスト、Swiftの全67テスト、MyHarness全体のRelease Simulatorビルド、PRのiOS Build CIが成功した。iPhone 17 Pro / iOS 26.4（`AD933F96-24D3-4D6C-A728-8FA3E1DEBD2C`）で本番の共有設定View・stateを使った独立検証アプリを操作し、W8/128KからFlash-Next選択後の32K表示、保存ボタン有効化、保存後のFlash-Next/32K・revision更新を確認した。通信部分はメモリ内のテスト用実装で、ユーザーの本番共有設定や推論を変更する試験ではない。
