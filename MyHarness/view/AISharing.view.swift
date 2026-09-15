@@ -5,8 +5,7 @@ struct AISharingView: View {
     @Bindable var state: AIChatState
     @State var draft: AISharing
     @State private var failure = ""
-    private var model: AIModel? { state.models.first { $0.id == draft.modelId } }
-    private var valid: Bool { draft.capacityIsValid && (!draft.enabled || (model?.online == true && model!.contextLengths.contains(draft.contextLength))) }
+    private var validationMessage: String { draft.validationMessage(models: state.models) }
 
     var body: some View {
         NavigationStack {
@@ -31,6 +30,10 @@ struct AISharingView: View {
                 Section {
                     Text("変更は待機中を含むすべての実行が完了してから保存できます。同じアカウントの端末すべてに適用します。")
                         .font(.caption).foregroundStyle(.secondary)
+                    if !validationMessage.isEmpty {
+                        Text(validationMessage).foregroundStyle(.red).font(.callout)
+                            .accessibilityIdentifier("AI.sharing.validation")
+                    }
                     if !failure.isEmpty { Text(failure).foregroundStyle(.red).font(.callout) }
                 }
             }.disabled(state.savingSharing)
@@ -43,9 +46,19 @@ struct AISharingView: View {
                                 if await state.saveSharing(draft) { dismiss() }
                                 else { failure = state.errorMessage }
                             }
-                        }.disabled(!valid || state.savingSharing || draft == state.sharing)
+                        }.disabled(!validationMessage.isEmpty || state.savingSharing || draft == state.sharing)
+                            .accessibilityIdentifier("AI.sharing.save")
                     }
                 }
         }
+        .onAppear { synchronizeModel() }
+        .onChange(of: draft.modelId) { _, _ in synchronizeModel() }
+        .onChange(of: state.models) { _, _ in synchronizeModel() }
+    }
+
+    private func synchronizeModel() {
+        failure = ""
+        guard let model = state.models.first(where: { $0.id == draft.modelId }) else { return }
+        draft.selectModel(model)
     }
 }
