@@ -13,8 +13,25 @@ import Foundation
         contextLengths: [65536], maxOutputTokens: 32768, reasoningEfforts: ["low"], reasoningBudgets: ["low": 512],
         initialSettings: AISettings(contextLength: 65536, maxOutputTokens: 1024, reasoningEffort: "low"), inputModalities: [.text, .image, .video])
     var sharingValue = AISharing(enabled: false, modelId: "", contextLength: 65536, maxConcurrentRuns: 2, revision: 1)
-    func inferenceHosts() async throws -> [AIInferenceHost] { [] }
-    func saveInferencePolicy(hostId: String, policy: AIInferencePolicy) async throws -> AIInferencePolicy { policy }
+    var inferenceHostValues: [AIInferenceHost] = []
+    lazy var catalog = [model]
+    func inferenceHosts() async throws -> [AIInferenceHost] { inferenceHostValues }
+    func saveInferencePolicy(hostId: String, policy: AIInferencePolicy) async throws -> AIInferencePolicy {
+        var saved = policy
+        saved.revision += 1
+        guard let index = inferenceHostValues.firstIndex(where: { $0.hostId == hostId }) else { throw APIError.response(404, "Host missing") }
+        inferenceHostValues[index].desiredPolicy = saved
+        catalog = catalog.map { item in
+            guard item.hostId == hostId, let configured = saved.models.first(where: { $0.model == item.model }) else { return item }
+            if sharingValue.modelId == item.id { sharingValue.contextLength = configured.chatContextLength }
+            return AIModel(id: item.id, hostId: item.hostId, hostName: item.hostName, model: item.model, name: item.name,
+                online: item.online, contextLengths: item.contextLengths, maxOutputTokens: item.maxOutputTokens,
+                reasoningEfforts: item.reasoningEfforts, reasoningBudgets: item.reasoningBudgets,
+                initialSettings: AISettings(contextLength: configured.chatContextLength, maxOutputTokens: item.initialSettings.maxOutputTokens,
+                    reasoningEffort: item.initialSettings.reasoningEffort), inputModalities: item.inputModalities)
+        }
+        return saved
+    }
     func sharing() async throws -> AISharing { sharingValue }
     func saveSharing(_ value: AISharing) async throws -> AISharing { sharingValue = value; sharingValue.revision += 1; return sharingValue }
     var details: [String: AIConversationDetail] = [:]
@@ -42,7 +59,7 @@ import Foundation
             }
         }
     }
-    func models() async throws -> [AIModel] { hideModel ? [] : [model] }
+    func models() async throws -> [AIModel] { hideModel ? [] : catalog }
     func conversations() async throws -> [AIConversation] {
         details.values.map { AIConversation(id: $0.id, title: $0.title, context: $0.context, createdAt: $0.createdAt, updatedAt: $0.updatedAt) }
     }

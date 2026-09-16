@@ -57,6 +57,81 @@ struct AIInferenceView: View {
     }
 }
 
+struct AIChatContextView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Bindable var state: AIChatState
+    let model: AIModel
+    @State private var loading = true
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if loading { ProgressView("コンテキスト設定を取得中") }
+                else if let host = state.inferenceHosts.first(where: { $0.hostId == model.hostId }),
+                        let cap = host.state.capabilities.first(where: { $0.model == model.model }) {
+                    AIChatContextEditor(state: state, model: model, host: host, cap: cap, draft: host.desiredPolicy)
+                } else {
+                    VStack(spacing: 16) {
+                        Text(state.inferenceError.isEmpty ? "このPCのコンテキスト設定を取得できません。" : state.inferenceError)
+                        Button("再読み込み") { Task { await reload() } }
+                    }.padding()
+                }
+            }
+            .navigationTitle("コンテキスト").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("閉じる") { dismiss() } } }
+            .task { await reload() }
+        }
+    }
+
+    private func reload() async {
+        loading = true
+        await state.refreshInference()
+        loading = false
+    }
+}
+
+private struct AIChatContextEditor: View {
+    @Environment(\.dismiss) private var dismiss
+    @Bindable var state: AIChatState
+    let model: AIModel
+    let host: AIInferenceHost
+    let cap: AIInferenceCapability
+    @State var draft: AIInferencePolicy
+    @State private var saving = false
+    @State private var failure = ""
+
+    var body: some View {
+        Form {
+            Section { Text(model.name); Text(host.hostName).foregroundStyle(.secondary) }
+            Section {
+                ForEach($draft.models) { $policy in
+                    if policy.model == model.model {
+                        Picker("チャットのコンテキスト", selection: $policy.chatContextLength) {
+                            ForEach(cap.contextLengths, id: \.self) { Text("\($0 / 1024)K").tag($0) }
+                        }.pickerStyle(.inline).accessibilityIdentifier("AI.context.length")
+                    }
+                }
+            } footer: {
+                Text("共有チャットと新規会話に適用します。実行中の応答はそのまま続き、保存後の送信から切り替わります。")
+            }
+            if !failure.isEmpty { Section { Text(failure).foregroundStyle(.red) } }
+        }
+        .disabled(saving)
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                Button("保存") {
+                    saving = true
+                    Task {
+                        let saved = await state.saveInference(hostId: host.hostId, policy: draft)
+                        saving = false
+                        if saved { dismiss() } else { failure = state.inferenceError }
+                    }
+                }.disabled(saving || draft == host.desiredPolicy).accessibilityIdentifier("AI.context.save")
+            }
+        }
+    }
+}
+
 private struct AIInferencePolicyView: View {
     @Environment(\.dismiss) private var dismiss
     @Bindable var state: AIChatState

@@ -190,7 +190,7 @@ final class AIChatState {
     func saveSettings(_ value: AISettings) {
         guard !visible.sending, visible.activeRun == nil, visible.pending == nil else { return }
         if let sharing, sharing.enabled, value.contextLength != sharing.contextLength {
-            errorMessage = "共有モードのコンテキスト長はトップ画面で変更してください。"; return
+            errorMessage = "共有モードのコンテキスト長は「共通コンテキスト」から変更してください。"; return
         }
         guard let model = selectedModel, model.accepts(value) else { errorMessage = "このモデルでは指定した設定を使用できません。"; return }
         visible.settings = value
@@ -428,7 +428,7 @@ final class AIChatState {
     private func loadTrace(_ runId: String, session: Session) async {
         guard let api else { return }
         do {
-            var cursor = eventsByRun[runId]?.last?.seq ?? 0
+            var cursor = traceCursor(runId)
             while !Task.isCancelled {
                 let page = try await api.events(runId, after: cursor)
                 replaceRun(page.run, session: session)
@@ -447,8 +447,23 @@ final class AIChatState {
         synchronizePresentation(run, session: session)
     }
     private func appendTrace(_ runId: String, _ event: AIEvent) {
-        if let last = eventsByRun[runId]?.last, last.seq >= event.seq { return }
-        eventsByRun[runId, default: []].append(event)
+        if (eventsByRun[runId]?.last?.seq ?? 0) < event.seq {
+            eventsByRun[runId, default: []].append(event)
+            return
+        }
+        var events = eventsByRun[runId] ?? []
+        guard !events.contains(where: { $0.seq == event.seq }) else { return }
+        let index = events.firstIndex(where: { $0.seq > event.seq }) ?? events.endIndex
+        events.insert(event, at: index)
+        eventsByRun[runId] = events
+    }
+    private func traceCursor(_ runId: String) -> Int {
+        var cursor = 0
+        for event in eventsByRun[runId] ?? [] {
+            guard event.seq == cursor + 1 else { break }
+            cursor = event.seq
+        }
+        return cursor
     }
     private func observe(_ runId: String, session: Session) {
         guard let api else { return }
@@ -468,6 +483,11 @@ final class AIChatState {
                         try Task.checkCancellation()
                         self.replaceRun(run, session: session)
                         session.connection = ""
+                        // A socket can stay open without delivering events. Recover
+                        // reasoning/tool progress while the server is still working.
+                        if run.isActive && self.traceCursor(runId) < run.lastSeq {
+                            await self.loadTrace(runId, session: session)
+                        }
                         if !run.isActive {
                             await self.loadTrace(runId, session: session)
                             self.streams.removeValue(forKey: runId)?.cancel()
@@ -486,7 +506,7 @@ final class AIChatState {
             defer { self.streams.removeValue(forKey: runId) }
             while !Task.isCancelled {
                 do {
-                    let cursor = self.eventsByRun[runId]?.last?.seq ?? 0
+                    let cursor = self.traceCursor(runId)
                     for try await event in api.stream(runId, after: cursor) {
                         try Task.checkCancellation()
                         session.connection = ""

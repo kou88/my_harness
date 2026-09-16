@@ -25,6 +25,31 @@ import Foundation
         sharingDraft.enabled = false
         precondition(sharingDraft.validationMessage(models: [offline]).isEmpty, "Turning sharing off does not require an online PC")
 
+        // Saving the chat policy refreshes both the shared value and the next request settings.
+        let contextAPI = AIAPIClient()
+        contextAPI.catalog = [flash]
+        contextAPI.sharingValue = AISharing(enabled: true, modelId: flash.id, contextLength: 32768, maxConcurrentRuns: 1, revision: 4)
+        let originalPolicy = AIInferencePolicy(revision: 4, maxConcurrentInferences: 3, models: [
+            AIInferenceModelPolicy(model: flash.model, chatContextLength: 32768, apiContextLength: 16384,
+                scheduledContextLength: 8192, auxiliaryContextLength: 16384)])
+        let capability = AIInferenceCapability(model: flash.model, contextLengths: flash.contextLengths,
+            totalContextTokens: 32768, maxConcurrentInferences: 1, maxOutputTokens: 16384, initialOutputTokens: 4096)
+        contextAPI.inferenceHostValues = [AIInferenceHost(hostId: flash.hostId, hostName: flash.hostName, online: true,
+            capturedAt: "test", desiredPolicy: originalPolicy, state: AIInferenceSnapshot(policy: originalPolicy,
+                capabilities: [capability], loadedModel: flash.model, phase: "idle", error: "",
+                reservedContextTokens: 0, active: [], queued: []))]
+        let contextState = AIChatState(apiClient: contextAPI, authSession: CognitoAuthSession(), configurationErrorMessage: nil,
+            reconciliationInterval: .milliseconds(20))
+        await contextState.loadList(); await contextState.refreshInference()
+        var updatedPolicy = originalPolicy
+        updatedPolicy.models[0].chatContextLength = 16384
+        let contextSaved = await contextState.saveInference(hostId: flash.hostId, policy: updatedPolicy)
+        precondition(contextSaved && contextState.sharing?.contextLength == 16384 && contextState.settings?.contextLength == 16384)
+        precondition(contextState.models.first?.initialSettings.contextLength == 16384)
+        updatedPolicy.revision += 1
+        precondition(contextState.inferenceHosts.first?.desiredPolicy == updatedPolicy,
+                     "Changing chat context must preserve API, scheduled, auxiliary, and concurrency settings")
+
         // A coding chat fixes its harness/repository at creation, independently of model choice.
         let codingAPI = AIAPIClient()
         let repository = AIRepository(id: "repository", hostId: "host", hostName: "host", online: true, repository: "test/repo", branches: ["main", "develop"], defaultBranch: "main")
@@ -160,6 +185,17 @@ import Foundation
         // authoritative run snapshot must still recover output and completion.
         await state.openConversation(id: "b")
         let stalled = api.listeners.removeValue(forKey: runB)
+        try api.emit(runB, type: "reasoning.delta", data: ["text": .string("network recovery reasoning")])
+        try api.emit(runB, type: "tool.call", data: ["id": .string("lookup"), "name": .string("search"), "arguments": .string("{}")])
+        // A later socket event arrives first; HTTP replay must fill the gap.
+        if let later = api.history[runB]?.last { stalled?.yield(later) }
+        let progressDeadline = ContinuousClock.now + .seconds(1)
+        while !state.trace(runB).reasoning.contains("network recovery reasoning") && ContinuousClock.now < progressDeadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        precondition(state.activeRun != nil && state.trace(runB).reasoning.contains("network recovery reasoning"),
+                     "Stalled streams must recover reasoning before the run completes")
+        precondition(state.trace(runB).tools.contains(where: { $0.id == "lookup" && !$0.completed }))
         try api.emit(runB, type: "text.delta", data: ["text": .string(" after network")])
         try api.emit(runB, type: "run.completed", data: ["responseId": .string("response-b")])
         let recoveryDeadline = ContinuousClock.now + .seconds(1)

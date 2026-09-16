@@ -33,10 +33,12 @@ struct AIConversationListView: View {
 
 struct AISettingsView: View {
     @Environment(\.dismiss) private var dismiss
+    @Bindable var state: AIChatState
     let model: AIModel
     @State var draft: AISettings
     let sharedMode: Bool
     let onSave: (AISettings) -> Void
+    @State private var showContext = false
     var body: some View {
         NavigationStack {
             Form {
@@ -45,10 +47,15 @@ struct AISettingsView: View {
                     Picker("Reasoning effort", selection: $draft.reasoningEffort) {
                         ForEach(model.reasoningEfforts, id: \.self) { Text($0).tag($0) }
                     }
-                    Picker("コンテキスト", selection: $draft.contextLength) {
-                        ForEach(model.contextLengths, id: \.self) { Text("\($0 / 1024)K（\($0.formatted()) tokens）").tag($0) }
-                    }.disabled(sharedMode)
-                    if sharedMode { Text("共有モデル・コンテキスト長はトップ画面で変更できます。").font(.caption).foregroundStyle(.secondary) }
+                    if sharedMode {
+                        Button { showContext = true } label: {
+                            LabeledContent("共通コンテキスト", value: "\(draft.contextLength / 1024)K")
+                        }.accessibilityIdentifier("AI.settings.context")
+                    } else {
+                        Picker("コンテキスト", selection: $draft.contextLength) {
+                            ForEach(model.contextLengths, id: \.self) { Text("\($0 / 1024)K（\($0.formatted()) tokens）").tag($0) }
+                        }
+                    }
                     HStack {
                         Text("出力上限")
                         TextField("tokens", value: $draft.maxOutputTokens, format: .number)
@@ -66,5 +73,9 @@ struct AISettingsView: View {
                 ToolbarItem(placement: .confirmationAction) { Button("保存") { onSave(draft); dismiss() }.disabled(!model.accepts(draft)) }
             }
         }.presentationDetents([.medium, .large])
+        .sheet(isPresented: $showContext) { AIChatContextView(state: state, model: model) }
+        .onChange(of: state.sharing) { _, sharing in
+            if let sharing, sharing.enabled { draft.contextLength = sharing.contextLength }
+        }
     }
 }
