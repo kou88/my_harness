@@ -105,7 +105,7 @@ struct AISharing: Codable, Equatable {
     func validationMessage(models: [AIModel]) -> String {
         if enabled {
             guard let model = models.first(where: { $0.id == modelId }) else { return "モデルを選択してください。" }
-            guard model.online else { return "選択したPCがオフラインです。PCを起動してから保存してください。" }
+            guard model.online else { return "OS Agentに接続できません。「PC管理」でPCとAIの状態を確認してください。" }
             guard model.contextLengths.contains(contextLength) else {
                 return "選択したモデルは\(contextLength / 1024)Kに対応していません。「GPUの実行枠」の設定を確認してください。"
             }
