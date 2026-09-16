@@ -39,6 +39,14 @@ final class AIAPIClient {
         session = URLSession(configuration: configuration)
     }
 
+    func powerHosts() async throws -> [AIPowerHost] { try await request("/power/hosts", method: "GET", body: nil) }
+    func power(hostId: String, id: String, action: String) async throws -> AIPowerOperation {
+        struct Input: Encodable { let id: String; let action: String }
+        return try await request("/power/hosts/\(hostId)/operations", method: "POST", body: encoder.encode(Input(id: id, action: action)))
+    }
+    func cancelPower(hostId: String, id: String) async throws -> AIPowerOperation {
+        try await request("/power/hosts/\(hostId)/operations/\(id)/cancel", method: "POST", body: nil)
+    }
     func models() async throws -> [AIModel] { try await request("/models", method: "GET", body: nil) }
     func repositories() async throws -> [AIRepository] { try await request("/repositories", method: "GET", body: nil) }
     func requests(_ runId: String) async throws -> [AIRequest] { try await request("/runs/\(runId)/requests", method: "GET", body: nil) }

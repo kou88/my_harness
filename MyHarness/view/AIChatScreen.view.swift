@@ -37,6 +37,7 @@ struct AIChatScreen: View {
     @State private var showSharing = false
     @State private var showCron = false
     @State private var showInference = false
+    @State private var showPower = false
     @State private var deleteTarget: String?
     @State private var showRename = false
     @State private var title = ""
@@ -130,6 +131,9 @@ struct AIChatScreen: View {
                 AISettingsView(state: state, model: model, draft: settings, sharedMode: state.sharedMode) { state.saveSettings($0) }
             }
         }
+        .sheet(isPresented: $showPower, onDismiss: { router.pcManagementHostId = "" }) { AIPowerView(state: state, selectedHostId: router.pcManagementHostId) }
+        .onChange(of: router.pcManagementHostId) { _, id in if !id.isEmpty { showPower = true } }
+        .onAppear { if !router.pcManagementHostId.isEmpty { showPower = true } }
         .sheet(isPresented: $showInference) { AIInferenceView(state: state) }
         .sheet(isPresented: $showSharing) {
             if let sharing = state.sharing { AISharingView(state: state, draft: sharing) }
@@ -175,6 +179,7 @@ struct AIChatScreen: View {
             Menu {
                 Button("モデル設定", systemImage: "slider.horizontal.3") { showSettings = true }
                     .disabled(state.selectedModel == nil || state.activeRun != nil || state.hasPendingSubmission)
+                Button("PC管理", systemImage: "power") { showPower = true }
                 Button("GPUの実行枠", systemImage: "cpu") { showInference = true }
             } label: {
                 Image(systemName: "slider.horizontal.3").font(.system(size: 18)).frame(width: 44, height: 44)

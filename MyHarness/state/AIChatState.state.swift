@@ -30,6 +30,39 @@ final class AIChatState {
         let submission: AIAPIClient.Submission
         let uploads: [AIComposerAttachment]
     }
+    var powerHosts: [AIPowerHost] = []
+    var powerError = ""
+    private(set) var powerSubmitting = false
+    var powerLoaded = false
+    private var powerLoading = false
+    func refreshPower() async {
+        guard !powerLoading else { return }
+        powerLoading = true
+        defer { powerLoading = false; powerLoaded = true }
+        guard let api, isSignedIn else { powerError = "PC管理にはログインが必要です。"; return }
+        do { powerHosts = try await api.powerHosts(); powerError = "" }
+        catch { powerError = error.localizedDescription }
+    }
+    func operatePower(hostId: String, action: String) async {
+        guard let api, !powerSubmitting else { return }
+        powerSubmitting = true
+        defer { powerSubmitting = false }
+        do {
+            _ = try await api.power(hostId: hostId, id: UUID().uuidString.lowercased(), action: action)
+            await refreshPower()
+        } catch {
+            let failure = error.localizedDescription
+            await refreshPower()
+            powerError = failure
+        }
+    }
+    func cancelPower(_ operation: AIPowerOperation) async {
+        guard let api, !powerSubmitting else { return }
+        powerSubmitting = true
+        defer { powerSubmitting = false }
+        do { _ = try await api.cancelPower(hostId: operation.hostId, id: operation.id); await refreshPower() }
+        catch { powerError = error.localizedDescription }
+    }
     var inferenceHosts: [AIInferenceHost] = []
     var inferenceError = ""
     private var inferenceLoading = false
