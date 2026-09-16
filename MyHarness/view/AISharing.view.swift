@@ -5,6 +5,7 @@ struct AISharingView: View {
     @Bindable var state: AIChatState
     @State var draft: AISharing
     @State private var failure = ""
+    @State private var showContext = false
     private var validationMessage: String { draft.validationMessage(models: state.models) }
 
     var body: some View {
@@ -21,14 +22,17 @@ struct AISharingView: View {
                             Text("モデルを選択").tag("")
                             ForEach(state.models) { item in Text(item.name + (item.online ? "" : "（オフライン）")).tag(item.id) }
                         }.pickerStyle(.navigationLink).accessibilityIdentifier("AI.sharing.model")
-                        Text("コンテキストは「GPUの実行枠」で変更できます。現在 \(draft.contextLength / 1024)K。")
-                            .font(.caption).foregroundStyle(.secondary)
-                        Text("モデルとコンテキスト長はチャット内では固定。推論量・出力上限は会話ごとに変更できます。")
+                        if state.models.contains(where: { $0.id == draft.modelId }) {
+                            Button { showContext = true } label: {
+                                LabeledContent("コンテキスト", value: "\(draft.contextLength / 1024)K")
+                            }.accessibilityIdentifier("AI.sharing.context")
+                        }
+                        Text("モデルとコンテキスト長は共有チャット共通です。推論量・出力上限は会話ごとに変更できます。")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
                 Section {
-                    Text("変更は待機中を含むすべての実行が完了してから保存できます。同じアカウントの端末すべてに適用します。")
+                    Text("共有モード・モデルの変更は、待機中を含むすべての実行が完了してから保存できます。同じアカウントの端末すべてに適用します。")
                         .font(.caption).foregroundStyle(.secondary)
                     if !validationMessage.isEmpty {
                         Text(validationMessage).foregroundStyle(.red).font(.callout)
@@ -54,6 +58,11 @@ struct AISharingView: View {
         .onAppear { synchronizeModel() }
         .onChange(of: draft.modelId) { _, _ in synchronizeModel() }
         .onChange(of: state.models) { _, _ in synchronizeModel() }
+        .sheet(isPresented: $showContext) {
+            if let model = state.models.first(where: { $0.id == draft.modelId }) {
+                AIChatContextView(state: state, model: model)
+            }
+        }
     }
 
     private func synchronizeModel() {

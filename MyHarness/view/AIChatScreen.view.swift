@@ -127,7 +127,7 @@ struct AIChatScreen: View {
         }
         .sheet(isPresented: $showSettings) {
             if let model = state.selectedModel, let settings = state.settings {
-                AISettingsView(model: model, draft: settings, sharedMode: state.sharedMode) { state.saveSettings($0) }
+                AISettingsView(state: state, model: model, draft: settings, sharedMode: state.sharedMode) { state.saveSettings($0) }
             }
         }
         .sheet(isPresented: $showInference) { AIInferenceView(state: state) }
