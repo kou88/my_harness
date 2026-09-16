@@ -63,6 +63,27 @@ final class AIChatState {
         do { _ = try await api.cancelPower(hostId: operation.hostId, id: operation.id); await refreshPower() }
         catch { powerError = error.localizedDescription }
     }
+    private(set) var sharingStatusLoading = false
+    private(set) var sharingStatusError = ""
+    func refreshSharingStatus() async {
+        guard !sharingStatusLoading else { return }
+        sharingStatusLoading = true
+        defer { sharingStatusLoading = false }
+        guard let api, isSignedIn else { sharingStatusError = "状態の確認にはログインが必要です。"; return }
+        // Only refresh the catalog; the user's unsaved sharing draft stays intact.
+        async let power: Void = refreshPower()
+        do {
+            models = try await api.models()
+            sharingStatusError = ""
+        } catch {
+            sharingStatusError = "OS Agentの接続状態を取得できませんでした。"
+        }
+        await power
+    }
+    func sharingConnection(for model: AIModel) -> AISharingConnection {
+        AISharingConnection(model: model, power: powerHosts.first { $0.hostId == model.hostId },
+                            catalogError: sharingStatusError, powerError: powerError)
+    }
     var inferenceHosts: [AIInferenceHost] = []
     var inferenceError = ""
     private var inferenceLoading = false

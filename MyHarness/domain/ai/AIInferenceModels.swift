@@ -120,3 +120,30 @@ struct AIPowerHost: Decodable, Equatable, Identifiable {
         }
     }
 }
+
+// Power reports and the chat Agent connection are independent observations.
+struct AISharingConnection: Equatable {
+    let pc: String
+    let agent: String
+    let ai: String
+    let message: String
+
+    init(model: AIModel, power: AIPowerHost?, catalogError: String, powerError: String) {
+        agent = catalogError.isEmpty ? (model.online ? "接続中" : "未接続") : "確認できません"
+        guard powerError.isEmpty, let power else {
+            pc = "状態未取得"
+            ai = "状態未取得"
+            message = powerError.isEmpty ? "PCの稼働状態はまだ取得できていません。" : "PCの状態を取得できませんでした。"
+            return
+        }
+        pc = power.stateText
+        ai = power.online ? (power.aiReady ? "利用可能" : "準備中・要確認") : "状態未取得"
+        if power.online && !power.aiReady {
+            message = power.error.isEmpty ? "PCは稼働中ですが、AIの準備が完了していません。" : power.error
+        } else if power.online && !model.online && catalogError.isEmpty {
+            message = "PCは稼働中ですが、OS Agentに接続できません。"
+        } else {
+            message = ""
+        }
+    }
+}
