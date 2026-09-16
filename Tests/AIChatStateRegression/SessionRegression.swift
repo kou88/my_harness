@@ -21,9 +21,37 @@ import Foundation
         sharingDraft.selectModel(smallerPolicy)
         precondition(sharingDraft.contextLength == 16384, "Use configured chat context, not maximum capacity")
         let offline = flashModel(online: false, context: 32768)
-        precondition(sharingDraft.validationMessage(models: [offline]).contains("オフライン"))
+        precondition(sharingDraft.validationMessage(models: [offline]).contains("OS Agent"))
         sharingDraft.enabled = false
         precondition(sharingDraft.validationMessage(models: [offline]).isEmpty, "Turning sharing off does not require an online PC")
+
+        // AI failure does not mean the powered host is off. Catalog refresh is
+        // independent from draft/sharing refresh and must expose fetch failures.
+        let presenceAPI = AIAPIClient()
+        presenceAPI.catalog = [offline]
+        presenceAPI.powerHostValues = [AIPowerHost(hostId: "host", hostName: "PC-02", relayOnline: true,
+            online: true, state: "online", aiReady: false, capturedAt: "test", activeRuns: 0, queuedRuns: 0,
+            blockers: [], error: "推論サービスが停止しています。", operations: [])]
+        let presence = AIChatState(apiClient: presenceAPI, authSession: CognitoAuthSession(), configurationErrorMessage: nil,
+            reconciliationInterval: .milliseconds(20))
+        await presence.loadList()
+        let savedSharing = presence.sharing
+        await presence.refreshSharingStatus()
+        let stoppedAI = presence.sharingConnection(for: presence.models[0])
+        precondition(stoppedAI.pc == "稼働中" && stoppedAI.agent == "未接続" && stoppedAI.ai == "準備中・要確認")
+        precondition(stoppedAI.message == "推論サービスが停止しています。")
+        presenceAPI.catalog = [flash]
+        await presence.refreshSharingStatus()
+        precondition(presence.models[0].online && presence.sharing == savedSharing)
+        precondition(presence.sharingConnection(for: presence.models[0]).agent == "接続中")
+        presenceAPI.failCatalog = true; presenceAPI.failPower = true
+        await presence.refreshSharingStatus()
+        precondition(!presence.sharingStatusError.isEmpty)
+        let failedPresence = presence.sharingConnection(for: presence.models[0])
+        precondition(failedPresence.pc == "状態未取得" && failedPresence.agent == "確認できません")
+        presenceAPI.failCatalog = false; presenceAPI.failPower = false
+        await presence.refreshSharingStatus()
+        precondition(presence.sharingStatusError.isEmpty && presence.powerError.isEmpty)
 
         // Saving the chat policy refreshes both the shared value and the next request settings.
         let contextAPI = AIAPIClient()

@@ -59,10 +59,19 @@ import Foundation
             }
         }
     }
-    func powerHosts() async throws -> [AIPowerHost] { [] }
+    var powerHostValues: [AIPowerHost] = []
+    var failCatalog = false
+    var failPower = false
+    func powerHosts() async throws -> [AIPowerHost] {
+        if failPower { throw APIError.response(503, "Power unavailable") }
+        return powerHostValues
+    }
     func power(hostId: String, id: String, action: String) async throws -> AIPowerOperation { throw APIError.response(404, "Not configured") }
     func cancelPower(hostId: String, id: String) async throws -> AIPowerOperation { throw APIError.response(404, "Not configured") }
-    func models() async throws -> [AIModel] { hideModel ? [] : catalog }
+    func models() async throws -> [AIModel] {
+        if failCatalog { throw APIError.response(503, "Catalog unavailable") }
+        return hideModel ? [] : catalog
+    }
     func conversations() async throws -> [AIConversation] {
         details.values.map { AIConversation(id: $0.id, title: $0.title, context: $0.context, createdAt: $0.createdAt, updatedAt: $0.updatedAt) }
     }
