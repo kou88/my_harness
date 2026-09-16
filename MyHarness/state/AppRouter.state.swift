@@ -10,6 +10,7 @@ final class AppRouter {
     var todayPath: [AppRoute] = []
     var articlesPath: [AppRoute] = []
     var aiPath: [AppRoute] = []
+    var pcManagementHostId = ""
     var pendingProductOpsDeepLink: ProductOpsDeepLinkDestination?
 
     func push(_ route: AppRoute) {
@@ -89,6 +90,9 @@ final class AppRouter {
             articlesPath = nonEmptyId(tail.first).map { [.article(id: $0)] } ?? []
         case "ai":
             selectedTab = .ai
+            if tail.first == "pcs", let id = nonEmptyId(tail.dropFirst().first) {
+                aiPath = []; pcManagementHostId = id; return
+            }
             let conversationId: String?
             if tail.first == "conversations" {
                 conversationId = nonEmptyId(tail.dropFirst().first)
