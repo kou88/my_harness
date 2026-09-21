@@ -210,16 +210,22 @@ struct AIPowerView: View {
                         Section(host.hostName) {
                             LabeledContent("PC", value: host.stateText)
                             LabeledContent("AI", value: host.state == "waiting" || host.state == "stopping" ? "新規受付を停止中" : host.aiReady ? "利用可能" : host.online ? "準備中・要確認" : "未接続")
-                            LabeledContent("自宅の中継機", value: host.relayOnline ? "接続中" : "接続不明")
+                            LabeledContent("自宅の中継機", value: host.relayOnline ? "確認済み" : host.checking ? "確認中" : "未確認")
                             if host.online { LabeledContent("実行中 / 待機中", value: "\(host.activeRuns) / \(host.queuedRuns)") }
                             if !host.capturedAt.isEmpty { LabeledContent("最終確認", value: displayDate(host.capturedAt)) }
                             if !host.error.isEmpty { Text(host.error).foregroundStyle(.red) }
                             ForEach(host.blockers, id: \.self) { Text($0).font(.caption).foregroundStyle(.secondary) }
+                            Button("現在の状態を確認", systemImage: "arrow.clockwise") { Task { await state.checkPower() } }
+                                .disabled(host.checking || state.powerChecking || state.powerSubmitting)
+                                .accessibilityIdentifier("AI.power.check")
                             if !host.hasActiveOperation {
-                                if !host.online {
+                                if host.checking {
+                                    HStack { ProgressView(); Text("PCと中継機を確認しています。最大1分ほどかかります。") }
+                                        .foregroundStyle(.secondary)
+                                } else if host.state == "stopped" || host.state == "unreachable" {
                                     Button("起動", systemImage: "power") { request(host, action: "wake") }
                                         .disabled(!host.relayOnline || state.powerSubmitting).accessibilityIdentifier("AI.power.wake")
-                                } else {
+                                } else if host.online {
                                     Button("シャットダウン", systemImage: "power", role: .destructive) { request(host, action: "shutdown") }
                                         .disabled(state.powerSubmitting || !host.relayOnline || host.activeRuns + host.queuedRuns > 0 || !host.blockers.isEmpty)
                                         .accessibilityIdentifier("AI.power.shutdown")
@@ -251,7 +257,7 @@ struct AIPowerView: View {
                     }
                 }
                 .onChange(of: state.powerHosts) { _, _ in if !scrolledToHost && state.powerHosts.contains(where: { $0.id == selectedHostId }) { scroll.scrollTo(selectedHostId, anchor: .top); scrolledToHost = true } }
-                .refreshable { await state.refreshPower() }
+                .refreshable { await state.checkPower() }
             }
             .navigationTitle("PC管理").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("閉じる") { dismiss() } } }
@@ -265,12 +271,13 @@ struct AIPowerView: View {
             }
             .sheet(isPresented: $showInference) { AIInferenceView(state: state) }
             .task {
+                await state.checkPower()
                 while !Task.isCancelled {
-                    if scenePhase == .active { await state.refreshPower() }
+                    if scenePhase == .active && state.powerHosts.contains(where: { $0.checking || $0.hasActiveOperation }) { await state.refreshPower() }
                     do { try await Task.sleep(for: .seconds(5)) } catch { return }
                 }
             }
-            .onChange(of: scenePhase) { _, phase in if phase == .active { Task { await state.refreshPower() } } }
+            .onChange(of: scenePhase) { _, phase in if phase == .active { Task { await state.checkPower() } } }
         }
     }
     private func request(_ host: AIPowerHost, action: String) {

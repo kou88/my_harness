@@ -33,6 +33,7 @@ final class AIChatState {
     var powerHosts: [AIPowerHost] = []
     var powerError = ""
     private(set) var powerSubmitting = false
+    private(set) var powerChecking = false
     var powerLoaded = false
     private var powerLoading = false
     func refreshPower() async {
@@ -42,6 +43,21 @@ final class AIChatState {
         guard let api, isSignedIn else { powerError = "PC管理にはログインが必要です。"; return }
         do { powerHosts = try await api.powerHosts(); powerError = "" }
         catch { powerError = error.localizedDescription }
+    }
+    func checkPower() async {
+        guard let api, !powerChecking else { return }
+        powerChecking = true
+        defer { powerChecking = false }
+        await refreshPower()
+        guard powerError.isEmpty else { return }
+        do {
+            for host in powerHosts.filter({ !$0.checking && !$0.hasActiveOperation }) {
+                _ = try await api.probePower(hostId: host.id, id: UUID().uuidString.lowercased())
+            }
+            await refreshPower()
+        } catch {
+            powerError = error.localizedDescription
+        }
     }
     func operatePower(hostId: String, action: String) async {
         guard let api, !powerSubmitting else { return }

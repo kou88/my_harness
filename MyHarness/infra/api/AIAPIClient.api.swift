@@ -40,6 +40,10 @@ final class AIAPIClient {
     }
 
     func powerHosts() async throws -> [AIPowerHost] { try await request("/power/hosts", method: "GET", body: nil) }
+    func probePower(hostId: String, id: String) async throws -> AIPowerProbe {
+        struct Input: Encodable { let id: String }
+        return try await request("/power/hosts/\(hostId)/probe", method: "POST", body: encoder.encode(Input(id: id)))
+    }
     func power(hostId: String, id: String, action: String) async throws -> AIPowerOperation {
         struct Input: Encodable { let id: String; let action: String }
         return try await request("/power/hosts/\(hostId)/operations", method: "POST", body: encoder.encode(Input(id: id, action: action)))

@@ -15,7 +15,7 @@ import SwiftUI
         api.catalog = [model]
         api.sharingValue = AISharing(enabled: true, modelId: model.id, contextLength: 32768, maxConcurrentRuns: 1, revision: 1)
         api.powerHostValues = [AIPowerHost(hostId: "host", hostName: "PC-02", relayOnline: true, online: true,
-            state: "online", aiReady: false, capturedAt: "test", activeRuns: 0, queuedRuns: 0, blockers: [],
+            state: "online", checking: false, probeId: nil, aiReady: false, capturedAt: "test", activeRuns: 0, queuedRuns: 0, blockers: [],
             error: "推論サービスが停止しています。PCの電源管理は利用できます。", operations: [])]
         _api = State(initialValue: api)
         _state = State(initialValue: AIChatState(apiClient: api, authSession: CognitoAuthSession(), configurationErrorMessage: nil,

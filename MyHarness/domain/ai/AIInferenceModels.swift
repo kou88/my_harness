@@ -94,12 +94,18 @@ struct AIPowerOperation: Codable, Equatable, Identifiable {
         }
     }
 }
+struct AIPowerProbe: Decodable, Equatable {
+    let id: String
+    let requestedAt: String
+}
 struct AIPowerHost: Decodable, Equatable, Identifiable {
     let hostId: String
     let hostName: String
     let relayOnline: Bool
     let online: Bool
     let state: String
+    let checking: Bool
+    let probeId: String?
     let aiReady: Bool
     let capturedAt: String
     let activeRuns: Int
@@ -111,11 +117,13 @@ struct AIPowerHost: Decodable, Equatable, Identifiable {
     var hasActiveOperation: Bool { operations.contains(where: \.isActive) }
     var stateText: String {
         switch state {
+        case "checking": "確認中"
         case "starting": "起動中"
         case "online": "稼働中"
         case "waiting": "停止待ち"
         case "stopping": "停止処理中"
         case "stopped": "停止確認済み"
+        case "unreachable": "PCへ到達できません"
         default: "接続不明"
         }
     }
