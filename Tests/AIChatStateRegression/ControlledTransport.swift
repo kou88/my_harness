@@ -60,11 +60,16 @@ import Foundation
         }
     }
     var powerHostValues: [AIPowerHost] = []
+    var powerProbeHostIds: [String] = []
     var failCatalog = false
     var failPower = false
     func powerHosts() async throws -> [AIPowerHost] {
         if failPower { throw APIError.response(503, "Power unavailable") }
         return powerHostValues
+    }
+    func probePower(hostId: String, id: String) async throws -> AIPowerProbe {
+        powerProbeHostIds.append(hostId)
+        return AIPowerProbe(id: id, requestedAt: "test")
     }
     func power(hostId: String, id: String, action: String) async throws -> AIPowerOperation { throw APIError.response(404, "Not configured") }
     func cancelPower(hostId: String, id: String) async throws -> AIPowerOperation { throw APIError.response(404, "Not configured") }

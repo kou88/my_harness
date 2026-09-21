@@ -30,7 +30,7 @@ import Foundation
         let presenceAPI = AIAPIClient()
         presenceAPI.catalog = [offline]
         presenceAPI.powerHostValues = [AIPowerHost(hostId: "host", hostName: "PC-02", relayOnline: true,
-            online: true, state: "online", aiReady: false, capturedAt: "test", activeRuns: 0, queuedRuns: 0,
+            online: true, state: "online", checking: false, probeId: nil, aiReady: false, capturedAt: "test", activeRuns: 0, queuedRuns: 0,
             blockers: [], error: "推論サービスが停止しています。", operations: [])]
         let presence = AIChatState(apiClient: presenceAPI, authSession: CognitoAuthSession(), configurationErrorMessage: nil,
             reconciliationInterval: .milliseconds(20))
@@ -52,6 +52,8 @@ import Foundation
         presenceAPI.failCatalog = false; presenceAPI.failPower = false
         await presence.refreshSharingStatus()
         precondition(presence.sharingStatusError.isEmpty && presence.powerError.isEmpty)
+        await presence.checkPower()
+        precondition(presenceAPI.powerProbeHostIds == ["host"] && !presence.powerChecking)
 
         // Saving the chat policy refreshes both the shared value and the next request settings.
         let contextAPI = AIAPIClient()
