@@ -11,11 +11,11 @@ import SwiftUI
             name: "Qwen3.8 Flash-Next / IQ4_XS", online: false, contextLengths: [32768, 65536, 131072, 262144],
             maxOutputTokens: 16384, reasoningEfforts: ["medium"], reasoningBudgets: ["medium": 1024],
             initialSettings: AISettings(contextLength: 32768, maxOutputTokens: 4096, reasoningEffort: "medium"),
-            inputModalities: [.text])
+            inputModalities: [.text], features: AIModelFeatures(toolCalling: true, reasoning: true))
         api.catalog = [model]
         api.sharingValue = AISharing(enabled: true, modelId: model.id, contextLength: 32768, maxConcurrentRuns: 1, revision: 1)
         api.powerHostValues = [AIPowerHost(hostId: "host", hostName: "PC-02", relayOnline: true, online: true,
-            state: "online", aiReady: false, capturedAt: "test", activeRuns: 0, queuedRuns: 0, blockers: [],
+            state: "online", checking: false, probeId: nil, aiReady: false, capturedAt: "test", activeRuns: 0, queuedRuns: 0, blockers: [],
             error: "推論サービスが停止しています。PCの電源管理は利用できます。", operations: [])]
         _api = State(initialValue: api)
         _state = State(initialValue: AIChatState(apiClient: api, authSession: CognitoAuthSession(), configurationErrorMessage: nil,
@@ -31,7 +31,7 @@ import SwiftUI
                         api.catalog = [AIModel(id: m.id, hostId: m.hostId, hostName: m.hostName, model: m.model,
                             name: m.name, online: true, contextLengths: m.contextLengths, maxOutputTokens: m.maxOutputTokens,
                             reasoningEfforts: m.reasoningEfforts, reasoningBudgets: m.reasoningBudgets,
-                            initialSettings: m.initialSettings, inputModalities: m.inputModalities)]
+                            initialSettings: m.initialSettings, inputModalities: m.inputModalities, features: m.features)]
                     }
                     Button("取得失敗") { api.failCatalog = true; api.failPower = true }
                 }.padding(8)

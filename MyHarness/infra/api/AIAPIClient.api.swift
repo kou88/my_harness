@@ -40,6 +40,10 @@ final class AIAPIClient {
     }
 
     func powerHosts() async throws -> [AIPowerHost] { try await request("/power/hosts", method: "GET", body: nil) }
+    func probePower(hostId: String, id: String) async throws -> AIPowerProbe {
+        struct Input: Encodable { let id: String }
+        return try await request("/power/hosts/\(hostId)/probe", method: "POST", body: encoder.encode(Input(id: id)))
+    }
     func power(hostId: String, id: String, action: String) async throws -> AIPowerOperation {
         struct Input: Encodable { let id: String; let action: String }
         return try await request("/power/hosts/\(hostId)/operations", method: "POST", body: encoder.encode(Input(id: id, action: action)))
@@ -68,17 +72,16 @@ final class AIAPIClient {
     }
     func upload(conversation: String, attachment: AIComposerAttachment) async throws -> AIAttachment {
         struct Metadata: Encodable {
-            let id: String; let kind: AIAttachmentKind; let groupId: String; let fileName: String
-            let contentType: String; let frameIndex: Int; let frameCount: Int
+            let id: String; let kind: AIAttachmentKind; let fileName: String; let contentType: String
         }
         let boundary = "MyHarness-" + UUID().uuidString.lowercased()
-        let metadata = try encoder.encode(Metadata(id: attachment.id, kind: attachment.kind, groupId: attachment.groupId,
-            fileName: attachment.fileName, contentType: attachment.contentType, frameIndex: attachment.frameIndex, frameCount: attachment.frameCount))
+        let metadata = try encoder.encode(Metadata(id: attachment.id, kind: attachment.kind,
+            fileName: attachment.fileName, contentType: attachment.contentType))
         var body = Data()
         func append(_ value: String) { body.append(Data(value.utf8)) }
         append("--\(boundary)\r\nContent-Disposition: form-data; name=\"metadata\"\r\nContent-Type: application/json\r\n\r\n")
         body.append(metadata); append("\r\n")
-        append("--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"upload.jpg\"\r\nContent-Type: \(attachment.contentType)\r\n\r\n")
+        append("--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"\(attachment.fileName)\"\r\nContent-Type: \(attachment.contentType)\r\n\r\n")
         body.append(attachment.data); append("\r\n--\(boundary)--\r\n")
         var request = try await makeRequest("/conversations/\(conversation)/attachments", method: "POST", body: body)
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")

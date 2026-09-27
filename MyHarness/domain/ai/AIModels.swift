@@ -129,6 +129,11 @@ enum AIInputModality: String, Codable, Hashable {
     case text, image, video
 }
 
+struct AIModelFeatures: Codable, Hashable {
+    let toolCalling: Bool
+    let reasoning: Bool
+}
+
 struct AIModel: Codable, Identifiable, Hashable {
     let id: String
     let hostId: String
@@ -142,6 +147,7 @@ struct AIModel: Codable, Identifiable, Hashable {
     let reasoningBudgets: [String: Int]
     let initialSettings: AISettings
     let inputModalities: [AIInputModality]
+    let features: AIModelFeatures
 
     func accepts(_ modality: AIInputModality) -> Bool { inputModalities.contains(modality) }
 
@@ -157,30 +163,24 @@ struct AIModel: Codable, Identifiable, Hashable {
 
 enum AIAttachmentKind: String, Codable, Hashable {
     case image
-    case videoFrame = "video_frame"
+    case video
 }
 
 struct AIAttachment: Codable, Identifiable, Hashable {
     let id: String
     let conversationId: String
     let kind: AIAttachmentKind
-    let groupId: String
     let fileName: String
     let contentType: String
     let byteSize: Int
-    let frameIndex: Int
-    let frameCount: Int
     let createdAt: String
 }
 
 struct AIComposerAttachment: Identifiable, Hashable {
     let id: String
     let kind: AIAttachmentKind
-    let groupId: String
     let fileName: String
     let contentType: String
-    let frameIndex: Int
-    let frameCount: Int
     let data: Data
 
     var modality: AIInputModality { kind == .image ? .image : .video }

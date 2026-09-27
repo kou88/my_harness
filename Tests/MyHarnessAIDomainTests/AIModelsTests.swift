@@ -115,7 +115,7 @@ private func run() -> AIRun {
 }
 @Test func invalidSettingsAreNotSentToTheModel() {
     let settings = AISettings(contextLength: 65536, maxOutputTokens: 4096, reasoningEffort: "medium")
-    let model = AIModel(id: "id", hostId: "host", hostName: "PC", model: "qwen", name: "Qwen", online: true, contextLengths: [65536,262144], maxOutputTokens: 32768, reasoningEfforts: ["medium","max"], reasoningBudgets: ["medium":1024,"max":16384], initialSettings: settings, inputModalities: [.text])
+    let model = AIModel(id: "id", hostId: "host", hostName: "PC", model: "qwen", name: "Qwen", online: true, contextLengths: [65536,262144], maxOutputTokens: 32768, reasoningEfforts: ["medium","max"], reasoningBudgets: ["medium":1024,"max":16384], initialSettings: settings, inputModalities: [.text], features: AIModelFeatures(toolCalling: true, reasoning: true))
     #expect(model.accepts(settings))
     #expect(!model.accepts(AISettings(contextLength: 65536, maxOutputTokens: 4096, reasoningEffort: "max")))
 }

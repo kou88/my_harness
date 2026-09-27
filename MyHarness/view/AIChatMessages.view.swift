@@ -67,10 +67,7 @@ private struct AIRunMessage: View {
     private var outputText: String { state.displayedOutput(for: run) }
     private var timeline: [AITraceEntry] { trace.timeline(displayedOutput: outputText) }
     private var timelineSections: [AITraceTimelineSection] { trace.groupedTimeline(displayedOutput: outputText) }
-    private var attachmentGroups: [AIAttachment] {
-        var seen = Set<String>()
-        return run.attachments.filter { seen.insert($0.groupId).inserted }
-    }
+    private var attachmentGroups: [AIAttachment] { run.attachments }
     private var status: String {
         if run.cancelRequested && run.isActive { return "停止を要求中" }
         if !trace.status.isEmpty && run.isActive { return trace.status }
@@ -175,21 +172,25 @@ private struct AIHistoryAttachmentPreview: View {
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            if let data = state.cachedAttachmentData(attachment.id), let image = UIImage(data: data) {
+            if attachment.kind == .video {
+                Rectangle().fill(AIChatStyle.bubble)
+                Image(systemName: "play.rectangle.fill").font(.system(size: 42)).foregroundStyle(AIChatStyle.muted)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let data = state.cachedAttachmentData(attachment.id), let image = UIImage(data: data) {
                 Image(uiImage: image).resizable().scaledToFill()
             } else {
                 Rectangle().fill(AIChatStyle.bubble)
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            if attachment.kind == .videoFrame {
-                Label("動画 · \(attachment.frameCount)フレーム", systemImage: "play.fill")
+            if attachment.kind == .video {
+                Label("動画", systemImage: "play.fill")
                     .font(.caption2).foregroundStyle(.white).padding(6).background(.black.opacity(0.62), in: Capsule()).padding(6)
             }
         }
-        .frame(width: attachment.kind == .videoFrame ? 180 : 132, height: 132).clipped()
+        .frame(width: attachment.kind == .video ? 180 : 132, height: 132).clipped()
         .clipShape(RoundedRectangle(cornerRadius: 16))
-        .accessibilityLabel(attachment.kind == .videoFrame ? "動画 \(attachment.frameCount)フレーム" : "添付画像 \(attachment.fileName)")
-        .task(id: attachment.id) { await state.loadAttachmentData(attachment.id) }
+        .accessibilityLabel(attachment.kind == .video ? "添付動画 \(attachment.fileName)" : "添付画像 \(attachment.fileName)")
+        .task(id: attachment.id) { if attachment.kind == .image { await state.loadAttachmentData(attachment.id) } }
     }
 }
 
