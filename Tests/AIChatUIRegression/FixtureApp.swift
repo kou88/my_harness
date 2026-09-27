@@ -73,8 +73,8 @@ enum AppRoute { case aiConversation(id: String) }
                 .foregroundColor: UIColor.white, .paragraphStyle: paragraph]
             NSString(string: "742").draw(in: CGRect(x: 0, y: 155, width: 960, height: 220), withAttributes: attributes)
         }.jpegData(compressionQuality: 0.82)!
-        let fixtureAttachment = AIAttachment(id: imageId, conversationId: media, kind: .image, groupId: imageId,
-            fileName: "表示確認.jpg", contentType: "image/jpeg", byteSize: imageData.count, frameIndex: 1, frameCount: 1, createdAt: "test")
+        let fixtureAttachment = AIAttachment(id: imageId, conversationId: media, kind: .image,
+            fileName: "表示確認.jpg", contentType: "image/jpeg", byteSize: imageData.count, createdAt: "test")
         api.attachmentValues[imageId] = imageData
         api.details[media] = AIConversationDetail(id: media, title: "画像を確認", context: .hermes, createdAt: "test", updatedAt: "test", runs: [
             AIRun(id: mediaRun, conversationId: media, hostId: "host", modelId: api.model.id, model: "表示確認モデル", settings: api.model.initialSettings,
