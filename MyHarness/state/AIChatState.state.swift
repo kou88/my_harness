@@ -210,16 +210,16 @@ final class AIChatState {
         }
         let combined = visible.attachments + attachments
         let images = combined.filter { $0.kind == .image }
-        let videoGroups = Set(combined.filter { $0.kind == .videoFrame }.map(\.groupId))
-        guard images.count <= 4, videoGroups.count <= 1, combined.count <= 12 else {
-            errorMessage = "画像は4枚、動画は1本（最大8フレーム）まで追加できます。"; return
+        let videos = combined.filter { $0.kind == .video }
+        guard images.count <= 4, videos.count <= 1, combined.count <= 5 else {
+            errorMessage = "画像は4枚、動画は1本まで追加できます。"; return
         }
         visible.attachments = combined
         errorMessage = ""
     }
-    func removeComposerAttachment(groupId: String) {
+    func removeComposerAttachment(id: String) {
         guard visible.pending == nil, !visible.sending else { return }
-        visible.attachments.removeAll { $0.groupId == groupId }
+        visible.attachments.removeAll { $0.id == id }
     }
     func cachedAttachmentData(_ id: String) -> Data? { attachmentDataById[id] }
     func loadAttachmentData(_ id: String) async {
@@ -396,7 +396,7 @@ final class AIChatState {
                 }
                 context = .opencode(repositoryId: repo.id, baseBranch: branch)
             } else { context = .hermes }
-            let title = text.isEmpty ? (session.attachments.contains(where: { $0.kind == .videoFrame }) ? "動画について" : "画像について") : String(text.prefix(80))
+            let title = text.isEmpty ? (session.attachments.contains(where: { $0.kind == .video }) ? "動画について" : "画像について") : String(text.prefix(80))
             session.pending = Pending(conversationId: id, title: title, isNew: conversationId == nil,
                 context: context, submission: AIAPIClient.Submission(id: UUID().uuidString.lowercased(), modelId: selectedModel.id, inputText: text,
                     settings: settings, delivery: session.delivery, attachmentIds: session.attachments.map(\.id)), uploads: session.attachments)

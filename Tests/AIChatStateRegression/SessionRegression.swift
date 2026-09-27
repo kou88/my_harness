@@ -8,7 +8,8 @@ import Foundation
             AIModel(id: "flash", hostId: "host", hostName: "PC-02", model: "flash", name: "Flash-Next", online: online,
                 contextLengths: [8192, 16384, 32768], maxOutputTokens: 16384, reasoningEfforts: ["medium"],
                 reasoningBudgets: ["medium": 1024], initialSettings: AISettings(contextLength: context,
-                    maxOutputTokens: 4096, reasoningEffort: "medium"), inputModalities: [.text])
+                    maxOutputTokens: 4096, reasoningEffort: "medium"), inputModalities: [.text],
+                features: AIModelFeatures(toolCalling: true, reasoning: true))
         }
         let flash = flashModel(online: true, context: 32768)
         var sharingDraft = AISharing(enabled: true, modelId: "w8", contextLength: 131072, maxConcurrentRuns: 1, revision: 4)
@@ -135,8 +136,8 @@ import Foundation
             reconciliationInterval: .milliseconds(20))
         await mediaState.loadList(); mediaState.choose(mediaAPI.model)
         let imageId = UUID().uuidString.lowercased()
-        mediaState.addComposerAttachments([AIComposerAttachment(id: imageId, kind: .image, groupId: imageId, fileName: "sample.jpg",
-            contentType: "image/jpeg", frameIndex: 1, frameCount: 1, data: Data([0xff, 0xd8, 0xff, 0xd9]))])
+        mediaState.addComposerAttachments([AIComposerAttachment(id: imageId, kind: .image, fileName: "sample.jpg",
+            contentType: "image/jpeg", data: Data([0xff, 0xd8, 0xff, 0xd9]))])
         precondition(mediaState.canSend, "A capable model must accept an image without mandatory text")
         let mediaConversation = await mediaState.send(conversationId: nil)
         precondition(mediaConversation != nil && mediaAPI.details[mediaConversation!]!.runs[0].attachments.first?.id == imageId)

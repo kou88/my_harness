@@ -11,7 +11,8 @@ import Foundation
     struct Submission { let id: String; let modelId: String; let inputText: String; let settings: AISettings; let delivery: AIDelivery; let attachmentIds: [String] }
     let model = AIModel(id: "regression-model", hostId: "host", hostName: "host", model: "test", name: "test", online: true,
         contextLengths: [65536], maxOutputTokens: 32768, reasoningEfforts: ["low"], reasoningBudgets: ["low": 512],
-        initialSettings: AISettings(contextLength: 65536, maxOutputTokens: 1024, reasoningEffort: "low"), inputModalities: [.text, .image, .video])
+        initialSettings: AISettings(contextLength: 65536, maxOutputTokens: 1024, reasoningEffort: "low"), inputModalities: [.text, .image, .video],
+        features: AIModelFeatures(toolCalling: true, reasoning: true))
     var sharingValue = AISharing(enabled: false, modelId: "", contextLength: 65536, maxConcurrentRuns: 2, revision: 1)
     var inferenceHostValues: [AIInferenceHost] = []
     lazy var catalog = [model]
@@ -28,7 +29,7 @@ import Foundation
                 online: item.online, contextLengths: item.contextLengths, maxOutputTokens: item.maxOutputTokens,
                 reasoningEfforts: item.reasoningEfforts, reasoningBudgets: item.reasoningBudgets,
                 initialSettings: AISettings(contextLength: configured.chatContextLength, maxOutputTokens: item.initialSettings.maxOutputTokens,
-                    reasoningEffort: item.initialSettings.reasoningEffort), inputModalities: item.inputModalities)
+                    reasoningEffort: item.initialSettings.reasoningEffort), inputModalities: item.inputModalities, features: item.features)
         }
         return saved
     }
@@ -104,9 +105,8 @@ import Foundation
         return run
     }
     func upload(conversation: String, attachment: AIComposerAttachment) async throws -> AIAttachment {
-        let value = AIAttachment(id: attachment.id, conversationId: conversation, kind: attachment.kind, groupId: attachment.groupId,
-            fileName: attachment.fileName, contentType: attachment.contentType, byteSize: attachment.data.count,
-            frameIndex: attachment.frameIndex, frameCount: attachment.frameCount, createdAt: "test")
+        let value = AIAttachment(id: attachment.id, conversationId: conversation, kind: attachment.kind,
+            fileName: attachment.fileName, contentType: attachment.contentType, byteSize: attachment.data.count, createdAt: "test")
         uploaded[attachment.id] = value
         attachmentValues[attachment.id] = attachment.data
         return value

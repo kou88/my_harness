@@ -16,10 +16,7 @@ struct AIChatComposer: View {
     private var modelLocked: Bool { state.activeRun != nil || state.hasPendingSubmission || state.isSending }
     private var acceptsImages: Bool { state.harness == .hermes && state.selectedModel?.accepts(.image) == true }
     private var acceptsVideo: Bool { state.harness == .hermes && state.selectedModel?.accepts(.video) == true }
-    private var attachmentGroups: [AIComposerAttachment] {
-        var seen = Set<String>()
-        return state.composerAttachments.filter { seen.insert($0.groupId).inserted }
-    }
+    private var attachmentGroups: [AIComposerAttachment] { state.composerAttachments }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -42,16 +39,13 @@ struct AIChatComposer: View {
                     HStack(spacing: 8) {
                         ForEach(attachmentGroups) { attachment in
                             ZStack(alignment: .topTrailing) {
-                                if let image = UIImage(data: attachment.data) {
+                                if attachment.kind == .video {
+                                    Image(systemName: "play.rectangle.fill").resizable().scaledToFit()
+                                        .foregroundStyle(AIChatStyle.muted).frame(width: 72, height: 72)
+                                } else if let image = UIImage(data: attachment.data) {
                                     Image(uiImage: image).resizable().scaledToFill().frame(width: 72, height: 72).clipped()
-                                        .overlay(alignment: .bottomLeading) {
-                                            if attachment.kind == .videoFrame {
-                                                Label("動画", systemImage: "play.fill").font(.caption2).foregroundStyle(.white)
-                                                    .padding(5).background(.black.opacity(0.58), in: Capsule())
-                                            }
-                                        }
                                 }
-                                Button { state.removeComposerAttachment(groupId: attachment.groupId) } label: {
+                                Button { state.removeComposerAttachment(id: attachment.id) } label: {
                                     Image(systemName: "xmark.circle.fill").symbolRenderingMode(.palette).foregroundStyle(.white, .black.opacity(0.65))
                                 }.offset(x: 5, y: -5).accessibilityLabel("\(attachment.fileName)を削除")
                             }.clipShape(RoundedRectangle(cornerRadius: 12))
@@ -161,7 +155,8 @@ struct AIChatComposer: View {
                 defer { loadingMedia = false }
                 do {
                     guard let video = try await item.loadTransferable(type: AIImportedVideo.self) else { throw AIMediaProcessingError.unreadableVideo }
-                    state.addComposerAttachments(try await AIMediaProcessor.video(url: video.url, fileName: "動画.mov"))
+                    let fileName = "動画." + video.url.pathExtension.lowercased()
+                    state.addComposerAttachments([try await AIMediaProcessor.video(url: video.url, fileName: fileName)])
                 } catch { state.errorMessage = error.localizedDescription }
             }
         }
