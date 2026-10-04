@@ -62,7 +62,7 @@ def named_profile(name, bearer)
   result.fetch('data').find { |entry| entry.dig('attributes', 'name') == name }
 end
 
-def profile_plist(profile)
+def profile_entitlements(profile)
   content = Base64.decode64(profile.fetch('attributes').fetch('profileContent'))
   Tempfile.create(['article-profile', '.mobileprovision']) do |source|
     source.binmode
@@ -73,26 +73,40 @@ def profile_plist(profile)
     Tempfile.create(['article-profile', '.plist']) do |plist|
       plist.write(xml)
       plist.flush
-      json, conversion_error, conversion_status = Open3.capture3('/usr/bin/plutil', '-convert', 'json', '-o', '-', plist.path)
-      abort "Cannot parse provisioning profile: #{conversion_error.lines.first}" unless conversion_status.success?
-      return JSON.parse(json)
+      read = lambda do |key|
+        output, _error, result = Open3.capture3('/usr/libexec/PlistBuddy', '-c', "Print :#{key}", plist.path)
+        result.success? ? output.strip : nil
+      end
+      groups = []
+      index = 0
+      while (group = read.call("Entitlements:com.apple.security.application-groups:#{index}"))
+        groups << group
+        index += 1
+      end
+      return {
+        prefix: read.call('ApplicationIdentifierPrefix:0'),
+        team_id: read.call('TeamIdentifier:0'),
+        app_identifier: read.call('Entitlements:application-identifier'),
+        push: read.call('Entitlements:aps-environment'),
+        groups: groups,
+        associated_domains: !read.call('Entitlements:com.apple.developer.associated-domains').nil?
+      }
     end
   end
 end
 
 def verify_profile(profile, associated_domains:)
   abort 'Profile is not active' unless profile.dig('attributes', 'profileState') == 'ACTIVE'
-  plist = profile_plist(profile)
-  prefix = plist.fetch('ApplicationIdentifierPrefix').fetch(0)
-  team_id = plist.fetch('TeamIdentifier').fetch(0)
-  entitlements = plist.fetch('Entitlements')
-  abort 'Application identifier prefix is invalid' unless prefix.match?(/\A[A-Z0-9]{10}\z/)
-  abort 'Profile team identifier is invalid' unless team_id.match?(/\A[A-Z0-9]{10}\z/)
-  abort 'Profile application identifier mismatch' unless entitlements['application-identifier'] == "#{prefix}.#{BUNDLE_IDENTIFIER}"
-  abort 'Push entitlement missing' unless entitlements['aps-environment'] == 'production'
-  abort 'App Group entitlement missing' unless entitlements.fetch('com.apple.security.application-groups', []).include?('group.com.kou888.myharness')
+  plist = profile_entitlements(profile)
+  prefix = plist.fetch(:prefix)
+  team_id = plist.fetch(:team_id)
+  abort 'Application identifier prefix is invalid' unless prefix&.match?(/\A[A-Z0-9]{10}\z/)
+  abort 'Profile team identifier is invalid' unless team_id&.match?(/\A[A-Z0-9]{10}\z/)
+  abort 'Profile application identifier mismatch' unless plist.fetch(:app_identifier) == "#{prefix}.#{BUNDLE_IDENTIFIER}"
+  abort 'Push entitlement missing' unless plist.fetch(:push) == 'production'
+  abort 'App Group entitlement missing' unless plist.fetch(:groups).include?('group.com.kou888.myharness')
   if associated_domains
-    abort 'Associated Domains entitlement missing' unless entitlements.key?('com.apple.developer.associated-domains')
+    abort 'Associated Domains entitlement missing' unless plist.fetch(:associated_domains)
   end
   prefix
 end
