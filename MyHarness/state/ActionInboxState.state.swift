@@ -14,6 +14,7 @@ final class ActionInboxState {
     var inboxState: LoadState<ActionInboxPayload> = .idle
     var detailState: LoadState<ActionSuggestion> = .idle
     var isSigningIn = false
+    private(set) var authenticationRevision = 0
     var isPostingDecision = false
     var isRegisteringPush = false
     var message: String?
@@ -41,7 +42,10 @@ final class ActionInboxState {
     }
 
     var isSignedIn: Bool {
-        authSession?.isSignedIn == true
+        // Keychain changes are not observable; read this tracked value so views
+        // notice successful sign-in and sign-out transitions.
+        _ = authenticationRevision
+        return authSession?.isSignedIn == true
     }
 
     var items: [ActionInboxItem] {
@@ -87,6 +91,7 @@ final class ActionInboxState {
 
         do {
             try await authSession.signIn()
+            authenticationRevision += 1
             apiClient?.invalidateBootstrap()
             try await apiClient?.bootstrapCurrentUser()
             ActionPushNotificationCoordinator.shared.configure(apiClient: apiClient, registerStoredToken: false)
@@ -101,6 +106,7 @@ final class ActionInboxState {
     func signOut() async {
         do {
             try authSession?.signOut()
+            authenticationRevision += 1
             apiClient?.invalidateBootstrap()
             inboxState = .idle
             detailState = .idle

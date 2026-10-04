@@ -21,3 +21,19 @@ import Testing
         #expect(ArticleDeepLink.articleID(for: URL(string: value)!) == nil)
     }
 }
+
+@Test func newestDeepLinkReplacesPendingArticle() throws {
+    let id = "2b6f3a1d-6548-4d9a-80a1-6ddcab63aa90"
+    var pending = PendingArticleLink()
+    pending.receive(URL(string: "myharness://articles/\(id)")!, isSignedIn: false)
+    #expect(pending.articleID == id)
+    pending.receive(URL(string: "myharness://next-actions")!, isSignedIn: false)
+    #expect(pending.take() == nil)
+
+    pending.receive(URL(string: "https://kou88.dev/articles/\(id)")!, isSignedIn: false)
+    #expect(pending.take() == id)
+    #expect(pending.take() == nil)
+
+    pending.receive(URL(string: "myharness://articles/\(id)")!, isSignedIn: true)
+    #expect(pending.articleID == nil)
+}

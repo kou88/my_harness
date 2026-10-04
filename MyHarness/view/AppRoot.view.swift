@@ -18,7 +18,7 @@ struct AppRootView: View {
     @State private var aiCronState: AICronState
     @State private var lastForegroundRefreshAt = Date.distantPast
     @State private var pushRegistrationErrorMessage: String?
-    @State private var pendingArticleID: String?
+    @State private var pendingArticleLink = PendingArticleLink()
 
     init(dependencies: AppDependencies) {
         self.dependencies = dependencies
@@ -215,11 +215,11 @@ struct AppRootView: View {
             }
         }
         .onChange(of: actionInboxState.isSignedIn) { _, isSignedIn in
-            if isSignedIn, let articleID = pendingArticleID {
-                pendingArticleID = nil
+            if isSignedIn, let articleID = pendingArticleLink.take() {
                 router.selectedTab = .articles
                 router.articlesPath = [.article(id: articleID)]
-                Task { await blogPostState.loadDetail(id: articleID) }
+                ActionPushNotificationCoordinator.shared.clearPendingDeepLink()
+                return
             }
             guard isSignedIn,
                   let pendingURL = ActionPushNotificationCoordinator.shared.pendingDeepLinkURL else {
@@ -260,12 +260,11 @@ struct AppRootView: View {
     }
 
     private func handleDeepLink(_ url: URL) {
+        // The newest link replaces any article waiting for authentication.
+        pendingArticleLink.receive(url, isSignedIn: actionInboxState.isSignedIn)
         if url.scheme == "myharness", url.host == "home-control" {
             showsHomeControl = true
             return
-        }
-        if let articleID = ArticleDeepLink.articleID(for: url), !actionInboxState.isSignedIn {
-            pendingArticleID = articleID
         }
         router.handleDeepLink(url)
         if actionInboxState.isSignedIn {
@@ -297,7 +296,7 @@ struct AppRootView: View {
         case .completedActions:
             ActionHistoryView(state: actionInboxState, mode: .completed)
         case .article(let id):
-            ArticleDetailView(id: id, state: blogPostState)
+            ArticleDetailView(id: id, state: blogPostState, authenticationRevision: actionInboxState.authenticationRevision)
         case .aiConversation(let id):
             AIConversationDetailView(id: id, state: aiChatState, cronState: aiCronState)
         }

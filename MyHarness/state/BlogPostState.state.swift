@@ -20,6 +20,7 @@ final class BlogPostState {
 
     var listState: LoadState<[BlogPost]> = .idle
     var detailState: LoadState<BlogPost> = .idle
+    private var requestedDetailID: String?
     var importHostsState: LoadState<[XArticleImportHost]> = .idle
     var importRequestState: ImportRequestState = .idle
     var importCandidates: [SharedXImportCandidate] = []
@@ -109,6 +110,7 @@ final class BlogPostState {
     }
 
     func loadDetail(id: String) async {
+        requestedDetailID = id
         guard let apiClient else {
             detailState = .failed(configurationErrorMessage ?? "API設定を読み込めません。")
             return
@@ -120,10 +122,13 @@ final class BlogPostState {
 
         detailState = .loading
         do {
-            detailState = .loaded(try await apiClient.fetchBlogPost(id: id))
+            let post = try await apiClient.fetchBlogPost(id: id)
+            guard requestedDetailID == id, !Task.isCancelled else { return }
+            detailState = .loaded(post)
         } catch is CancellationError {
             return
         } catch {
+            guard requestedDetailID == id, !Task.isCancelled else { return }
             detailState = .failed("記事の読み込みに失敗しました: \(error.localizedDescription)")
         }
     }
