@@ -8,6 +8,23 @@ struct BlogPostInline: Codable, Hashable {
     var href: String?
 }
 
+enum ArticleDeepLink {
+    static func articleID(for url: URL) -> String? {
+        guard url.user == nil, url.password == nil, url.port == nil else { return nil }
+        let path = url.pathComponents.filter { $0 != "/" }
+        let rawID: String
+        switch (url.scheme?.lowercased(), url.host?.lowercased()) {
+        case ("https", "kou88.dev") where path.count == 2 && path[0] == "articles":
+            rawID = path[1]
+        case ("myharness", "articles") where path.count == 1:
+            rawID = path[0]
+        default:
+            return nil
+        }
+        return UUID(uuidString: rawID)?.uuidString.lowercased()
+    }
+}
+
 enum BlogPostBlock: Codable, Hashable {
     case heading(level: Int, children: [BlogPostInline])
     case paragraph(children: [BlogPostInline])
