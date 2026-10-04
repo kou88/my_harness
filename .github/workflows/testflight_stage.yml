@@ -255,8 +255,8 @@ jobs:
             ASC_ISSUER_ID="$ASC_ISSUER_ID" \
             ASC_KEY_P8_PATH="$ASC_KEY_P8_PATH" \
             BUNDLE_IDENTIFIER="com.kou888.myharness" \
-            PROFILE_NAME="my-harness-app-store-push-v3" \
-            SOURCE_PROFILE_NAME="my-harness-app-store-push-v2" \
+            PROFILE_NAME="my-harness-app-store-associated-domains-v4" \
+            SOURCE_PROFILE_NAME="my-harness-app-store-push-v3" \
             PROFILE_PATH="$APP_PROFILE_PATH" \
             ruby scripts/ensure-app-store-push-profile.rb
           download_profile "my-harness-widget-app-store" "$WIDGET_PROFILE_PATH"
@@ -282,6 +282,7 @@ jobs:
             local team_id
             local supports_push
             local supports_app_group
+            local supports_associated_domains
             uuid=$(/usr/libexec/PlistBuddy -c "Print :UUID" "$plist_path")
             name=$(/usr/libexec/PlistBuddy -c "Print :Name" "$plist_path")
             team_id=$(/usr/libexec/PlistBuddy -c "Print :TeamIdentifier:0" "$plist_path")
@@ -295,17 +296,22 @@ jobs:
             else
               supports_app_group=0
             fi
+            if /usr/libexec/PlistBuddy -c "Print :Entitlements:com.apple.developer.associated-domains" "$plist_path" >/dev/null 2>&1; then
+              supports_associated_domains=1
+            else
+              supports_associated_domains=0
+            fi
             cp "$profile_path" "$USER_HOME/Library/MobileDevice/Provisioning Profiles/$uuid.mobileprovision"
-            printf '%s|%s|%s|%s|%s\n' "$uuid" "$name" "$team_id" "$supports_push" "$supports_app_group"
+            printf '%s|%s|%s|%s|%s|%s\n' "$uuid" "$name" "$team_id" "$supports_push" "$supports_app_group" "$supports_associated_domains"
           }
 
           APP_INFO="$(extract_profile "$APP_PROFILE_PATH" APP)"
           WIDGET_INFO="$(extract_profile "$WIDGET_PROFILE_PATH" WIDGET)"
           SHARE_INFO="$(extract_profile "$SHARE_PROFILE_PATH" SHARE)"
 
-          IFS='|' read -r APP_PROFILE_UUID APP_PROFILE_NAME APP_TEAM_ID APP_PROFILE_SUPPORTS_PUSH APP_PROFILE_SUPPORTS_APP_GROUP <<< "$APP_INFO"
-          IFS='|' read -r WIDGET_PROFILE_UUID WIDGET_PROFILE_NAME WIDGET_TEAM_ID WIDGET_PROFILE_SUPPORTS_PUSH WIDGET_PROFILE_SUPPORTS_APP_GROUP <<< "$WIDGET_INFO"
-          IFS='|' read -r SHARE_PROFILE_UUID SHARE_PROFILE_NAME SHARE_TEAM_ID SHARE_PROFILE_SUPPORTS_PUSH SHARE_PROFILE_SUPPORTS_APP_GROUP <<< "$SHARE_INFO"
+          IFS='|' read -r APP_PROFILE_UUID APP_PROFILE_NAME APP_TEAM_ID APP_PROFILE_SUPPORTS_PUSH APP_PROFILE_SUPPORTS_APP_GROUP APP_PROFILE_SUPPORTS_ASSOCIATED_DOMAINS <<< "$APP_INFO"
+          IFS='|' read -r WIDGET_PROFILE_UUID WIDGET_PROFILE_NAME WIDGET_TEAM_ID WIDGET_PROFILE_SUPPORTS_PUSH WIDGET_PROFILE_SUPPORTS_APP_GROUP WIDGET_PROFILE_SUPPORTS_ASSOCIATED_DOMAINS <<< "$WIDGET_INFO"
+          IFS='|' read -r SHARE_PROFILE_UUID SHARE_PROFILE_NAME SHARE_TEAM_ID SHARE_PROFILE_SUPPORTS_PUSH SHARE_PROFILE_SUPPORTS_APP_GROUP SHARE_PROFILE_SUPPORTS_ASSOCIATED_DOMAINS <<< "$SHARE_INFO"
 
           {
             echo "APP_PROFILE_UUID=$APP_PROFILE_UUID"
@@ -330,6 +336,10 @@ jobs:
           fi
           if [ "$APP_PROFILE_SUPPORTS_APP_GROUP" != "1" ] || [ "$WIDGET_PROFILE_SUPPORTS_APP_GROUP" != "1" ] || [ "$SHARE_PROFILE_SUPPORTS_APP_GROUP" != "1" ]; then
             echo "::error::App, widget, and share extension profiles must include group.com.kou888.myharness."
+            exit 1
+          fi
+          if [ "$APP_PROFILE_SUPPORTS_ASSOCIATED_DOMAINS" != "1" ]; then
+            echo "::error::App provisioning profile must include Associated Domains."
             exit 1
           fi
 
@@ -422,6 +432,19 @@ jobs:
             CURRENT_PROJECT_VERSION="$TESTFLIGHT_BUILD_NUMBER" \
             CODE_SIGN_IDENTITY="Apple Distribution" \
             archive
+
+      - name: Verify signed app Associated Domains
+        run: |
+          set -euo pipefail
+          app_path="$RUNNER_TEMP/MyHarness.xcarchive/Products/Applications/MyHarness.app"
+          signed_entitlements="$RUNNER_TEMP/signed-app-entitlements.plist"
+          codesign -d --entitlements :- "$app_path" > "$signed_entitlements" 2>/dev/null
+          domain=$(/usr/libexec/PlistBuddy -c 'Print :com.apple.developer.associated-domains:0' "$signed_entitlements")
+          if [ "$domain" != 'applinks:kou88.dev' ]; then
+            echo "::error::Signed app must contain only applinks:kou88.dev."
+            exit 1
+          fi
+          echo "Signed app Associated Domains verified: $domain"
 
       - name: Upload to TestFlight
         env:
