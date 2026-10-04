@@ -259,7 +259,7 @@ struct AITraceDisclosure<Content: View>: View {
     }
 }
 
-private struct AIChatMessageText: View {
+struct AIChatMessageText: View {
     let text: String
     let kind: AISelectableText.Kind
     let copyID: String
