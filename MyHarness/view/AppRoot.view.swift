@@ -18,6 +18,7 @@ struct AppRootView: View {
     @State private var aiCronState: AICronState
     @State private var lastForegroundRefreshAt = Date.distantPast
     @State private var pushRegistrationErrorMessage: String?
+    @State private var pendingArticleID: String?
 
     init(dependencies: AppDependencies) {
         self.dependencies = dependencies
@@ -156,6 +157,10 @@ struct AppRootView: View {
         .onOpenURL { url in
             handleDeepLink(url)
         }
+        .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
+            guard let url = activity.webpageURL else { return }
+            handleDeepLink(url)
+        }
         .onReceive(NotificationCenter.default.publisher(for: .actionInboxDeepLink)) { notification in
             guard let url = notification.object as? URL else { return }
             handleDeepLink(url)
@@ -210,6 +215,12 @@ struct AppRootView: View {
             }
         }
         .onChange(of: actionInboxState.isSignedIn) { _, isSignedIn in
+            if isSignedIn, let articleID = pendingArticleID {
+                pendingArticleID = nil
+                router.selectedTab = .articles
+                router.articlesPath = [.article(id: articleID)]
+                Task { await blogPostState.loadDetail(id: articleID) }
+            }
             guard isSignedIn,
                   let pendingURL = ActionPushNotificationCoordinator.shared.pendingDeepLinkURL else {
                 return
@@ -252,6 +263,9 @@ struct AppRootView: View {
         if url.scheme == "myharness", url.host == "home-control" {
             showsHomeControl = true
             return
+        }
+        if let articleID = ArticleDeepLink.articleID(for: url), !actionInboxState.isSignedIn {
+            pendingArticleID = articleID
         }
         router.handleDeepLink(url)
         if actionInboxState.isSignedIn {

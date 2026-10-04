@@ -33,6 +33,11 @@ final class AppRouter {
     }
 
     func handleDeepLink(_ url: URL) {
+        if let articleID = ArticleDeepLink.articleID(for: url) {
+            selectedTab = .articles
+            articlesPath = [.article(id: articleID)]
+            return
+        }
         guard url.scheme == "myharness" else { return }
 
         let host = url.host?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -87,7 +92,7 @@ final class AppRouter {
             showProductOpsDetail(nonEmptyId(tail.first).map(ProductOpsDeepLinkDestination.monitoringAlert))
         case "articles":
             selectedTab = .articles
-            articlesPath = nonEmptyId(tail.first).map { [.article(id: $0)] } ?? []
+            articlesPath = []
         case "ai":
             selectedTab = .ai
             if tail.first == "pcs", let id = nonEmptyId(tail.dropFirst().first) {
