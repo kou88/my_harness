@@ -512,6 +512,7 @@ private struct ArticleListRow: View {
 struct ArticleDetailView: View {
     let id: String
     let state: BlogPostState
+    let authenticationRevision: Int
     @Environment(AppRouter.self) private var router
 
     var body: some View {
@@ -539,7 +540,7 @@ struct ArticleDetailView: View {
             }
         }
         .navigationBarTitleDisplayMode(.inline)
-        .task(id: id) {
+        .task(id: "\(id):\(authenticationRevision)") {
             await state.loadDetail(id: id)
         }
     }
