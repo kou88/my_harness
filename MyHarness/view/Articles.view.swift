@@ -574,6 +574,10 @@ private struct ArticleReaderView: View {
         language == .japanese ? post.translation?.body ?? post.body : post.body
     }
 
+    private var reportMarkdown: String {
+        language == .japanese ? post.translation?.plainText ?? post.plainText : post.plainText
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
@@ -638,7 +642,7 @@ private struct ArticleReaderView: View {
                 }
 
                 if post.sourceType == "research_report" {
-                    ReportArticleMarkdownView(markdown: post.plainText, postID: post.id, title: post.title)
+                    ReportArticleMarkdownView(markdown: reportMarkdown, postID: post.id, title: title)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
                     VStack(alignment: .leading, spacing: 18) {
@@ -660,7 +664,7 @@ private struct ArticleReaderView: View {
             .frame(maxWidth: .infinity)
         }
         .safeAreaInset(edge: .top) {
-            if post.translation != nil && post.sourceType != "research_report" {
+            if post.translation != nil {
                 Picker("表示言語", selection: $language) {
                     ForEach(ArticleReaderLanguage.allCases) { language in
                         Text(language.label).tag(language)
@@ -675,8 +679,10 @@ private struct ArticleReaderView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 if post.sourceType == "research_report" {
-                    ShareLink(item: URL(string: "https://kou88.dev/articles/\(post.id)")!) {
-                        Label("Webの記事URL", systemImage: "square.and.arrow.up")
+                    if let url = URL(string: post.canonicalUrl) {
+                        ShareLink(item: url) {
+                            Label("Webの記事URL", systemImage: "square.and.arrow.up")
+                        }
                     }
                 } else {
                     Button {
@@ -722,6 +728,14 @@ private struct ReportArticleMarkdownView: View {
         var companyLines: [String] = []
         var companyTitle = ""
         var inDetails = false
+        var fenceMarker: Character?
+        var fenceLength = 0
+
+        func appendContentLine(_ line: String) {
+            if !inDetails { introduction.append(line) }
+            else if companyTitle.isEmpty { groupLines.append(line) }
+            else { companyLines.append(line) }
+        }
 
         func finishCompany() {
             guard !companyTitle.isEmpty else { return }
@@ -740,6 +754,24 @@ private struct ReportArticleMarkdownView: View {
 
         for (index, line) in markdown.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n").enumerated() {
             if index == 0 && line == "# \(title)" { continue }
+            let leadingSpaces = line.prefix(while: { $0 == " " }).count
+            let trimmed = line.dropFirst(leadingSpaces)
+            let marker = trimmed.first
+            let count = marker.map { symbol in trimmed.prefix(while: { $0 == symbol }).count } ?? 0
+            if let open = fenceMarker {
+                appendContentLine(line)
+                if leadingSpaces <= 3 && marker == open && count >= fenceLength &&
+                    trimmed.dropFirst(count).allSatisfy({ $0 == " " || $0 == "\t" }) {
+                    fenceMarker = nil
+                }
+                continue
+            }
+            if leadingSpaces <= 3 && (marker == "`" || marker == "~") && count >= 3 {
+                fenceMarker = marker
+                fenceLength = count
+                appendContentLine(line)
+                continue
+            }
             if line == "## 全100社の詳細" { inDetails = true }
             if !inDetails {
                 introduction.append(line)
@@ -749,10 +781,8 @@ private struct ReportArticleMarkdownView: View {
             } else if line.hasPrefix("### P") {
                 finishCompany()
                 companyTitle = String(line.dropFirst(4))
-            } else if companyTitle.isEmpty {
-                groupLines.append(line)
             } else {
-                companyLines.append(line)
+                appendContentLine(line)
             }
         }
         finishGroup()
