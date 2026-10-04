@@ -512,6 +512,7 @@ private struct ArticleListRow: View {
 struct ArticleDetailView: View {
     let id: String
     let state: BlogPostState
+    @Environment(AppRouter.self) private var router
 
     var body: some View {
         Group {
@@ -524,6 +525,10 @@ struct ArticleDetailView: View {
                 } description: {
                     Text(message)
                 } actions: {
+                    if !state.isSignedIn {
+                        Button("ログインへ") { router.selectedTab = .nextActions }
+                            .buttonStyle(.borderedProminent)
+                    }
                     Button("再試行") {
                         Task { await state.loadDetail(id: id) }
                     }

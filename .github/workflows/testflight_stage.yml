@@ -103,6 +103,17 @@ jobs:
             end
             unless response.is_a?(Net::HTTPSuccess)
               warn "App Store Connect request failed: HTTP #{response.code}"
+              begin
+                parsed = JSON.parse(response.body)
+                errors = parsed.is_a?(Hash) && parsed['errors'].is_a?(Array) ? parsed['errors'] : []
+                error_codes = errors.filter_map do |error|
+                  code = error.is_a?(Hash) ? error['code'].to_s : ''
+                  code if code.match?(/\A[A-Za-z0-9_.-]{1,80}\z/)
+                end
+                warn "App Store Connect error codes: #{error_codes.join(', ')}" unless error_codes.empty?
+              rescue JSON::ParserError
+                # Never print the raw response or authorization headers in CI logs.
+              end
               exit 1
             end
             JSON.parse(response.body)
