@@ -16,5 +16,6 @@
 ## TestFlight HTTP 403
 
 - stageの配布ジョブは、署名処理の前のApp Store Connect `GET /v1/apps` で `HTTP 403` を受ける。直近成功ジョブと現行ジョブのKey ID・Issuer IDは一致した。キー本文やJWTは記録・表示していない。
-- 原因はまだ確定していない。キーの有効状態・ロール、個人キーなら作成者のアプリ権限、Apple側の契約・アクセス状態をApp Store Connectの「ユーザとアクセス」→「統合」→「App Store Connect API」で読み取り確認する。キーや権限の変更は事前承認が必要。
-- CIのエラーログはHTTPコードしか出なかったため、AppleのJSONエラーの`code`だけを文字種制限して記録する。本文、JWT、ヘッダー、秘密鍵は表示しない。
+- 2026-10-05のstage配布ジョブはAppleのエラーコード `FORBIDDEN.REQUIRED_AGREEMENTS_MISSING_OR_EXPIRED` を返した。必要な契約が未承諾または期限切れであることが現在の停止理由。どの契約かはAPIレスポンスからは分からない。
+- Account HolderがApp Store Connectの「ビジネス」（または「契約・税金・口座」）で対応待ちの契約名と状態を確認し、契約内容を読んで同意するか判断する。同意は法的な行為なのでCIや開発者が代行しない。対応後にstage配布ジョブを再実行する。
+- CIはAppleのJSONエラーの`code`だけを文字種制限して記録する。本文、JWT、ヘッダー、秘密鍵は表示しない。

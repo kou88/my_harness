@@ -25,6 +25,19 @@ enum ArticleDeepLink {
     }
 }
 
+struct PendingArticleLink {
+    private(set) var articleID: String?
+
+    mutating func receive(_ url: URL, isSignedIn: Bool) {
+        articleID = isSignedIn ? nil : ArticleDeepLink.articleID(for: url)
+    }
+
+    mutating func take() -> String? {
+        defer { articleID = nil }
+        return articleID
+    }
+}
+
 enum BlogPostBlock: Codable, Hashable {
     case heading(level: Int, children: [BlogPostInline])
     case paragraph(children: [BlogPostInline])
