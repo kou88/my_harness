@@ -637,17 +637,22 @@ private struct ArticleReaderView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                VStack(alignment: .leading, spacing: 18) {
-                    ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
-                        ArticleBlockView(block: block) { url, label in
-                            presentedImage = ArticleImagePresentation(
-                                url: url,
-                                accessibilityLabel: label
-                            )
+                if post.sourceType == "research_report" {
+                    AIChatMessageText(text: post.plainText, kind: .markdown, copyID: "report.\(post.id)")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    VStack(alignment: .leading, spacing: 18) {
+                        ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
+                            ArticleBlockView(block: block) { url, label in
+                                presentedImage = ArticleImagePresentation(
+                                    url: url,
+                                    accessibilityLabel: label
+                                )
+                            }
                         }
                     }
+                    .textSelection(.enabled)
                 }
-                .textSelection(.enabled)
             }
             .frame(maxWidth: 720, alignment: .leading)
             .padding(.horizontal, 20)
@@ -655,7 +660,7 @@ private struct ArticleReaderView: View {
             .frame(maxWidth: .infinity)
         }
         .safeAreaInset(edge: .top) {
-            if post.translation != nil {
+            if post.translation != nil && post.sourceType != "research_report" {
                 Picker("表示言語", selection: $language) {
                     ForEach(ArticleReaderLanguage.allCases) { language in
                         Text(language.label).tag(language)
@@ -669,12 +674,16 @@ private struct ArticleReaderView: View {
         }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    if let url = URL(string: post.originalUrl) {
-                        openURL(url)
+                if post.sourceType == "research_report" {
+                    ShareLink(item: URL(string: "https://kou88.dev/articles/\(post.id)")!) {
+                        Label("Webの記事URL", systemImage: "square.and.arrow.up")
                     }
-                } label: {
-                    Label("Xで開く", systemImage: "arrow.up.right.square")
+                } else {
+                    Button {
+                        if let url = URL(string: post.originalUrl) { openURL(url) }
+                    } label: {
+                        Label("Xで開く", systemImage: "arrow.up.right.square")
+                    }
                 }
             }
         }
