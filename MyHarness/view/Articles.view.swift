@@ -637,17 +637,22 @@ private struct ArticleReaderView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                VStack(alignment: .leading, spacing: 18) {
-                    ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
-                        ArticleBlockView(block: block) { url, label in
-                            presentedImage = ArticleImagePresentation(
-                                url: url,
-                                accessibilityLabel: label
-                            )
+                if post.sourceType == "research_report" {
+                    ReportArticleMarkdownView(markdown: post.plainText, postID: post.id, title: post.title)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    VStack(alignment: .leading, spacing: 18) {
+                        ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
+                            ArticleBlockView(block: block) { url, label in
+                                presentedImage = ArticleImagePresentation(
+                                    url: url,
+                                    accessibilityLabel: label
+                                )
+                            }
                         }
                     }
+                    .textSelection(.enabled)
                 }
-                .textSelection(.enabled)
             }
             .frame(maxWidth: 720, alignment: .leading)
             .padding(.horizontal, 20)
@@ -655,7 +660,7 @@ private struct ArticleReaderView: View {
             .frame(maxWidth: .infinity)
         }
         .safeAreaInset(edge: .top) {
-            if post.translation != nil {
+            if post.translation != nil && post.sourceType != "research_report" {
                 Picker("表示言語", selection: $language) {
                     ForEach(ArticleReaderLanguage.allCases) { language in
                         Text(language.label).tag(language)
@@ -669,12 +674,16 @@ private struct ArticleReaderView: View {
         }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    if let url = URL(string: post.originalUrl) {
-                        openURL(url)
+                if post.sourceType == "research_report" {
+                    ShareLink(item: URL(string: "https://kou88.dev/articles/\(post.id)")!) {
+                        Label("Webの記事URL", systemImage: "square.and.arrow.up")
                     }
-                } label: {
-                    Label("Xで開く", systemImage: "arrow.up.right.square")
+                } else {
+                    Button {
+                        if let url = URL(string: post.originalUrl) { openURL(url) }
+                    } label: {
+                        Label("Xで開く", systemImage: "arrow.up.right.square")
+                    }
                 }
             }
         }
@@ -683,6 +692,108 @@ private struct ArticleReaderView: View {
                 sourceURL: image.url,
                 accessibilityLabel: image.accessibilityLabel
             )
+        }
+    }
+}
+
+private struct ReportArticleMarkdownView: View {
+    let markdown: String
+    let postID: String
+    let title: String
+    @State private var expandedCompanies: Set<String> = []
+
+    private struct Company: Identifiable {
+        let id: String
+        let title: String
+        let markdown: String
+    }
+
+    private struct Group: Identifiable {
+        let id: Int
+        let introduction: String
+        let companies: [Company]
+    }
+
+    private var sections: (introduction: String, groups: [Group]) {
+        var introduction: [String] = []
+        var groups: [Group] = []
+        var groupLines: [String] = []
+        var companies: [Company] = []
+        var companyLines: [String] = []
+        var companyTitle = ""
+        var inDetails = false
+
+        func finishCompany() {
+            guard !companyTitle.isEmpty else { return }
+            companies.append(Company(id: companyTitle, title: companyTitle,
+                                     markdown: companyLines.joined(separator: "\n")))
+            companyLines = []
+            companyTitle = ""
+        }
+        func finishGroup() {
+            finishCompany()
+            guard !groupLines.isEmpty || !companies.isEmpty else { return }
+            groups.append(Group(id: groups.count, introduction: groupLines.joined(separator: "\n"), companies: companies))
+            groupLines = []
+            companies = []
+        }
+
+        for (index, line) in markdown.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n").enumerated() {
+            if index == 0 && line == "# \(title)" { continue }
+            if line == "## 全100社の詳細" { inDetails = true }
+            if !inDetails {
+                introduction.append(line)
+            } else if line.hasPrefix("## ") {
+                finishGroup()
+                groupLines.append(line)
+            } else if line.hasPrefix("### P") {
+                finishCompany()
+                companyTitle = String(line.dropFirst(4))
+            } else if companyTitle.isEmpty {
+                groupLines.append(line)
+            } else {
+                companyLines.append(line)
+            }
+        }
+        finishGroup()
+        return (introduction.joined(separator: "\n"), groups)
+    }
+
+    var body: some View {
+        let content = sections
+        LazyVStack(alignment: .leading, spacing: 16) {
+            AIChatMessageText(text: content.introduction, kind: .markdown, copyID: "report.\(postID).intro")
+            ForEach(content.groups) { group in
+                AIChatMessageText(text: group.introduction, kind: .markdown, copyID: "report.\(postID).group.\(group.id)")
+                ForEach(group.companies) { company in
+                    VStack(alignment: .leading, spacing: 0) {
+                        Button {
+                            if expandedCompanies.contains(company.id) {
+                                expandedCompanies.remove(company.id)
+                            } else {
+                                expandedCompanies.insert(company.id)
+                            }
+                        } label: {
+                            HStack {
+                                Text(company.title).font(.headline).multilineTextAlignment(.leading)
+                                Spacer()
+                                Image(systemName: expandedCompanies.contains(company.id) ? "minus" : "plus")
+                            }
+                            .padding(12)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("\(company.title)の詳細を\(expandedCompanies.contains(company.id) ? "閉じる" : "開く")")
+                        if expandedCompanies.contains(company.id) {
+                            AIChatMessageText(text: company.markdown, kind: .markdown,
+                                              copyID: "report.\(postID).\(company.id)")
+                                .padding(.horizontal, 12)
+                                .padding(.bottom, 14)
+                        }
+                    }
+                    .background(.secondary.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
+                }
+            }
         }
     }
 }
