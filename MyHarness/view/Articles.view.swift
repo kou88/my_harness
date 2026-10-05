@@ -573,8 +573,9 @@ private struct ArticleReaderView: View {
     @State private var reportImageMessage: String?
     @State private var isUploadingReportImage = false
 
-    init(post: BlogPost) {
+    init(post: BlogPost, state: BlogPostState) {
         self.post = post
+        self.state = state
         _language = State(initialValue: post.translation == nil ? .original : .japanese)
     }
 
