@@ -1,4 +1,5 @@
 import Foundation
+import PhotosUI
 import SwiftUI
 
 @MainActor
@@ -536,7 +537,7 @@ struct ArticleDetailView: View {
                     .buttonStyle(.borderedProminent)
                 }
             case .loaded(let post):
-                ArticleReaderView(post: post)
+                ArticleReaderView(post: post, state: state)
             }
         }
         .navigationBarTitleDisplayMode(.inline)
@@ -562,10 +563,15 @@ private enum ArticleReaderLanguage: String, CaseIterable, Identifiable {
 
 private struct ArticleReaderView: View {
     let post: BlogPost
+    let state: BlogPostState
 
     @Environment(\.openURL) private var openURL
     @State private var language: ArticleReaderLanguage
     @State private var presentedImage: ArticleImagePresentation?
+    @State private var selectedReportImage: PhotosPickerItem?
+    @State private var reportImageAlt = ""
+    @State private var reportImageMessage: String?
+    @State private var isUploadingReportImage = false
 
     init(post: BlogPost) {
         self.post = post
@@ -648,7 +654,33 @@ private struct ArticleReaderView: View {
                 }
 
                 if post.sourceType == "research_report" {
-                    ReportArticleMarkdownView(markdown: reportMarkdown, postID: post.id, title: title)
+                    HStack {
+                        TextField("画像の説明", text: $reportImageAlt)
+                            .textFieldStyle(.roundedBorder)
+                        PhotosPicker(selection: $selectedReportImage, matching: .images) {
+                            Label("画像を追加", systemImage: "photo.badge.plus")
+                        }
+                        .disabled(isUploadingReportImage)
+                        .onChange(of: selectedReportImage) { _, selected in
+                            guard let selected else { return }
+                            Task {
+                                isUploadingReportImage = true
+                                defer { isUploadingReportImage = false; selectedReportImage = nil }
+                                do {
+                                    guard let data = try await selected.loadTransferable(type: Data.self),
+                                          let jpeg = UIImage(data: data)?.jpegData(compressionQuality: 0.8) else {
+                                        throw ActionInboxAPIClient.ClientError.invalidResponse
+                                    }
+                                    try await state.addArticleImage(post: post, jpeg: jpeg,
+                                        alt: reportImageAlt.isEmpty ? "記事画像" : reportImageAlt)
+                                    reportImageMessage = "画像を記事の末尾に追加しました。"
+                                } catch { reportImageMessage = error.localizedDescription }
+                            }
+                        }
+                    }
+                    if isUploadingReportImage { ProgressView("画像を保存中") }
+                    if let reportImageMessage { Text(reportImageMessage).font(.caption).foregroundStyle(.secondary) }
+                    ReportArticleMarkdownView(markdown: reportMarkdown, postID: post.id, title: title, state: state)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
                     VStack(alignment: .leading, spacing: 18) {
@@ -712,7 +744,62 @@ private struct ReportArticleMarkdownView: View {
     let markdown: String
     let postID: String
     let title: String
+    let state: BlogPostState
     @State private var expandedCompanies: Set<String> = []
+
+    private enum ContentPart: Identifiable {
+        case markdown(Int, String)
+        case image(Int, String, String)
+        var id: Int {
+            switch self { case .markdown(let id, _), .image(let id, _, _): id }
+        }
+    }
+
+    private func contentParts(_ source: String) -> [ContentPart] {
+        let expression = try? NSRegularExpression(pattern: #"^!\[([^\]\n]{1,200})\]\(/api/blog-posts/([0-9A-Fa-f-]{36})/images/([0-9A-Fa-f-]{36})\)$"#)
+        var parts: [ContentPart] = []
+        var lines: [String] = []
+        var inFence = false
+        func flush() {
+            let text = lines.joined(separator: "\n")
+            if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                parts.append(.markdown(parts.count, text))
+            }
+            lines.removeAll()
+        }
+        for line in source.components(separatedBy: "\n") {
+            if line.trimmingCharacters(in: .whitespaces).hasPrefix("```") { inFence.toggle() }
+            let range = NSRange(line.startIndex..<line.endIndex, in: line)
+            if !inFence, let match = expression?.firstMatch(in: line, range: range),
+               let altRange = Range(match.range(at: 1), in: line),
+               let postRange = Range(match.range(at: 2), in: line),
+               let imageRange = Range(match.range(at: 3), in: line) {
+                let referencedPost = String(line[postRange])
+                let imageID = String(line[imageRange])
+                if UUID(uuidString: referencedPost) != nil, UUID(uuidString: imageID) != nil,
+                   referencedPost.caseInsensitiveCompare(postID) == .orderedSame {
+                    flush()
+                    parts.append(.image(parts.count, imageID, String(line[altRange])))
+                    continue
+                }
+            }
+            lines.append(line)
+        }
+        flush()
+        return parts
+    }
+
+    @ViewBuilder
+    private func articleContent(_ content: String, copyID: String) -> some View {
+        ForEach(contentParts(content)) { part in
+            switch part {
+            case .markdown(let id, let text):
+                AIChatMessageText(text: text, kind: .markdown, copyID: "\(copyID).\(id)")
+            case .image(_, let imageID, let alt):
+                PrivateReportImageView(state: state, postID: postID, imageID: imageID, alt: alt)
+            }
+        }
+    }
 
     private struct Company: Identifiable {
         let id: String
@@ -798,9 +885,9 @@ private struct ReportArticleMarkdownView: View {
     var body: some View {
         let content = sections
         LazyVStack(alignment: .leading, spacing: 16) {
-            AIChatMessageText(text: content.introduction, kind: .markdown, copyID: "report.\(postID).intro")
+            articleContent(content.introduction, copyID: "report.\(postID).intro")
             ForEach(content.groups) { group in
-                AIChatMessageText(text: group.introduction, kind: .markdown, copyID: "report.\(postID).group.\(group.id)")
+                articleContent(group.introduction, copyID: "report.\(postID).group.\(group.id)")
                 ForEach(group.companies) { company in
                     VStack(alignment: .leading, spacing: 0) {
                         Button {
@@ -821,14 +908,66 @@ private struct ReportArticleMarkdownView: View {
                         .buttonStyle(.plain)
                         .accessibilityLabel("\(company.title)の詳細を\(expandedCompanies.contains(company.id) ? "閉じる" : "開く")")
                         if expandedCompanies.contains(company.id) {
-                            AIChatMessageText(text: company.markdown, kind: .markdown,
-                                              copyID: "report.\(postID).\(company.id)")
+                            articleContent(company.markdown, copyID: "report.\(postID).\(company.id)")
                                 .padding(.horizontal, 12)
                                 .padding(.bottom, 14)
                         }
                     }
                     .background(.secondary.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
                 }
+            }
+        }
+    }
+}
+
+private struct PrivateReportImageView: View {
+    let state: BlogPostState
+    let postID: String
+    let imageID: String
+    let alt: String
+    @State private var image: UIImage?
+    @State private var error = false
+    @State private var expanded = false
+
+    private func load() async {
+        do {
+            let data = try await state.loadArticleImage(postID: postID, imageID: imageID)
+            guard let decoded = UIImage(data: data) else { throw ActionInboxAPIClient.ClientError.invalidResponse }
+            image = decoded
+            error = false
+        } catch {
+            self.error = true
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let image {
+                Button { expanded = true } label: {
+                    Image(uiImage: image).resizable().scaledToFit()
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(alt)を拡大")
+            } else if error {
+                Button("\(alt)を再読み込み") { Task { await load() } }
+            } else {
+                ProgressView("\(alt)を読み込み中")
+            }
+            Text(alt).font(.caption).foregroundStyle(.secondary)
+        }
+        .task(id: imageID) { await load() }
+        .fullScreenCover(isPresented: $expanded) {
+            ZStack(alignment: .topTrailing) {
+                Color.black.ignoresSafeArea()
+                if let image {
+                    ScrollView([.horizontal, .vertical]) {
+                        Image(uiImage: image).resizable().scaledToFit()
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                }
+                Button("閉じる") { expanded = false }
+                    .padding().tint(.white)
             }
         }
     }

@@ -424,6 +424,70 @@ final class ActionInboxAPIClient {
         return try decoder.decode(BlogPostEnvelope.self, from: data).data
     }
 
+    func fetchBlogPostImage(postID: String, imageID: String) async throws -> Data {
+        guard UUID(uuidString: postID) != nil, UUID(uuidString: imageID) != nil else {
+            throw ClientError.invalidResponse
+        }
+        return try await request(path: "/api/blog-posts/\(postID.lowercased())/images/\(imageID.lowercased())", method: "GET")
+    }
+
+    private struct ArticleImageEnvelope: Decodable {
+        struct Image: Decodable { var id: String; var url: String }
+        var data: Image
+    }
+
+    private struct ResearchReportUpdate: Encodable {
+        var sourceType: String
+        var sourceId: String
+        var originalUrl: String
+        var canonicalUrl: String
+        var title: String
+        var authorName: String
+        var authorHandle: String?
+        var language: String
+        var publishedAt: String?
+        var coverImageUrl: String?
+        var body: [BlogPostBlock]
+        var plainText: String
+        var importedAt: String
+    }
+
+    func appendBlogPostImage(post: BlogPost, jpeg: Data, alt: String) async throws -> BlogPost {
+        guard post.sourceType == "research_report", UUID(uuidString: post.id) != nil,
+              !jpeg.isEmpty, jpeg.count <= 8 * 1024 * 1024 else { throw ClientError.invalidResponse }
+        try await bootstrapCurrentUser()
+        let boundary = "ArticleImage-\(UUID().uuidString)"
+        var payload = Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"article.jpg\"\r\nContent-Type: image/jpeg\r\n\r\n".utf8)
+        payload.append(jpeg)
+        payload.append(Data("\r\n--\(boundary)--\r\n".utf8))
+        var upload = URLRequest(url: endpoint(path: "/api/blog-posts/\(post.id)/images", queryItems: []))
+        upload.httpMethod = "POST"
+        upload.setValue("Bearer \(try await authSession.accessToken())", forHTTPHeaderField: "Authorization")
+        upload.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        upload.httpBody = payload
+        let (uploadedData, uploadResponse) = try await urlSession.data(for: upload)
+        guard let uploadStatus = (uploadResponse as? HTTPURLResponse)?.statusCode,
+              uploadStatus == 201 else { throw ClientError.requestFailed((uploadResponse as? HTTPURLResponse)?.statusCode ?? 0, "画像を保存できませんでした") }
+        let image = try decoder.decode(ArticleImageEnvelope.self, from: uploadedData).data
+        let safeAlt = alt.replacingOccurrences(of: "[", with: " ").replacingOccurrences(of: "]", with: " ")
+            .replacingOccurrences(of: "\n", with: " ").prefix(100)
+        let markdown = post.plainText.trimmingCharacters(in: .whitespacesAndNewlines) + "\n\n![\(safeAlt)](\(image.url))\n"
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let update = ResearchReportUpdate(sourceType: post.sourceType, sourceId: post.sourceId,
+            originalUrl: post.originalUrl, canonicalUrl: post.canonicalUrl, title: post.title,
+            authorName: post.authorName, authorHandle: post.authorHandle, language: post.language,
+            publishedAt: post.publishedAt.map(formatter.string(from:)), coverImageUrl: post.coverImageUrl,
+            body: post.body, plainText: markdown, importedAt: formatter.string(from: Date()))
+        do {
+            let saved = try await request(path: "/api/blog-posts", method: "POST", body: update)
+            return try decoder.decode(BlogPostEnvelope.self, from: saved).data
+        } catch {
+            try? await request(path: "/api/blog-posts/\(post.id)/images/\(image.id)", method: "DELETE")
+            throw error
+        }
+    }
+
     func fetchXArticleImportHosts() async throws -> [XArticleImportHost] {
         let data = try await request(path: "/api/os-agent/hosts", method: "GET")
         return try decoder.decode(XArticleImportHostsEnvelope.self, from: data).data

@@ -51,6 +51,17 @@ final class BlogPostState {
         authSession?.isSignedIn == true
     }
 
+    func loadArticleImage(postID: String, imageID: String) async throws -> Data {
+        guard let apiClient, isSignedIn else { throw ActionInboxAPIClient.ClientError.invalidResponse }
+        return try await apiClient.fetchBlogPostImage(postID: postID, imageID: imageID)
+    }
+
+    func addArticleImage(post: BlogPost, jpeg: Data, alt: String) async throws {
+        guard let apiClient, isSignedIn else { throw ActionInboxAPIClient.ClientError.invalidResponse }
+        let updated = try await apiClient.appendBlogPostImage(post: post, jpeg: jpeg, alt: alt)
+        detailState = .loaded(updated)
+    }
+
     var posts: [BlogPost] {
         guard case .loaded(let posts) = listState else { return [] }
         return posts
