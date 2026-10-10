@@ -118,8 +118,7 @@ struct AppRootView: View {
                     set: { router.articlesPath = $0 }
                 )
             ) {
-                ArticleListView(state: blogPostState)
-                    .toolbar { ToolbarItem(placement: .topBarTrailing) { NavigationLink { BookShelfView(state: bookState) } label: { Label("本棚", systemImage: "books.vertical") } } }
+                ArticleListView(state: blogPostState, bookState: bookState)
                     .navigationDestination(for: AppRoute.self, destination: routeContent)
             }
             .tabItem {
