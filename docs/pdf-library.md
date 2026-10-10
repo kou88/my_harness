@@ -13,3 +13,11 @@ Application Support内でCognito subのSHA-256ごとに本棚を分離する。�
 2026-10-10: 284ページ・48,578,264 bytesの「デザイン大全」を実ファイル検証対象とする。PDFと派生表紙はソース管理に入れない。
 
 「次にやる」タブは撤去した。既存のPush通知と保存済みmyharness://next-actions等のリンクは、今日タブ配下の既存画面へ移して受け取る。通知配信元が旧URLを送らなくなり、既存通知の保持期間が終わった段階でlegacyActions経路を撤去する。
+
+## 2026-10-10 実ファイル検証
+
+- 本番へ「デザイン大全」を登録し、284ページ・48,578,264 bytes・readyを確認。PDF/表紙のR2キーはいずれも独立UUIDv4。
+- 本番GETの原本とSimulator保存ファイルのSHA-256が元PDFに一致。未認証401、範囲取得206、private/no-storeを確認。
+- MyHarness.xcworkspace / MyHarness scheme、iPhone 17 Pro (iOS 26.4)、UDID `AD933F96-24D3-4D6C-A728-8FA3E1DEBD2C` で確認。XcodeBuildMCPが提供されていなかったためxcodebuild/simctlとComputer Use/ブラウザミラーを使用。
+- 本タブ、表紙表示、ダウンロード、横スワイプ7→8ページ、サムネイル移動、中央タップの操作バー切替、縦/横の全画面表示、再起動後8ページから再開を確認。ネットワークを遮断した実機でのオフライン確認は未実施。
+- Swift XCTest 39件、Swift Testing 70件、chat state回帰テスト、Simulator buildが成功。
