@@ -5,6 +5,7 @@ import SwiftUI
 @MainActor
 struct ArticleListView: View {
     let state: BlogPostState
+    let bookState: BookState
 
     @State private var query = ""
     @State private var presentedSheet: ArticleListSheet?
@@ -70,6 +71,14 @@ struct ArticleListView: View {
             Text("記事")
                 .font(.title2.weight(.bold))
             Spacer(minLength: 0)
+            NavigationLink {
+                BookShelfView(state: bookState)
+                    .toolbar(.visible, for: .navigationBar)
+            } label: {
+                Label("本棚", systemImage: "books.vertical")
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("book-shelf-open")
             Button {
                 state.resetImportRequest()
                 presentedSheet = .importRequest
