@@ -406,6 +406,30 @@ final class ActionInboxAPIClient {
         encoder.keyEncodingStrategy = .useDefaultKeys
     }
 
+    private struct BookEnvelope: Decodable { let data: BookPage }
+    func fetchBooks() async throws -> [Book] {
+        var result: [Book] = []
+        var cursor = ""
+        repeat {
+            var query = [URLQueryItem(name: "limit", value: "100")]
+            if !cursor.isEmpty { query.append(URLQueryItem(name: "cursor", value: cursor)) }
+            let data = try await request(path: "/api/books", method: "GET", queryItems: query)
+            let page = try decoder.decode(BookEnvelope.self, from: data).data
+            result += page.books; cursor = page.nextCursor
+        } while !cursor.isEmpty
+        return result
+    }
+    func fetchBookCover(_ book: Book) async throws -> Data {
+        try await request(path: "/api/books/\(book.id)/thumbnail", method: "GET")
+    }
+    func bookDownloadRequest(_ book: Book) async throws -> URLRequest {
+        try await bootstrapCurrentUser()
+        var request = URLRequest(url: endpoint(path: "/api/books/\(book.id)/pdf", queryItems: []), cachePolicy: .reloadIgnoringLocalCacheData)
+        request.setValue("Bearer \(try await authSession.accessToken())", forHTTPHeaderField: "Authorization")
+        request.setValue("application/pdf", forHTTPHeaderField: "Accept")
+        return request
+    }
+
     func fetchInbox() async throws -> ActionInboxPayload {
         let data = try await request(path: "/api/action-inbox", method: "GET")
         return try decoder.decode(InboxEnvelope.self, from: data).data

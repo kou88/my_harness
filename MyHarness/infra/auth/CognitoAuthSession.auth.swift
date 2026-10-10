@@ -72,6 +72,18 @@ final class CognitoAuthSession: NSObject, ASWebAuthenticationPresentationContext
         (try? loadToken()) != nil
     }
 
+    // Expired access tokens still identify the owner of explicitly stored offline books.
+    func bookOwnerID() throws -> String {
+        guard let token = try loadToken() else { throw AuthError.missingToken }
+        let parts = token.accessToken.split(separator: ".")
+        guard parts.count == 3 else { throw AuthError.missingToken }
+        var encoded = String(parts[1]).replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        encoded += String(repeating: "=", count: (4 - encoded.count % 4) % 4)
+        guard let data = Data(base64Encoded: encoded), let claims = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let sub = claims["sub"] as? String, !sub.isEmpty else { throw AuthError.missingToken }
+        return sub
+    }
+
     func accessToken() async throws -> String {
         guard var token = try loadToken() else {
             throw AuthError.missingToken
@@ -112,6 +124,7 @@ final class CognitoAuthSession: NSObject, ASWebAuthenticationPresentationContext
         try HomeControlTokenStore().remove()
         try keychain.removeData(for: tokenAccount)
         WidgetCenter.shared.reloadAllTimelines()
+        NotificationCenter.default.post(name: Notification.Name("cognitoDidSignOut"), object: nil)
     }
 
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {

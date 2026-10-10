@@ -8,6 +8,7 @@ struct AppRootView: View {
     @StateObject private var televisionPlayerController: TelevisionPlayerController
 
     @State private var router = AppRouter()
+    @State private var bookState: BookState
     @State private var showsHomeControl = false
     @State private var todayState: TodayState
     @State private var settingsState: SettingsState
@@ -22,6 +23,7 @@ struct AppRootView: View {
 
     init(dependencies: AppDependencies) {
         self.dependencies = dependencies
+        _bookState = State(initialValue: BookState(api: dependencies.actionInbox.apiClient, auth: dependencies.actionInbox.authSession, configurationError: dependencies.actionInbox.configurationErrorMessage))
         let televisionAPIClient = KonomiTVAPIClient.automatic(
             localServerURL: KonomiTVConfiguration.serverURL,
             expectedGatewayBaseURL: KonomiTVConfiguration.expectedGatewayBaseURL,
@@ -116,7 +118,7 @@ struct AppRootView: View {
                     set: { router.articlesPath = $0 }
                 )
             ) {
-                ArticleListView(state: blogPostState)
+                ArticleListView(state: blogPostState, bookState: bookState)
                     .navigationDestination(for: AppRoute.self, destination: routeContent)
             }
             .tabItem {
@@ -154,6 +156,9 @@ struct AppRootView: View {
             }
         }
         .environment(router)
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("cognitoDidSignOut"))) { _ in
+            bookState.clearSession()
+        }
         .onOpenURL { url in
             handleDeepLink(url)
         }
