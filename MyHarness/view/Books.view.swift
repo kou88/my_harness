@@ -121,7 +121,7 @@ private struct BookReaderView: View {
     @State private var page: Int
     @State private var pageInput: String
     @State private var error = ""
-    @State private var controlsVisible = true
+    @State private var controlsVisible = false
     @State private var previewDocument: PDFDocument?
 
     init(book: Book, url: URL, initialPage: Int, savePage: @escaping (Int) -> Void) {
@@ -257,10 +257,17 @@ private struct PDFBookView: UIViewRepresentable {
             if parent.page != number { parent.page = number }
         }
         @objc func tapped(_ gesture: UITapGestureRecognizer) {
-            guard let view = gesture.view else { return }
+            guard let view = gesture.view as? PDFView, let document = view.document,
+                  let current = view.currentPage else { return }
             let location = gesture.location(in: view)
-            if (view.bounds.width * 0.25...view.bounds.width * 0.75).contains(location.x),
-               (view.bounds.height * 0.2...view.bounds.height * 0.8).contains(location.y) { parent.onTap() }
+            let index = document.index(for: current)
+            if location.x < view.bounds.width * 0.25 {
+                if index > 0 { parent.page = index }
+            } else if location.x > view.bounds.width * 0.75 {
+                if index + 1 < document.pageCount { parent.page = index + 2 }
+            } else if (view.bounds.height * 0.2...view.bounds.height * 0.8).contains(location.y) {
+                parent.onTap()
+            }
         }
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool { true }
     }
