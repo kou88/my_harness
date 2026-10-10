@@ -1,40 +1,6 @@
 import SwiftUI
 import UIKit
 
-@MainActor
-final class TelevisionInterfaceOrientationController {
-    static let shared = TelevisionInterfaceOrientationController()
-
-    private(set) var supportedOrientations: UIInterfaceOrientationMask = .portrait
-
-    func enterFullScreen() {
-        updatePhoneOrientations(.landscape)
-    }
-
-    func leaveFullScreen() {
-        updatePhoneOrientations(.portrait)
-    }
-
-    private func updatePhoneOrientations(_ orientations: UIInterfaceOrientationMask) {
-        guard UIDevice.current.userInterfaceIdiom == .phone else { return }
-        supportedOrientations = orientations
-
-        let windowScenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-        guard let windowScene = windowScenes.first(where: {
-            $0.activationState == .foregroundActive
-        }) ?? windowScenes.first else {
-            return
-        }
-
-        windowScene.windows.forEach {
-            $0.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
-        }
-        windowScene.requestGeometryUpdate(
-            .iOS(interfaceOrientations: orientations)
-        ) { _ in }
-    }
-}
-
 enum KonomiTVConfiguration {
     static var serverURL: URL {
         guard let rawValue = Bundle.main.object(forInfoDictionaryKey: "KonomiTVBaseURL") as? String,
@@ -109,7 +75,7 @@ struct TelevisionView: View {
         .onDisappear {
             guard !isFullScreen else { return }
             endDeviceOrientationObservation()
-            TelevisionInterfaceOrientationController.shared.leaveFullScreen()
+            AppInterfaceOrientationController.shared.leaveFullScreen()
         }
         .onReceive(NotificationCenter.default.publisher(
             for: UIDevice.orientationDidChangeNotification
@@ -118,7 +84,7 @@ struct TelevisionView: View {
         }
         .fullScreenCover(isPresented: $isFullScreen, onDismiss: {
             hasObservedLandscapeInFullScreen = false
-            TelevisionInterfaceOrientationController.shared.leaveFullScreen()
+            AppInterfaceOrientationController.shared.leaveFullScreen()
         }) {
             if let channel = state.selectedChannel {
                 FullScreenTelevisionPlayer(

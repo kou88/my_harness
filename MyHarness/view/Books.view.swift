@@ -171,10 +171,13 @@ private struct BookReaderView: View {
         .background(Color(uiColor: .systemBackground))
         .statusBarHidden(!controlsVisible)
         .persistentSystemOverlays(controlsVisible ? .automatic : .hidden)
-        .task { previewDocument = PDFDocument(url: url) }
+        .task {
+            AppInterfaceOrientationController.shared.enterReading()
+            previewDocument = PDFDocument(url: url)
+        }
         .onChange(of: page) { _, value in pageInput = String(value); savePage(value) }
         .onChange(of: scenePhase) { _, phase in if phase != .active { savePage(page) } }
-        .onDisappear { savePage(page) }
+        .onDisappear { savePage(page); AppInterfaceOrientationController.shared.leaveReading() }
     }
 }
 
