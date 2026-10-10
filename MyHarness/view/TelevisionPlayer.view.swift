@@ -1057,12 +1057,12 @@ struct FullScreenTelevisionPlayer: View {
                 }
         )
         .onAppear {
-            TelevisionInterfaceOrientationController.shared.enterFullScreen()
+            AppInterfaceOrientationController.shared.enterFullScreen()
             scheduleControlsToHide()
         }
         .onDisappear {
             controlsHideTask?.cancel()
-            TelevisionInterfaceOrientationController.shared.leaveFullScreen()
+            AppInterfaceOrientationController.shared.leaveFullScreen()
         }
         .onChange(of: controller.playbackState) { _, state in
             switch state {
