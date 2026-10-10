@@ -95,22 +95,11 @@ struct AppRootView: View {
             }
             .tag(AppTab.today)
 
-            NavigationStack(
-                path: Binding(
-                    get: { router.nextActionsPath },
-                    set: { router.nextActionsPath = $0 }
-                )
-            ) {
-                NextActionsView(
-                    actionInboxState: actionInboxState,
-                    productOpsState: productOpsState
-                )
-                    .navigationDestination(for: AppRoute.self, destination: routeContent)
+            NavigationStack {
+                BookShelfView(state: bookState, authState: actionInboxState)
             }
-            .tabItem {
-                Label("次にやる", systemImage: "sparkles")
-            }
-            .tag(AppTab.nextActions)
+            .tabItem { Label("本", systemImage: "books.vertical") }
+            .tag(AppTab.books)
 
             NavigationStack(
                 path: Binding(
@@ -118,7 +107,7 @@ struct AppRootView: View {
                     set: { router.articlesPath = $0 }
                 )
             ) {
-                ArticleListView(state: blogPostState, bookState: bookState)
+                ArticleListView(state: blogPostState)
                     .navigationDestination(for: AppRoute.self, destination: routeContent)
             }
             .tabItem {
@@ -280,6 +269,14 @@ struct AppRootView: View {
     @ViewBuilder
     private func routeContent(_ route: AppRoute) -> some View {
         switch route {
+        case .legacyActions:
+            NextActionsView(actionInboxState: actionInboxState, productOpsState: productOpsState)
+                .safeAreaInset(edge: .top) {
+                    HStack {
+                        Button("今日へ戻る", systemImage: "chevron.left") { router.todayPath = [] }
+                        Spacer()
+                    }.padding().background(.bar)
+                }
         case .oneShotTasks:
             OneShotTasksView(state: todayState)
         case .actionSuggestionDetail(let id):

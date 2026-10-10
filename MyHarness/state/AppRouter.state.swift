@@ -6,7 +6,6 @@ import Observation
 final class AppRouter {
     var presentedSheet: AppSheet?
     var selectedTab: AppTab = .today
-    var nextActionsPath: [AppRoute] = []
     var todayPath: [AppRoute] = []
     var articlesPath: [AppRoute] = []
     var aiPath: [AppRoute] = []
@@ -15,9 +14,8 @@ final class AppRouter {
 
     func push(_ route: AppRoute) {
         switch route.preferredTab {
-        case .nextActions:
-            selectedTab = .nextActions
-            nextActionsPath.append(route)
+        case .books:
+            selectedTab = .books
         case .today:
             selectedTab = .today
             todayPath.append(route)
@@ -53,8 +51,8 @@ final class AppRouter {
             showNextActions()
         case "suggestions":
             if let id = nonEmptyId(tail.first) {
-                selectedTab = .nextActions
-                nextActionsPath = [.actionSuggestionDetail(id: id)]
+                selectedTab = .today
+                todayPath = [.actionSuggestionDetail(id: id)]
             } else {
                 showNextActions()
             }
@@ -90,6 +88,8 @@ final class AppRouter {
             })
         case "monitoring-alert", "monitoring_alert", "monitoring-alerts":
             showProductOpsDetail(nonEmptyId(tail.first).map(ProductOpsDeepLinkDestination.monitoringAlert))
+        case "books":
+            selectedTab = .books
         case "articles":
             selectedTab = .articles
             articlesPath = []
@@ -111,12 +111,12 @@ final class AppRouter {
             if let id = nonEmptyId(tail.first) {
                 showProductOpsDetail(.mission(id: id, kind: .development))
             } else {
-                selectedTab = .nextActions
-                nextActionsPath = [.developmentBacklog]
+                selectedTab = .today
+                todayPath = [.developmentBacklog]
             }
         case "policy":
-            selectedTab = .nextActions
-            nextActionsPath = [.venturePolicy]
+            selectedTab = .today
+            todayPath = [.venturePolicy]
         case "executions":
             routeSuggestionReference(.actionExecution(id: tail.first ?? ""))
         case "needs":
@@ -136,8 +136,8 @@ final class AppRouter {
     }
 
     private func showNextActions() {
-        selectedTab = .nextActions
-        nextActionsPath = []
+        selectedTab = .today
+        todayPath = [.legacyActions]
         pendingProductOpsDeepLink = nil
     }
 
@@ -154,8 +154,8 @@ final class AppRouter {
     }
 
     private func routeSuggestionReference(_ route: AppRoute) {
-        selectedTab = .nextActions
-        nextActionsPath = route.referenceId.isEmpty ? [] : [route]
+        selectedTab = .today
+        todayPath = route.referenceId.isEmpty ? [.legacyActions] : [route]
     }
 }
 
@@ -199,7 +199,7 @@ enum ProductOpsDeepLinkDestination: Identifiable, Hashable {
 }
 
 enum AppTab: Hashable {
-    case nextActions
+    case books
     case today
     case articles
     case ai
@@ -207,6 +207,7 @@ enum AppTab: Hashable {
 }
 
 enum AppRoute: Hashable {
+    case legacyActions
     case oneShotTasks
     case actionSuggestionDetail(id: String)
     case actionExecution(id: String)
@@ -222,7 +223,7 @@ enum AppRoute: Hashable {
 
     var preferredTab: AppTab {
         switch self {
-        case .oneShotTasks:
+        case .legacyActions, .oneShotTasks:
             return .today
         case .article:
             return .articles
@@ -237,13 +238,13 @@ enum AppRoute: Hashable {
              .venturePolicy,
              .actionHistory,
              .completedActions:
-            return .nextActions
+            return .today
         }
     }
 
     var referenceId: String {
         switch self {
-        case .oneShotTasks:
+        case .legacyActions, .oneShotTasks:
             return ""
         case .actionSuggestionDetail(let id),
              .actionExecution(let id),

@@ -272,7 +272,7 @@ struct AIChatSidebar: View {
             }.refreshable { await state.loadList() }.scrollDismissesKeyboard(.interactively)
             Menu {
                 Button("今日", systemImage: "checklist") { leave(.today) }
-                Button("次にやる", systemImage: "sparkles") { leave(.nextActions) }
+                Button("本", systemImage: "books.vertical") { leave(.books) }
                 Button("記事", systemImage: "doc.richtext") { leave(.articles) }
                 Button("テレビ", systemImage: "tv") { leave(.television) }
             } label: {
