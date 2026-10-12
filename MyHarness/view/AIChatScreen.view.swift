@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-// Open WebUI's narrow layout: one canvas, an overlay drawer and a two-row composer.
+// One canvas, an overlay drawer and a two-row composer at any window size.
 enum AIChatStyle {
     // Resolve against the app's appearance, including changes while a chat is open.
     static let canvas = adaptive(light: 1, dark: 0.09)
@@ -86,6 +86,8 @@ struct AIChatScreen: View {
                         composer.padding(.horizontal, 8).padding(.top, 8).padding(.bottom, 8)
                     }
                 }
+                .frame(maxWidth: 960)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityHidden(showSidebar || showModels)
                 if showSidebar {
                     Color.black.opacity(0.48).ignoresSafeArea()
@@ -223,7 +225,9 @@ struct AIChatScreen: View {
                     Text("MyHarness · " + state.harness.name).font(.system(size: 12)).foregroundStyle(AIChatStyle.muted).padding(.top, 20)
                 }
                 .padding(.horizontal, 12).padding(.bottom, 90)
+                .frame(maxWidth: 720)
                 .frame(minHeight: geometry.size.height)
+                .frame(maxWidth: .infinity)
             }.scrollDismissesKeyboard(.interactively)
         }
     }
