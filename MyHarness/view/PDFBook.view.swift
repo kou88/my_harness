@@ -28,6 +28,9 @@ struct PDFBookView: UIViewRepresentable {
         tap.cancelsTouchesInView = false
         tap.delegate = context.coordinator
         view.addGestureRecognizer(tap)
+        view.edgeTap.addTarget(context.coordinator, action: #selector(Coordinator.tapped(_:)))
+        view.edgeTap.delegate = context.coordinator
+        view.addGestureRecognizer(view.edgeTap)
         for direction: UISwipeGestureRecognizer.Direction in [.left, .right] {
             let swipe = UISwipeGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.swiped(_:)))
             swipe.direction = direction
@@ -234,7 +237,7 @@ struct PDFBookView: UIViewRepresentable {
             view?.pageOverlayViewProvider = nil
         }
 
-        @objc func tapped(_ gesture: UITapGestureRecognizer) {
+        @objc func tapped(_ gesture: UIGestureRecognizer) {
             guard let view else { return }
             let location = gesture.location(in: view)
             if (view.bounds.width * 0.25...view.bounds.width * 0.75).contains(location.x),
@@ -243,12 +246,25 @@ struct PDFBookView: UIViewRepresentable {
                 return
             }
             guard view.scaleFactor <= view.scaleFactorForSizeToFit * 1.02 else { return }
-            if location.x < view.bounds.width * 0.25 { parent.page = layout.previous(selectedPage) }
-            else if location.x > view.bounds.width * 0.75 { parent.page = layout.next(selectedPage) }
+            if location.x < view.bounds.width * 0.25 { turnPage(to: layout.previous(selectedPage)) }
+            else if location.x > view.bounds.width * 0.75 { turnPage(to: layout.next(selectedPage)) }
+        }
+
+        private func turnPage(to number: Int) {
+            // 次のタップまでにSwiftUIが更新されなくても、現在位置から確実に送る。
+            go(to: number)
+            parent.page = number
         }
 
         @objc func swiped(_ gesture: UISwipeGestureRecognizer) {
-            parent.page = gesture.direction == .left ? layout.next(selectedPage) : layout.previous(selectedPage)
+            turnPage(to: gesture.direction == .left ? layout.next(selectedPage) : layout.previous(selectedPage))
+        }
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            guard let view, gestureRecognizer === view.edgeTap || gestureRecognizer is UITapGestureRecognizer else { return true }
+            let x = touch.location(in: view).x
+            let isPageTurn = (x < view.bounds.width * 0.25 || x > view.bounds.width * 0.75)
+                && view.scaleFactor <= view.scaleFactorForSizeToFit * 1.02
+            return gestureRecognizer === view.edgeTap ? isPageTurn : !isPageTurn
         }
         func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
             guard let view else { return false }
@@ -257,17 +273,54 @@ struct PDFBookView: UIViewRepresentable {
             }
             return true
         }
-        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool { true }
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+            if gestureRecognizer === view?.edgeTap,
+               let tap = otherGestureRecognizer as? UITapGestureRecognizer, tap.numberOfTapsRequired >= 2 { return false }
+            return true
+        }
     }
 }
 
 final class BookPDFView: PDFView {
+    let edgeTap = BookPageTurnGestureRecognizer()
     var layoutChanged: () -> Void = {}
     override func layoutSubviews() {
         super.layoutSubviews()
         // PDFKitのレイアウト完了後に設定を更新し、SwiftUI描画中のBinding変更を避ける。
         DispatchQueue.main.async { [weak self] in self?.layoutChanged() }
     }
+}
+
+// UITapGestureRecognizerは連打中のtapCountをまとめるため、各指離しを個別に認識する。
+final class BookPageTurnGestureRecognizer: UIGestureRecognizer {
+    private var origin = CGPoint.zero
+
+    override func canPrevent(_ preventedGestureRecognizer: UIGestureRecognizer) -> Bool {
+        if let tap = preventedGestureRecognizer as? UITapGestureRecognizer, tap.numberOfTapsRequired >= 2 { return true }
+        return super.canPrevent(preventedGestureRecognizer)
+    }
+
+    override func canBePrevented(by preventingGestureRecognizer: UIGestureRecognizer) -> Bool {
+        if let tap = preventingGestureRecognizer as? UITapGestureRecognizer, tap.numberOfTapsRequired >= 2 { return false }
+        return super.canBePrevented(by: preventingGestureRecognizer)
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        guard touches.count == 1, event.allTouches?.count == 1, let touch = touches.first else {
+            state = .failed
+            return
+        }
+        origin = touch.location(in: view)
+    }
+
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
+        guard let touch = touches.first else { return }
+        let point = touch.location(in: view)
+        if hypot(point.x - origin.x, point.y - origin.y) > 10 { state = .failed }
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) { state = .recognized }
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) { state = .cancelled }
 }
 
 private final class BookPageOverlay: UIView {
