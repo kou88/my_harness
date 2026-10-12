@@ -5,6 +5,7 @@
 - アプリ、Widget、共有拡張のDebug / Releaseを `TARGETED_DEVICE_FAMILY = "1,2"` とし、iPhoneとiPadに同じアプリを配布する。
 - iPadは既存の4方向の回転設定を使用する。iPhoneの向き制御は従来どおり。`UIRequiresFullScreen` は設定せず、ウインドウのサイズ変更を妨げない。
 - タブはSwiftUIのネイティブ表示を使用する。本棚は既存のadaptive grid、記事本文は既存の最大幅720ptを使用する。
+- PDF閲覧は横長ウインドウで左右見開き、縦長では単ページを使用する。前後2ページを画面解像度で先行描画する。詳細は [本棚とPDF閲覧](pdf-library.md) を参照。
 - AI画面は最大960pt、新規チャットの入力領域は最大720ptで中央に配置する。画面が狭い場合は利用可能な幅まで縮む。履歴は開閉式ドロワーを維持する。
 - テレビはコンテンツ幅900pt以上かつ横長の場合に、映像と幅320ptのチャンネル一覧を並べる。それ以外は縦に並べ、映像の高さを利用可能な高さの55%以内に収める。
 
@@ -19,7 +20,7 @@
 
 ## 未検証事項
 
-- 実機iPad、ウインドウ縮小・Split View、ログイン後のチャット送信、PDF閲覧、Widget配置と共有拡張の操作。
+- 実機iPad、ウインドウ縮小・Split View、ログイン後のチャット送信、実書籍のPDF閲覧、Widget配置と共有拡張の操作。
 - テレビの接続先はSimulatorでTLSエラーとなったため、二列のエラー表示を確認した。映像再生と実チャンネル一覧の確認は別途必要。
 
 Appleのサイズ変更対応指針: [TN3192](https://developer.apple.com/documentation/technotes/tn3192-migrating-your-app-from-the-deprecated-uirequiresfullscreen-key)
