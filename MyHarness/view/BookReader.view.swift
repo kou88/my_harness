@@ -111,4 +111,3 @@ private struct BookPageThumbnail: View {
         }
     }
 }
-
