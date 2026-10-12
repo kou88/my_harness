@@ -22,6 +22,10 @@ import SwiftUI
             }
         }
         let document = PDFDocument(url: url)!
+        let annotation = PDFAnnotation(bounds: CGRect(x: 40, y: 50, width: 260, height: 40), forType: .square, withProperties: nil)
+        annotation.interiorColor = .yellow
+        annotation.color = .red
+        document.page(at: 1)!.addAnnotation(annotation)
         document.page(at: 6)!.rotation = 90
         document.write(to: url)
         self.url = url
@@ -77,6 +81,12 @@ import SwiftUI
                 assert(image.size.width >= 600 * pdf.scaleFactorForSizeToFit * pdf.traitCollection.displayScale)
                 assert(image.size.height >= 800 * pdf.scaleFactorForSizeToFit * pdf.traitCollection.displayScale)
             }
+            let image = images[2]!
+            let sample = image.cgImage!.cropping(to: CGRect(x: image.size.width * 0.15, y: image.size.height * 0.9125, width: 1, height: 1))!
+            var rgba: [UInt8] = [0, 0, 0, 0]
+            let context = CGContext(data: &rgba, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            context.draw(sample, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+            assert(rgba[0] > 240 && rgba[1] > 240 && rgba[2] < 20, "黄色のPDF注釈が描画されていません: \(rgba)")
             print("Full-resolution cache checks passed: \(images.keys.sorted()), pixels: \(images[2]!.size)")
             NotificationCenter.default.post(name: UIApplication.didReceiveMemoryWarningNotification, object: nil)
             let trimmed = Mirror(reflecting: provider).children.first(where: { $0.label == "images" })!.value as! [Int: UIImage]

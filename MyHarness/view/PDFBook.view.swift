@@ -113,6 +113,7 @@ struct PDFBookView: UIViewRepresentable {
             selectedPage = number
             changingLayout = true
             view?.go(to: target)
+            if let view { view.scaleFactor = view.scaleFactorForSizeToFit }
             changingLayout = false
             prepare()
         }
@@ -272,17 +273,20 @@ private final class BookPageOverlay: UIView {
     }
 }
 
-/// メインのPDFViewとは別のCGPDFDocumentを専用actorで描画する。
+/// メインのPDFViewとは別のPDFDocumentを専用actorで描画する。
 private actor BookPageRenderer {
-    private let document: CGPDFDocument
+    private let document: PDFDocument
     init(url: URL) throws {
-        guard let document = CGPDFDocument(url as CFURL) else { throw BookError.invalidFile }
+        guard let document = PDFDocument(url: url), !document.isLocked else { throw BookError.invalidFile }
         self.document = document
     }
     func render(number: Int, scale: CGFloat) throws -> UIImage {
         try Task.checkCancellation()
-        guard let page = document.page(at: number) else { throw BookError.invalidFile }
-        let box = page.getBoxRect(.cropBox)
+        guard let page = document.page(at: number - 1) else { throw BookError.invalidFile }
+        // PDFKitがoverlayを回転する。描画専用documentだけを回転なしにして二重回転を防ぐ。
+        page.rotation = 0
+        page.displaysAnnotations = true
+        let box = page.bounds(for: .cropBox)
         let size = CGSize(width: ceil(box.width * scale), height: ceil(box.height * scale))
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
@@ -293,11 +297,9 @@ private actor BookPageRenderer {
             let context = renderer.cgContext
             context.translateBy(x: 0, y: size.height)
             context.scaleBy(x: 1, y: -1)
-            // PDFKitがoverlayにもページ回転を適用するので、画像側では回転を相殺する。
             context.scaleBy(x: size.width / box.width, y: size.height / box.height)
-            context.concatenate(page.getDrawingTransform(.cropBox, rect: CGRect(origin: .zero, size: box.size), rotate: -page.rotationAngle, preserveAspectRatio: true))
             context.interpolationQuality = .high
-            context.drawPDFPage(page)
+            page.draw(with: .cropBox, to: context)
         }
     }
 }
