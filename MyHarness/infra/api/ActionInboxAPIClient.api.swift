@@ -427,7 +427,43 @@ final class ActionInboxAPIClient {
         var request = URLRequest(url: endpoint(path: "/api/books/\(book.id)/pdf", queryItems: []), cachePolicy: .reloadIgnoringLocalCacheData)
         request.setValue("Bearer \(try await authSession.accessToken())", forHTTPHeaderField: "Authorization")
         request.setValue("application/pdf", forHTTPHeaderField: "Accept")
+        request.setValue(book.sha256, forHTTPHeaderField: "X-Book-SHA256")
         return request
+    }
+
+    private struct BookRevisionRequest: Encodable {
+        let id: String
+        let baseSha256: String
+        let sha256: String
+        let thumbnailSha256: String
+        let sizeBytes: Int64
+        let thumbnailSizeBytes: Int64
+        let pageCount: Int
+    }
+    private struct SavedBookEnvelope: Decodable { let data: Book }
+    func saveBookRevision(_ book: Book, prepared: BookPreparedRevision) async throws -> Book {
+        let path = "/api/books/\(book.id)/revisions"
+        try await request(path: path, method: "POST", body: BookRevisionRequest(id: prepared.id, baseSha256: book.sha256,
+            sha256: prepared.sha256, thumbnailSha256: prepared.thumbnailSha256, sizeBytes: prepared.sizeBytes,
+            thumbnailSizeBytes: prepared.thumbnailSizeBytes, pageCount: book.pageCount))
+        for (kind, file, size, type) in [("pdf", prepared.pdf, prepared.sizeBytes, "application/pdf"),
+                                        ("thumbnail", prepared.thumbnail, prepared.thumbnailSizeBytes, "image/jpeg")] {
+            try Task.checkCancellation()
+            var request = URLRequest(url: endpoint(path: "\(path)/\(prepared.id)/\(kind)", queryItems: []), cachePolicy: .reloadIgnoringLocalCacheData)
+            request.httpMethod = "PUT"
+            request.setValue("Bearer \(try await authSession.accessToken())", forHTTPHeaderField: "Authorization")
+            request.setValue(type, forHTTPHeaderField: "Content-Type")
+            request.setValue(String(size), forHTTPHeaderField: "Content-Length")
+            let (data, response) = try await urlSession.upload(for: request, fromFile: file)
+            guard let http = response as? HTTPURLResponse else { throw ClientError.invalidResponse }
+            guard http.statusCode == 204 else {
+                let message = (try? decoder.decode(ErrorEnvelope.self, from: data).error.message) ?? "アップロードに失敗しました（HTTP \(http.statusCode)）"
+                throw BookError.unavailable(message)
+            }
+        }
+        try Task.checkCancellation()
+        let result = try await request(path: "\(path)/\(prepared.id)/complete", method: "POST")
+        return try decoder.decode(SavedBookEnvelope.self, from: result).data
     }
 
     func fetchInbox() async throws -> ActionInboxPayload {

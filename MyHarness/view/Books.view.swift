@@ -65,10 +65,13 @@ struct BookShelfView: View {
         }
         .onChange(of: scenePhase) { _, phase in if phase == .active { Task { await state.refresh() } } }
         .fullScreenCover(item: $reading) { selected in
-            BookReaderView(book: selected.book, url: selected.url, initialPage: state.lastPage(selected.book)) {
+            BookReaderView(book: selected.book, url: selected.url, initialPage: state.lastPage(selected.book), saveChanges: { book, revision in
+                try await state.saveRevision(book, prepared: revision)
+            }) {
                 state.savePage($0, book: selected.book)
             }
         }
+        .onChange(of: reading?.id) { _, value in if value == nil { Task { await state.refresh() } } }
     }
 
     private func bookTile(_ book: Book) -> some View {

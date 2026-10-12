@@ -15,8 +15,20 @@ struct BookStorage {
         try excluded.setResourceValues(values)
     }
 
-    func pdfURL(_ book: Book) -> URL { directory.appendingPathComponent(book.id).appendingPathExtension("pdf") }
-    func coverURL(_ book: Book) -> URL { directory.appendingPathComponent(book.id).appendingPathExtension("jpg") }
+    func pdfURL(_ book: Book) -> URL { directory.appendingPathComponent("\(book.id)-\(book.sha256).pdf") }
+    func coverURL(_ book: Book) -> URL { directory.appendingPathComponent("\(book.id)-\(book.sha256).jpg") }
+    /// 既存TestFlightの保存済みPDFを検証して版別ファイル名へ移す。
+    func migrateLegacy(_ book: Book) throws {
+        let legacy = directory.appendingPathComponent(book.id).appendingPathExtension("pdf")
+        if FileManager.default.fileExists(atPath: legacy.path), !isDownloaded(book) {
+            try Self.verify(legacy, book: book)
+            try FileManager.default.moveItem(at: legacy, to: pdfURL(book))
+        }
+        let cover = directory.appendingPathComponent(book.id).appendingPathExtension("jpg")
+        if FileManager.default.fileExists(atPath: cover.path), !FileManager.default.fileExists(atPath: coverURL(book).path) {
+            try FileManager.default.moveItem(at: cover, to: coverURL(book))
+        }
+    }
     func isDownloaded(_ book: Book) -> Bool { FileManager.default.fileExists(atPath: pdfURL(book).path) }
     func load() throws -> BookCatalog {
         let url = directory.appendingPathComponent("catalog.json")
@@ -26,7 +38,12 @@ struct BookStorage {
     func save(_ catalog: BookCatalog) throws {
         try JSONEncoder().encode(catalog).write(to: directory.appendingPathComponent("catalog.json"), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
     }
-    func remove(_ book: Book) throws { try FileManager.default.removeItem(at: pdfURL(book)) }
+    func remove(_ book: Book) throws {
+        for file in try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+        where file.pathExtension == "pdf" && (file.lastPathComponent == "\(book.id).pdf" || file.lastPathComponent.hasPrefix("\(book.id)-")) {
+            try FileManager.default.removeItem(at: file)
+        }
+    }
     func checkSpace(_ book: Book) throws {
         let attributes = try FileManager.default.attributesOfFileSystem(forPath: directory.path)
         guard let free = attributes[.systemFreeSize] as? NSNumber else { throw BookError.unavailable("空き容量を確認できません") }
@@ -35,18 +52,24 @@ struct BookStorage {
     static func verify(_ file: URL, book: Book) throws {
         let size = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize
         guard let size, Int64(size) == book.sizeBytes else { throw BookError.invalidFile }
+        let actual = try digest(file)
+        guard actual == book.sha256, let pdf = PDFDocument(url: file), !pdf.isLocked, pdf.pageCount == book.pageCount else { throw BookError.invalidFile }
+    }
+    static func digest(_ file: URL) throws -> String {
         let handle = try FileHandle(forReadingFrom: file)
         defer { try? handle.close() }
         var digest = SHA256()
         while let data = try handle.read(upToCount: 1024 * 1024), !data.isEmpty { digest.update(data: data) }
-        let actual = digest.finalize().map { String(format: "%02x", $0) }.joined()
-        guard actual == book.sha256, let pdf = PDFDocument(url: file), !pdf.isLocked, pdf.pageCount == book.pageCount else { throw BookError.invalidFile }
+        return digest.finalize().map { String(format: "%02x", $0) }.joined()
     }
     func installVerified(_ source: URL, book: Book) throws {
         let destination = pdfURL(book)
-        if FileManager.default.fileExists(atPath: destination.path) { try FileManager.default.removeItem(at: destination) }
-        try FileManager.default.moveItem(at: source, to: destination)
-        try FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: destination.path)
+        if FileManager.default.fileExists(atPath: destination.path) { try Self.verify(destination, book: book); return }
+        let temporary = directory.appendingPathComponent(UUID().uuidString.lowercased()).appendingPathExtension("pdf")
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        try FileManager.default.copyItem(at: source, to: temporary)
+        try FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: temporary.path)
+        try FileManager.default.moveItem(at: temporary, to: destination)
     }
 }
 

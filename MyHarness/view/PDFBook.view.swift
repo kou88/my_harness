@@ -4,6 +4,7 @@ import SwiftUI
 struct PDFBookView: UIViewRepresentable {
     let url: URL
     let pageCount: Int
+    let rotations: [Int: Int]
     @Binding var page: Int
     @Binding var spread: Bool
     @Binding var error: String
@@ -38,6 +39,7 @@ struct PDFBookView: UIViewRepresentable {
 
     func updateUIView(_ view: BookPDFView, context: Context) {
         context.coordinator.parent = self
+        context.coordinator.applyRotations(rotations)
         context.coordinator.go(to: page)
     }
 
@@ -58,6 +60,7 @@ struct PDFBookView: UIViewRepresentable {
         private var renderer: BookPageRenderer?
         private var generation = 0
         private var selectedPage: Int
+        private var appliedRotations: [Int: Int] = [:]
 
         init(_ parent: PDFBookView) {
             self.parent = parent
@@ -114,6 +117,21 @@ struct PDFBookView: UIViewRepresentable {
             changingLayout = true
             view?.go(to: target)
             if let view { view.scaleFactor = view.scaleFactorForSizeToFit }
+            changingLayout = false
+            prepare()
+        }
+
+        func applyRotations(_ rotations: [Int: Int]) {
+            guard appliedRotations != rotations, let view, let document = view.document else { return }
+            changingLayout = true
+            for number in Set(appliedRotations.keys).union(rotations.keys) {
+                guard let page = document.page(at: number - 1) else { continue }
+                page.rotation = (page.rotation - (appliedRotations[number] ?? 0) + (rotations[number] ?? 0) + 360) % 360
+            }
+            appliedRotations = rotations
+            view.layoutDocumentView()
+            if let selected = document.page(at: selectedPage - 1) { view.go(to: selected) }
+            view.scaleFactor = view.scaleFactorForSizeToFit
             changingLayout = false
             prepare()
         }

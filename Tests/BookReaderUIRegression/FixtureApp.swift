@@ -3,12 +3,22 @@ import SwiftUI
 
 @main struct BookReaderRegressionApp: App {
     private let url: URL
+    private let book: Book
     init() {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("reader-regression.pdf")
         let renderer = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 600, height: 800))
         try! renderer.writePDF(to: url) { context in
             for number in 1...9 {
                 context.beginPage()
+                if number == 9 {
+                    let scan = UIGraphicsImageRenderer(size: CGSize(width: 600, height: 800)).image { image in
+                        UIColor.white.setFill(); image.fill(CGRect(x: 0, y: 0, width: 600, height: 800))
+                        ("SCANNED PAGE 9" as NSString).draw(at: CGPoint(x: 30, y: 40), withAttributes: [.font: UIFont.boldSystemFont(ofSize: 45), .foregroundColor: UIColor.blue])
+                        UIColor.red.setFill(); image.fill(CGRect(x: 80, y: 400, width: 120, height: 120))
+                    }
+                    scan.draw(in: CGRect(x: 0, y: 0, width: 600, height: 800))
+                    continue
+                }
                 UIColor.white.setFill()
                 context.fill(CGRect(x: 0, y: 0, width: 600, height: 800))
                 let color = UIColor(hue: CGFloat(number) / 10, saturation: 0.65, brightness: 0.65, alpha: 1)
@@ -29,12 +39,16 @@ import SwiftUI
         document.page(at: 6)!.rotation = 90
         document.write(to: url)
         self.url = url
+        let size = try! url.resourceValues(forKeys: [.fileSizeKey]).fileSize!
+        self.book = Book(id: "9a5df0bc-b430-462e-82e1-231414d4ac0b", title: "見開き・回転保存の検証", fileName: "reader-regression.pdf", sha256: try! BookStorage.digest(url), sizeBytes: Int64(size), pageCount: 9, status: "ready", createdAt: .now)
         verifyNavigation()
     }
     var body: some Scene {
         WindowGroup {
-            BookReaderView(book: Book(id: "9a5df0bc-b430-462e-82e1-231414d4ac0b", title: "見開き・高解像度描画の検証", fileName: "reader-regression.pdf", sha256: "fixture", sizeBytes: 0, pageCount: 9, status: "ready", createdAt: .now), url: url, initialPage: 2) { print("Reader position: \($0)") }
-                .task { await verifyRasterCache() }
+            BookReaderView(book: book, url: url, initialPage: 2, saveChanges: { book, prepared in
+                try await FixtureBookCloud.save(book, revision: prepared)
+            }) { print("Reader position: \($0)") }
+                .task { await verifyRasterCache(); await verifyPageEditing() }
         }
     }
     private func verifyNavigation() {
@@ -59,6 +73,61 @@ import SwiftUI
         assert(spread.visiblePages(3) == 2...3)
         assert(spread.next(1) == 2 && spread.next(2) == 4 && spread.previous(4) == 2)
         print("Book navigation boundary checks passed")
+    }
+
+    @MainActor private func verifyPageEditing() async {
+        let editor = BookRotationState(book: book, url: url)
+        editor.rotate(1, clockwise: true)
+        editor.rotate(2, clockwise: true)
+        editor.rotate(7, clockwise: false)
+        editor.rotate(9, clockwise: true)
+        assert(editor.rotations == [1: 90, 2: 90, 7: 270, 9: 90])
+        var attempts = 0
+        var reservationID = ""
+        let upload: (Book, BookPreparedRevision) async throws -> BookEdition = { original, prepared in
+            attempts += 1
+            if attempts == 1 {
+                reservationID = prepared.id
+                throw URLError(.networkConnectionLost)
+            }
+            assert(reservationID == prepared.id)
+            let cover = UIImage(contentsOfFile: prepared.thumbnail.path)!
+            assert(cover.size.width > cover.size.height)
+            let source = PDFDocument(url: self.url)!
+            let edited = PDFDocument(url: prepared.pdf)!
+            assert(edited.pageCount == 9)
+            for index in 0..<9 {
+                let expected = (source.page(at: index)!.rotation + ([1: 90, 2: 90, 7: 270, 9: 90][index + 1] ?? 0)) % 360
+                assert(edited.page(at: index)!.rotation == expected)
+                assert(edited.page(at: index)!.string == source.page(at: index)!.string)
+            }
+            edited.page(at: 8)!.rotation = 0
+            assert(edited.page(at: 8)!.thumbnail(of: CGSize(width: 120, height: 160), for: .cropBox).pngData() == source.page(at: 8)!.thumbnail(of: CGSize(width: 120, height: 160), for: .cropBox).pngData())
+            assert(edited.page(at: 1)!.annotations.count == source.page(at: 1)!.annotations.count)
+            return try await FixtureBookCloud.save(original, revision: prepared)
+        }
+        await editor.save(using: upload)
+        assert(!editor.error.isEmpty && editor.prepared != nil && editor.hasChanges)
+        await editor.save(using: upload)
+        assert(editor.error.isEmpty && !editor.hasChanges && editor.prepared == nil)
+        try! BookStorage.verify(editor.url, book: editor.book)
+        let local = try! BookStorage(ownerID: UUID().uuidString.lowercased())
+        defer { try? FileManager.default.removeItem(at: local.directory) }
+        let legacy = local.directory.appendingPathComponent("\(book.id).pdf")
+        try! FileManager.default.copyItem(at: self.url, to: legacy)
+        try! local.migrateLegacy(book)
+        assert(local.isDownloaded(book))
+        assert(!local.isDownloaded(editor.book))
+        try! local.installVerified(editor.url, book: editor.book)
+        assert(local.isDownloaded(editor.book))
+        try! local.remove(editor.book)
+        assert(!local.isDownloaded(book) && !local.isDownloaded(editor.book))
+        print("Versioned cache checks passed: legacy migration, changed SHA invalidates cache, remove clears saved versions")
+        assert(PDFDocument(url: self.url)!.page(at: 1)!.rotation == 0)
+        let same = BookRotationState(book: book, url: url)
+        for _ in 0..<4 { same.rotate(2, clockwise: true) }
+        assert(!same.hasChanges)
+        print("Page editing checks passed: only selected pages rotated, source intact, annotations preserved, retry uses same reservation")
     }
 
     @MainActor private func verifyRasterCache() async {
@@ -96,5 +165,16 @@ import SwiftUI
             return
         }
         assertionFailure("前後2ページの画面解像度キャッシュが準備されませんでした")
+    }
+}
+
+// 検証用の保存先。本番のAPIやアカウントを使わず、書き出した実PDFを別のURLへ保存する。
+private enum FixtureBookCloud {
+    static func save(_ book: Book, revision: BookPreparedRevision) async throws -> BookEdition {
+        let updated = Book(id: book.id, title: book.title, fileName: book.fileName, sha256: revision.sha256, sizeBytes: revision.sizeBytes, pageCount: book.pageCount, status: "ready", createdAt: book.createdAt)
+        let target = FileManager.default.temporaryDirectory.appendingPathComponent("saved-\(revision.id).pdf")
+        if !FileManager.default.fileExists(atPath: target.path) { try FileManager.default.copyItem(at: revision.pdf, to: target) }
+        try BookStorage.verify(target, book: updated)
+        return BookEdition(book: updated, url: target)
     }
 }
