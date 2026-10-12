@@ -11,6 +11,9 @@ target = project.new_target(:application, 'BookUIRegression', :ios, '17.0')
 sources = %w[
   MyHarness/domain/books/Book.swift
   MyHarness/domain/books/BookPageLayout.swift
+  MyHarness/infra/books/BookStorage.swift
+  MyHarness/infra/books/BookPDFEditor.swift
+  MyHarness/state/BookRotationState.swift
   MyHarness/infra/display/AppInterfaceOrientationController.swift
   MyHarness/view/BookReader.view.swift
   MyHarness/view/PDFBook.view.swift
