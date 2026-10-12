@@ -23,6 +23,8 @@ Cloud API/DB integration is intentionally not implemented in v0, but repository 
 
 ## Branches
 
+iPhone / iPad対応範囲と確認結果は [iPad対応](docs/ipad-support.md) を参照してください。
+
 - `develop`: default development branch
 - `stage`: TestFlight upload branch
 - `prod`: production promotion branch

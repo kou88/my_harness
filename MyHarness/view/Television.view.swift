@@ -49,9 +49,19 @@ struct TelevisionView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            player
-            channelContent
+        GeometryReader { geometry in
+            if geometry.size.width >= 900 && geometry.size.width > geometry.size.height {
+                HStack(alignment: .top, spacing: 0) {
+                    player.frame(maxWidth: .infinity)
+                    channelContent.frame(width: 320)
+                }
+            } else {
+                VStack(spacing: 0) {
+                    player
+                        .frame(maxHeight: geometry.size.height * 0.55)
+                    channelContent
+                }
+            }
         }
         .navigationTitle("テレビ")
         .navigationBarTitleDisplayMode(.inline)
