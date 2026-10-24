@@ -406,6 +406,10 @@ final class ActionInboxAPIClient {
         encoder.keyEncodingStrategy = .useDefaultKeys
     }
 
+    func fetchExperimentData(path: String, queryItems: [URLQueryItem]) async throws -> Data {
+        try await request(path: "/api/experiments/" + path, method: "GET", queryItems: queryItems)
+    }
+
     private struct BookEnvelope: Decodable { let data: BookPage }
     func fetchBooks() async throws -> [Book] {
         var result: [Book] = []
@@ -1209,7 +1213,7 @@ final class ActionInboxAPIClient {
 
 }
 
-private enum ActionInboxDateDecoder {
+enum ActionInboxDateDecoder {
     static func decode(_ decoder: Decoder) throws -> Date {
         let container = try decoder.singleValueContainer()
         let value = try container.decode(String.self)

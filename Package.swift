@@ -19,6 +19,8 @@ let package = Package(
             sources: ["home_control/HomeControlSession.swift", "home_control/HomeControlClient.swift", "auth/ActionInboxConfig.auth.swift"]
         ),
         .testTarget(name: "MyHarnessHomeControlTests", dependencies: ["MyHarnessHomeControl"]),
+        .target(name: "MyHarnessExperimentDomain", path: "MyHarness/domain/experiment"),
+        .testTarget(name: "MyHarnessExperimentDomainTests", dependencies: ["MyHarnessExperimentDomain"], resources: [.process("Fixtures")]),
         .target(
             name: "MyHarnessNotificationDomain",
             path: "MyHarness/domain/model",

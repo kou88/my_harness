@@ -28,6 +28,7 @@ enum AIChatStyle {
 struct AIChatScreen: View {
     @Environment(AppRouter.self) private var router
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(ExperimentState.self) private var experimentState
     @Bindable var state: AIChatState
     @Bindable var cronState: AICronState
     let conversationId: String?
@@ -36,6 +37,7 @@ struct AIChatScreen: View {
     @State private var showSettings = false
     @State private var showSharing = false
     @State private var showCron = false
+    @State private var showExperiments = false
     @State private var showInference = false
     @State private var showPower = false
     @State private var deleteTarget: String?
@@ -140,6 +142,11 @@ struct AIChatScreen: View {
         .sheet(isPresented: $showSharing) {
             if let sharing = state.sharing { AISharingView(state: state, draft: sharing) }
         }
+        .sheet(isPresented: $showExperiments) {
+            NavigationStack { ThemeListView(state: experimentState) }
+                .environment(\.locale, Locale(identifier: "ja_JP"))
+                .environment(\.timeZone, TimeZone(secondsFromGMT: 9 * 3600)!)
+        }
         .fullScreenCover(isPresented: $showCron) {
             NavigationStack { AICronView(state: cronState) }
         }
@@ -181,6 +188,8 @@ struct AIChatScreen: View {
             Menu {
                 Button("モデル設定", systemImage: "slider.horizontal.3") { showSettings = true }
                     .disabled(state.selectedModel == nil || state.activeRun != nil || state.hasPendingSubmission)
+                Button("仮説検証", systemImage: "flask") { showExperiments = true }
+                    .accessibilityIdentifier("AI.experiments")
                 Button("PC管理", systemImage: "power") { showPower = true }
                 Button("GPUの実行枠", systemImage: "cpu") { showInference = true }
             } label: {
