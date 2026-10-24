@@ -64,6 +64,19 @@ final class ExperimentState {
     }
     func refresh() async { await load(append: false) }
     func loadMore() async { if hasMore { await load(append: true) } }
+
+    func createTheme(_ request: ExperimentThemeCreateRequest, session stamp: String) async throws -> ExperimentTheme {
+        guard isCurrent(stamp) else { throw sessionChangedError() }
+        let theme = try await client().create("themes", input: request, as: ExperimentTheme.self)
+        guard isCurrent(stamp) else { throw sessionChangedError() }
+        await refresh()
+        guard isCurrent(stamp) else { throw sessionChangedError() }
+        return theme
+    }
+
+    private func sessionChangedError() -> NSError {
+        NSError(domain: "Experiments", code: 2, userInfo: [NSLocalizedDescriptionKey: "ログインが変更されました。画面を開き直してください。"])
+    }
     private func load(append: Bool) async {
         if append, case .loading = phase { return }
         do {

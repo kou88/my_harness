@@ -76,3 +76,37 @@ private func decoder() -> JSONDecoder {
     #expect(tree.visibleTasks[0].status == .pending)
     #expect(tree.visibleNotes.isEmpty)
 }
+
+@Test func themeCreationEncodesTheStrictAPIContract() throws {
+    let operationID = try #require(UUID(uuidString: "C8872A86-C837-4EE3-A03E-23870FDD2D08"))
+    var draft = ExperimentThemeDraft.empty
+    draft.title = "  新しいテーマ\n"
+    draft.description = "目的のメモ"
+    draft.status = .paused
+    let request = try ExperimentThemeCreateRequest(operationID: operationID, draft: draft)
+    let object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(request)) as? [String: String])
+    #expect(Set(object.keys) == Set(["operationId", "title", "description", "audience", "constraints", "status"]))
+    #expect(object["operationId"] == "c8872a86-c837-4ee3-a03e-23870fdd2d08")
+    #expect(object["title"] == "新しいテーマ")
+    #expect(object["description"] == "目的のメモ")
+    #expect(object["audience"] == "")
+    #expect(object["constraints"] == "")
+    #expect(object["status"] == "paused")
+}
+
+@Test func themeCreationRejectsInvalidTitlesAndStatuses() throws {
+    let id = UUID()
+    var draft = ExperimentThemeDraft.empty
+    draft.title = " \n "
+    #expect(throws: (any Error).self) { try ExperimentThemeCreateRequest(operationID: id, draft: draft) }
+    draft.title = String(repeating: "😀", count: 250)
+    _ = try ExperimentThemeCreateRequest(operationID: id, draft: draft)
+    draft.title += "😀"
+    #expect(throws: (any Error).self) { try ExperimentThemeCreateRequest(operationID: id, draft: draft) }
+    draft.title = "正常なテーマ"
+    draft.status = .supported
+    #expect(throws: (any Error).self) { try ExperimentThemeCreateRequest(operationID: id, draft: draft) }
+    draft.status = .active
+    draft.description = String(repeating: "a", count: 100_001)
+    #expect(throws: (any Error).self) { try ExperimentThemeCreateRequest(operationID: id, draft: draft) }
+}
