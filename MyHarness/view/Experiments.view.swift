@@ -20,6 +20,10 @@ private struct ExperimentBadge: View {
 
 struct ThemeListView: View {
     @Bindable var state: ExperimentState
+    @State private var editor: ThemeCreatePresentation?
+    @State private var createdTheme: ExperimentTheme?
+    @State private var themeToOpen: ExperimentTheme?
+    @State private var creationError = ""
 
     var body: some View {
         List {
@@ -65,11 +69,130 @@ struct ThemeListView: View {
         .listStyle(.plain)
         .navigationTitle("テーマ")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    do { editor = ThemeCreatePresentation(id: UUID(), session: try state.sessionStamp()) }
+                    catch { creationError = error.localizedDescription }
+                } label: { Image(systemName: "plus") }
+                .accessibilityLabel("テーマを追加")
+                .accessibilityIdentifier("Experiments.theme.add")
+                .disabled(!state.isSignedIn)
+            }
+        }
+        .sheet(item: $editor, onDismiss: {
+            themeToOpen = createdTheme
+            createdTheme = nil
+        }) { presentation in
+            NavigationStack {
+                ExperimentThemeCreateView(state: state, presentation: presentation) { createdTheme = $0 }
+            }
+        }
+        .navigationDestination(item: $themeToOpen) { theme in
+            ThemeDetailView(state: state, id: theme.id)
+        }
+        .alert("追加できません", isPresented: Binding(get: { !creationError.isEmpty }, set: { if !$0 { creationError = "" } })) {
+            Button("閉じる", role: .cancel) { }
+        } message: { Text(creationError) }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("cognitoDidSignOut"))) { _ in
+            editor = nil; createdTheme = nil; themeToOpen = nil
+        }
         .task { if state.isSignedIn { await state.refresh() } }
         .refreshable { await state.refresh() }
         .environment(\.locale, Locale(identifier: "ja_JP"))
         .environment(\.timeZone, TimeZone(secondsFromGMT: 9 * 3600)!)
         .accessibilityIdentifier("Experiments.list")
+    }
+}
+
+private struct ThemeCreatePresentation: Identifiable {
+    let id: UUID
+    let session: String
+}
+
+private enum ExperimentCreationPhase<Request> {
+    case editing, saving, rejected(String), uncertain(Request, String), saved
+    var isSaving: Bool { if case .saving = self { true } else { false } }
+    var inputsLocked: Bool {
+        switch self { case .saving, .uncertain, .saved: true; case .editing, .rejected: false }
+    }
+    var message: String {
+        switch self { case .rejected(let message), .uncertain(_, let message): message; default: "" }
+    }
+    var buttonTitle: String {
+        switch self { case .saving: "追加中"; case .uncertain: "再試行"; default: "追加" }
+    }
+}
+
+private struct ExperimentThemeCreateView: View {
+    @Environment(\.dismiss) private var dismiss
+    let state: ExperimentState
+    let presentation: ThemeCreatePresentation
+    let onCreated: (ExperimentTheme) -> Void
+    @State private var draft = ExperimentThemeDraft.empty
+    @State private var phase: ExperimentCreationPhase<ExperimentThemeCreateRequest> = .editing
+    @FocusState private var titleFocused: Bool
+
+    var body: some View {
+        Form {
+            if !phase.message.isEmpty { Text(phase.message).foregroundStyle(.red) }
+            else if !draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !draft.validationMessage.isEmpty {
+                Text(draft.validationMessage).foregroundStyle(.red)
+            }
+            Group {
+                Section {
+                    TextField("テーマ名", text: $draft.title, axis: .vertical)
+                        .lineLimit(1...3).focused($titleFocused)
+                        .accessibilityIdentifier("Experiments.theme.title")
+                    Picker("ステータス", selection: $draft.status) {
+                        ForEach([ExperimentStatus.active, .paused, .closed], id: \.self) { status in
+                            Text(status.title).tag(status)
+                        }
+                    }
+                }
+                Section("概要・目的") { TextEditor(text: $draft.description).frame(minHeight: 80).accessibilityLabel("概要・目的") }
+                Section("対象市場・対象者") { TextEditor(text: $draft.audience).frame(minHeight: 60).accessibilityLabel("対象市場・対象者") }
+                Section("制約・前提条件") { TextEditor(text: $draft.constraints).frame(minHeight: 60).accessibilityLabel("制約・前提条件") }
+            }.disabled(phase.inputsLocked)
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .navigationTitle("テーマを追加")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("キャンセル") { dismiss() }.disabled(phase.isSaving)
+            }
+            ToolbarItem(placement: .confirmationAction) {
+                Button(phase.buttonTitle) { Task { await save() } }
+                    .disabled(phase.isSaving || draft.validationMessage != "" || isSaved)
+                    .accessibilityIdentifier("Experiments.theme.save")
+            }
+        }
+        .interactiveDismissDisabled(phase.isSaving)
+        .task { titleFocused = true }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("cognitoDidSignOut"))) { _ in dismiss() }
+    }
+
+    private var isSaved: Bool { if case .saved = phase { true } else { false } }
+
+    private func save() async {
+        guard !phase.isSaving, !isSaved else { return }
+        let request: ExperimentThemeCreateRequest
+        do {
+            if case .uncertain(let pending, _) = phase { request = pending }
+            else { request = try ExperimentThemeCreateRequest(operationID: presentation.id, draft: draft) }
+        } catch { phase = .rejected(error.localizedDescription); return }
+        phase = .saving
+        do {
+            let theme = try await state.createTheme(request, session: presentation.session)
+            phase = .saved
+            onCreated(theme)
+            dismiss()
+        } catch let error as ActionInboxAPIClient.ClientError {
+            if case .requestFailed(let status, _) = error, [400, 401, 403, 404, 422].contains(status) {
+                phase = .rejected(error.localizedDescription)
+            } else { phase = .uncertain(request, error.localizedDescription) }
+        } catch { phase = .uncertain(request, error.localizedDescription) }
     }
 }
 

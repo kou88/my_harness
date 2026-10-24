@@ -14,4 +14,11 @@ struct ExperimentAPIClient {
     func page<Value: Decodable>(_ path: String, offset: Int, query: [URLQueryItem], as type: Value.Type) async throws -> ExperimentPage<Value> {
         try await get(path, query: query + [URLQueryItem(name: "limit", value: "50"), URLQueryItem(name: "offset", value: String(offset))], as: ExperimentPage<Value>.self)
     }
+
+    func create<Input: Encodable, Value: Decodable>(_ path: String, input: Input, as type: Value.Type) async throws -> Value {
+        let data = try await transport.createExperimentData(path: path, input: input)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .custom { decoder in try ActionInboxDateDecoder.decode(decoder) }
+        return try decoder.decode(ExperimentEnvelope<Value>.self, from: data).data
+    }
 }

@@ -410,6 +410,10 @@ final class ActionInboxAPIClient {
         try await request(path: "/api/experiments/" + path, method: "GET", queryItems: queryItems)
     }
 
+    func createExperimentData<Input: Encodable>(path: String, input: Input) async throws -> Data {
+        try await request(path: "/api/experiments/" + path, method: "POST", body: input)
+    }
+
     private struct BookEnvelope: Decodable { let data: BookPage }
     func fetchBooks() async throws -> [Book] {
         var result: [Book] = []

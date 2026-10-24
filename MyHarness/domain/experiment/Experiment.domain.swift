@@ -1,6 +1,6 @@
 import Foundation
 
-enum ExperimentStatus: String, Decodable, Hashable {
+enum ExperimentStatus: String, Codable, Hashable {
     case active, paused, closed, unverified, testing, supported, refuted, inconclusive
     case pending, inProgress = "in_progress", completed, canceled
 
@@ -40,6 +40,48 @@ struct ExperimentTheme: Decodable, Identifiable, Hashable {
     let status: ExperimentStatus
     let updatedAt: Date
     let archivedAt: Date?
+}
+
+struct ExperimentThemeDraft: Equatable {
+    var title: String
+    var description: String
+    var audience: String
+    var constraints: String
+    var status: ExperimentStatus
+
+    static let empty = Self(title: "", description: "", audience: "", constraints: "", status: .active)
+
+    var validationMessage: String {
+        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if title.isEmpty { return "テーマ名を入力してください。" }
+        if title.utf16.count > 500 { return "テーマ名は500文字以内で入力してください。" }
+        if [description, audience, constraints].contains(where: { $0.utf16.count > 100_000 }) {
+            return "各項目は100,000文字以内で入力してください。"
+        }
+        if ![ExperimentStatus.active, .paused, .closed].contains(status) { return "テーマのステータスが不正です。" }
+        return ""
+    }
+}
+
+struct ExperimentThemeCreateRequest: Encodable, Equatable {
+    let operationId: String
+    let title: String
+    let description: String
+    let audience: String
+    let constraints: String
+    let status: ExperimentStatus
+
+    init(operationID: UUID, draft: ExperimentThemeDraft) throws {
+        guard draft.validationMessage.isEmpty else {
+            throw NSError(domain: "Experiments", code: 3, userInfo: [NSLocalizedDescriptionKey: draft.validationMessage])
+        }
+        operationId = operationID.uuidString.lowercased()
+        title = draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        description = draft.description
+        audience = draft.audience
+        constraints = draft.constraints
+        status = draft.status
+    }
 }
 
 struct ExperimentHypothesis: Decodable, Identifiable, Hashable {
