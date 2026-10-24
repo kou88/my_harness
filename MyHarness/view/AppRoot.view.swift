@@ -8,6 +8,7 @@ struct AppRootView: View {
     @StateObject private var televisionPlayerController: TelevisionPlayerController
 
     @State private var router = AppRouter()
+    @State private var experimentState: ExperimentState
     @State private var bookState: BookState
     @State private var showsHomeControl = false
     @State private var todayState: TodayState
@@ -23,6 +24,7 @@ struct AppRootView: View {
 
     init(dependencies: AppDependencies) {
         self.dependencies = dependencies
+        _experimentState = State(initialValue: ExperimentState(api: dependencies.actionInbox.apiClient, auth: dependencies.actionInbox.authSession, configurationError: dependencies.actionInbox.configurationErrorMessage))
         _bookState = State(initialValue: BookState(api: dependencies.actionInbox.apiClient, auth: dependencies.actionInbox.authSession, configurationError: dependencies.actionInbox.configurationErrorMessage))
         let televisionAPIClient = KonomiTVAPIClient.automatic(
             localServerURL: KonomiTVConfiguration.serverURL,
@@ -144,8 +146,10 @@ struct AppRootView: View {
                 }
             }
         }
+        .environment(experimentState)
         .environment(router)
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("cognitoDidSignOut"))) { _ in
+            experimentState.clearSession()
             bookState.clearSession()
         }
         .onOpenURL { url in
