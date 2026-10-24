@@ -110,7 +110,7 @@ private struct ThemeCreatePresentation: Identifiable {
     let session: String
 }
 
-private enum ExperimentCreationPhase<Request> {
+enum ExperimentCreationPhase<Request> {
     case editing, saving, rejected(String), uncertain(Request, String), saved
     var isSaving: Bool { if case .saving = self { true } else { false } }
     var inputsLocked: Bool {
@@ -262,6 +262,10 @@ struct ThemeDetailView: View {
     let state: ExperimentState
     let id: String
     @State private var section: ThemeSection = .hypotheses
+    @State private var editor: ExperimentItemCreatePresentation?
+    @State private var creationError = ""
+    @State private var didCreate = false
+    @State private var refreshID = UUID()
 
     var body: some View {
         ExperimentRemoteView(state: state, load: { api in try await api.get("themes/\(id)/tree", query: [], as: ExperimentTree.self) }) { tree in
@@ -322,8 +326,32 @@ struct ThemeDetailView: View {
                     } label: { Image(systemName: "info.circle") }
                     .accessibilityLabel("テーマの詳細")
                 }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        do {
+                            editor = ExperimentItemCreatePresentation(id: UUID(), session: try state.sessionStamp(), kind: section.creationKind, tree: tree, assigneeID: try state.currentAssigneeID())
+                        } catch { creationError = error.localizedDescription }
+                    } label: { Image(systemName: "plus") }
+                    .accessibilityLabel("\(section.title)を追加")
+                    .accessibilityIdentifier("Experiments.\(section.creationKind.rawValue).add")
+                }
             }
         }
+        .id(refreshID)
+        .sheet(item: $editor, onDismiss: {
+            if didCreate {
+                refreshID = UUID(); didCreate = false
+                Task { await state.refresh() }
+            }
+        }) { presentation in
+            NavigationStack {
+                ExperimentItemCreateView(state: state, presentation: presentation) { didCreate = true }
+            }
+        }
+        .alert("追加できません", isPresented: Binding(get: { !creationError.isEmpty }, set: { if !$0 { creationError = "" } })) {
+            Button("閉じる", role: .cancel) { }
+        } message: { Text(creationError) }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("cognitoDidSignOut"))) { _ in editor = nil }
         .navigationBarTitleDisplayMode(.inline)
         .accessibilityIdentifier("Experiments.theme")
     }
@@ -344,6 +372,12 @@ struct ThemeDetailView: View {
                 }
             }.padding(.vertical, 3)
         }
+    }
+}
+
+private extension ThemeSection {
+    var creationKind: ExperimentItemKind {
+        switch self { case .hypotheses: .hypothesis; case .tasks: .task; case .notes: .note }
     }
 }
 

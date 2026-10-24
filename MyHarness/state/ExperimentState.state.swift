@@ -66,12 +66,22 @@ final class ExperimentState {
     func loadMore() async { if hasMore { await load(append: true) } }
 
     func createTheme(_ request: ExperimentThemeCreateRequest, session stamp: String) async throws -> ExperimentTheme {
-        guard isCurrent(stamp) else { throw sessionChangedError() }
-        let theme = try await client().create("themes", input: request, as: ExperimentTheme.self)
-        guard isCurrent(stamp) else { throw sessionChangedError() }
+        let theme = try await create("themes", request: request, session: stamp, as: ExperimentTheme.self)
         await refresh()
         guard isCurrent(stamp) else { throw sessionChangedError() }
         return theme
+    }
+
+    func currentAssigneeID() throws -> String {
+        _ = try client()
+        return ownerID
+    }
+
+    func create<Input: Encodable, Value: Decodable>(_ path: String, request: Input, session stamp: String, as type: Value.Type) async throws -> Value {
+        guard isCurrent(stamp) else { throw sessionChangedError() }
+        let value = try await client().create(path, input: request, as: type)
+        guard isCurrent(stamp) else { throw sessionChangedError() }
+        return value
     }
 
     private func sessionChangedError() -> NSError {
