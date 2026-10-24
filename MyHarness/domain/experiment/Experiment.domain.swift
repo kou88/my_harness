@@ -120,6 +120,19 @@ struct ExperimentTree: Decodable, Hashable {
     let notes: [ExperimentNote]
     let judgments: [ExperimentJudgment]
 
+    var visibleHypotheses: [ExperimentHypothesis] {
+        hypotheses.filter { $0.archivedAt == nil }
+    }
+    var visibleTasks: [ExperimentTask] {
+        let hypothesisIDs = Set(visibleHypotheses.map(\.id))
+        return tasks.filter { $0.archivedAt == nil && hypothesisIDs.contains($0.hypothesisId) }
+    }
+    var visibleNotes: [ExperimentNote] {
+        let taskIDs = Set(visibleTasks.map(\.id))
+        return notes.filter { $0.archivedAt == nil && taskIDs.contains($0.taskId) }
+            .sorted { $0.observedAt > $1.observedAt }
+    }
+
     func tasks(for hypothesis: ExperimentHypothesis) -> [ExperimentTask] {
         tasks.filter { $0.hypothesisId == hypothesis.id && $0.archivedAt == nil }
     }
@@ -144,21 +157,4 @@ struct ExperimentRevision<Item: Decodable>: Decodable, Identifiable {
     let reason: String
     let actor: String
     let createdAt: Date
-}
-
-enum ExperimentFocus: String, CaseIterable, Identifiable {
-    case themes, today, week, overdue, noDue = "no_due", paused, timeline, review
-    var id: String { rawValue }
-    var title: String {
-        switch self {
-        case .themes: "テーマ"
-        case .today: "今日"
-        case .week: "今週"
-        case .overdue: "期限超過"
-        case .noDue: "期限なし"
-        case .paused: "保留"
-        case .timeline: "最近の結果"
-        case .review: "判定待ち"
-        }
-    }
 }

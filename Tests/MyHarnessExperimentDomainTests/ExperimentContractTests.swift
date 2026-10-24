@@ -50,3 +50,29 @@ private func decoder() -> JSONDecoder {
     let completed = try #require(tree.tasks.first { $0.status == .completed })
     #expect(completed.completedAt != nil)
 }
+
+@Test func archivedHypothesisHidesDescendantsFromThemeTabs() throws {
+    var object = try #require(JSONSerialization.jsonObject(with: fixture()) as? [String: Any])
+    var data = try #require(object["data"] as? [String: Any])
+    var hypotheses = try #require(data["hypotheses"] as? [[String: Any]])
+    hypotheses[0]["archivedAt"] = "2026-10-24T00:00:00.000Z"
+    data["hypotheses"] = hypotheses; object["data"] = data
+    let tree = try decoder().decode(ExperimentEnvelope<ExperimentTree>.self, from: JSONSerialization.data(withJSONObject: object)).data
+    #expect(tree.visibleHypotheses.isEmpty)
+    #expect(tree.visibleTasks.isEmpty)
+    #expect(tree.visibleNotes.isEmpty)
+}
+
+@Test func archivedTaskHidesItsNotesWhileOtherTasksRemainVisible() throws {
+    var object = try #require(JSONSerialization.jsonObject(with: fixture()) as? [String: Any])
+    var data = try #require(object["data"] as? [String: Any])
+    var tasks = try #require(data["tasks"] as? [[String: Any]])
+    let completedIndex = try #require(tasks.firstIndex { $0["status"] as? String == "completed" })
+    tasks[completedIndex]["archivedAt"] = "2026-10-24T00:00:00.000Z"
+    data["tasks"] = tasks; object["data"] = data
+    let tree = try decoder().decode(ExperimentEnvelope<ExperimentTree>.self, from: JSONSerialization.data(withJSONObject: object)).data
+    #expect(tree.visibleHypotheses.count == 1)
+    #expect(tree.visibleTasks.count == 1)
+    #expect(tree.visibleTasks[0].status == .pending)
+    #expect(tree.visibleNotes.isEmpty)
+}

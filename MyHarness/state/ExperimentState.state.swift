@@ -16,14 +16,9 @@ final class ExperimentState {
     private var generation = 0
     private var requestGeneration = 0
     private(set) var themes: [ExperimentThemeSummary] = []
-    private(set) var tasks: [ExperimentTask] = []
-    private(set) var notes: [ExperimentNote] = []
-    private(set) var hypotheses: [ExperimentHypothesis] = []
     private(set) var phase: Phase = .idle
     private(set) var hasMore = false
     private var nextOffset = 0
-    var focus: ExperimentFocus = .themes
-    var query = ""
 
     init(api: ActionInboxAPIClient?, auth: CognitoAuthSession?, configurationError: String?) {
         if let api, let auth { connection = .connected(ExperimentAPIClient(transport: api), auth) }
@@ -42,7 +37,7 @@ final class ExperimentState {
     }
     func clearSession() {
         generation += 1; requestGeneration += 1; ownerID = ""
-        themes = []; tasks = []; notes = []; hypotheses = []
+        themes = []
         nextOffset = 0; hasMore = false; phase = .idle
     }
     private func unavailableError() -> NSError {
@@ -74,32 +69,13 @@ final class ExperimentState {
         do {
             let api = try client(); let stamp = try sessionStamp()
             requestGeneration += 1; let request = requestGeneration
-            let selected = focus; let search = query; let offset = append ? nextOffset : 0
-            if !append { themes = []; tasks = []; notes = []; hypotheses = [] }
+            let offset = append ? nextOffset : 0
+            if !append { themes = [] }
             phase = .loading
-            var more = false; var following = offset
-            switch selected {
-            case .themes:
-                var parameters = [URLQueryItem(name: "archived", value: "exclude")]
-                if !search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { parameters.append(URLQueryItem(name: "q", value: search)) }
-                let page = try await api.page("themes", offset: offset, query: parameters, as: ExperimentThemeSummary.self)
-                guard isCurrent(stamp), request == requestGeneration else { return }
-                themes = append ? themes + page.items : page.items; more = page.hasMore; following += page.items.count
-            case .timeline:
-                let page = try await api.page("timeline", offset: offset, query: [], as: ExperimentNote.self)
-                guard isCurrent(stamp), request == requestGeneration else { return }
-                notes = append ? notes + page.items : page.items; more = page.hasMore; following += page.items.count
-            case .review:
-                let page = try await api.page("review-queue", offset: offset, query: [], as: ExperimentHypothesis.self)
-                guard isCurrent(stamp), request == requestGeneration else { return }
-                hypotheses = append ? hypotheses + page.items : page.items; more = page.hasMore; following += page.items.count
-            case .today, .week, .overdue, .noDue, .paused:
-                let page = try await api.page("next", offset: offset, query: [URLQueryItem(name: "view", value: selected.rawValue), URLQueryItem(name: "asOf", value: Date().ISO8601Format())], as: ExperimentTask.self)
-                guard isCurrent(stamp), request == requestGeneration else { return }
-                tasks = append ? tasks + page.items : page.items; more = page.hasMore; following += page.items.count
-            }
+            let page = try await api.page("themes", offset: offset, query: [URLQueryItem(name: "archived", value: "exclude")], as: ExperimentThemeSummary.self)
             guard isCurrent(stamp), request == requestGeneration else { return }
-            nextOffset = following; hasMore = more; phase = .loaded
+            themes = append ? themes + page.items : page.items
+            nextOffset = offset + page.items.count; hasMore = page.hasMore; phase = .loaded
         } catch is CancellationError { }
         catch { phase = .failed(error.localizedDescription) }
     }

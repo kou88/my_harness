@@ -26,9 +26,6 @@ struct ThemeListView: View {
             if !state.isSignedIn {
                 Button("ログイン") { Task { await state.signIn() } }
             } else {
-                Picker("表示", selection: $state.focus) {
-                    ForEach(ExperimentFocus.allCases) { focus in Text(focus.title).tag(focus) }
-                }.pickerStyle(.menu).labelsHidden()
                 ForEach(state.themes) { theme in
                     NavigationLink {
                         ThemeDetailView(state: state, id: theme.id)
@@ -49,21 +46,6 @@ struct ThemeListView: View {
                         }.padding(.vertical, 5)
                     }
                 }
-                ForEach(state.tasks) { task in
-                    NavigationLink {
-                        VerificationTaskDetailView(state: state, id: task.id)
-                    } label: { ExperimentTaskRow(task: task) }
-                }
-                ForEach(state.notes) { note in
-                    NavigationLink { ResultNoteDetailView(state: state, id: note.id) } label: { ExperimentNoteRow(note: note) }
-                }
-                ForEach(state.hypotheses) { hypothesis in
-                    NavigationLink {
-                        HypothesisDetailView(state: state, themeID: hypothesis.themeId, id: hypothesis.id)
-                    } label: {
-                        HStack { Text(hypothesis.statement); Spacer(); ExperimentBadge(status: hypothesis.status) }
-                    }
-                }
                 if state.hasMore { Button("さらに読み込む") { Task { await state.loadMore() } } }
             }
             switch state.phase {
@@ -75,15 +57,15 @@ struct ThemeListView: View {
                     Button("再読み込み") { Task { await state.refresh() } }
                 }
             case .loaded:
-                if state.themes.isEmpty && state.tasks.isEmpty && state.notes.isEmpty && state.hypotheses.isEmpty {
-                    ContentUnavailableView(state.focus == .themes ? "テーマはありません" : "該当する項目はありません", systemImage: "flask")
+                if state.themes.isEmpty {
+                    ContentUnavailableView("テーマはありません", systemImage: "flask")
                 }
             }
         }
         .listStyle(.plain)
         .navigationTitle("テーマ")
         .navigationBarTitleDisplayMode(.inline)
-        .task(id: state.focus) { if state.isSignedIn { await state.refresh() } }
+        .task { if state.isSignedIn { await state.refresh() } }
         .refreshable { await state.refresh() }
         .environment(\.locale, Locale(identifier: "ja_JP"))
         .environment(\.timeZone, TimeZone(secondsFromGMT: 9 * 3600)!)
@@ -141,48 +123,121 @@ private struct ExperimentTextSection: View {
     }
 }
 
+private enum ThemeSection: String, CaseIterable, Identifiable {
+    case hypotheses, tasks, notes
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .hypotheses: "仮説"
+        case .tasks: "検証TODO"
+        case .notes: "結果ノート"
+        }
+    }
+}
+
 struct ThemeDetailView: View {
     let state: ExperimentState
     let id: String
+    @State private var section: ThemeSection = .hypotheses
+
     var body: some View {
         ExperimentRemoteView(state: state, load: { api in try await api.get("themes/\(id)/tree", query: [], as: ExperimentTree.self) }) { tree in
             List {
-                Section {
-                    HStack { Text(tree.theme.title).font(.title3.weight(.semibold)); Spacer(); ExperimentBadge(status: tree.theme.status) }
-                    if !tree.theme.description.isEmpty { ProductOpsMarkdownView(markdown: tree.theme.description) }
-                }
-                ExperimentTextSection(title: "対象", text: tree.theme.audience)
-                ExperimentTextSection(title: "前提・制約", text: tree.theme.constraints)
-                Section("仮説") {
-                    ForEach(tree.hypotheses.filter { $0.archivedAt == nil }) { hypothesis in
-                        NavigationLink {
-                            HypothesisDetailView(state: state, themeID: id, id: hypothesis.id)
-                        } label: {
-                            VStack(alignment: .leading, spacing: 7) {
-                                Text(hypothesis.statement)
-                                HStack {
-                                    let tasks = tree.tasks(for: hypothesis)
-                                    Label("\(tasks.filter { $0.status == .completed }.count)/\(tasks.count)", systemImage: "checklist")
-                                        .font(.caption).foregroundStyle(.secondary).accessibilityLabel("TODO \(tasks.filter { $0.status == .completed }.count) / \(tasks.count) 完了")
-                                    Spacer(); ExperimentBadge(status: hypothesis.status)
-                                }
-                            }.padding(.vertical, 3)
+                switch section {
+                case .hypotheses:
+                    if tree.visibleHypotheses.isEmpty {
+                        ContentUnavailableView("仮説はありません", systemImage: "lightbulb")
+                    }
+                    ForEach(tree.visibleHypotheses) { hypothesis in
+                        hypothesisLink(hypothesis, tree: tree)
+                    }
+                case .tasks:
+                    if tree.visibleTasks.isEmpty {
+                        ContentUnavailableView("検証TODOはありません", systemImage: "checklist")
+                    }
+                    ForEach(tree.visibleHypotheses.filter { !tree.tasks(for: $0).isEmpty }) { hypothesis in
+                        Section(hypothesis.statement) {
+                            ForEach(tree.tasks(for: hypothesis)) { task in
+                                NavigationLink {
+                                    VerificationTaskDetailView(state: state, id: task.id)
+                                } label: { ExperimentTaskRow(task: task) }
+                            }
+                        }
+                    }
+                case .notes:
+                    if tree.visibleNotes.isEmpty {
+                        ContentUnavailableView("結果ノートはありません", systemImage: "note.text")
+                    }
+                    ForEach(tree.visibleTasks.filter { !tree.notes(for: $0).isEmpty }) { task in
+                        Section(task.title) {
+                            ForEach(tree.notes(for: task)) { note in
+                                NavigationLink {
+                                    ResultNoteDetailView(state: state, id: note.id)
+                                } label: { ExperimentNoteRow(note: note) }
+                            }
                         }
                     }
                 }
-                Section("最近の結果") {
-                    ForEach(recentNotes(tree)) { note in
-                        NavigationLink { ResultNoteDetailView(state: state, id: note.id) } label: { ExperimentNoteRow(note: note) }
-                    }
+            }
+            .listStyle(.plain)
+            .id(section)
+            .safeAreaInset(edge: .top) {
+                Picker("テーマ内の表示", selection: $section) {
+                    ForEach(ThemeSection.allCases) { section in Text(section.title).tag(section) }
                 }
-            }.listStyle(.plain)
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 8)
+                .background(.bar)
+                .accessibilityIdentifier("Experiments.theme.tabs")
+            }
+            .navigationTitle(tree.theme.title)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink {
+                        ExperimentThemeInfoView(theme: tree.theme)
+                    } label: { Image(systemName: "info.circle") }
+                    .accessibilityLabel("テーマの詳細")
+                }
+            }
         }
-        .navigationTitle("テーマ").navigationBarTitleDisplayMode(.inline)
+        .navigationBarTitleDisplayMode(.inline)
+        .accessibilityIdentifier("Experiments.theme")
     }
-    private func recentNotes(_ tree: ExperimentTree) -> [ExperimentNote] {
-        let hypotheses = Set(tree.hypotheses.filter { $0.archivedAt == nil }.map(\.id))
-        let tasks = Set(tree.tasks.filter { $0.archivedAt == nil && hypotheses.contains($0.hypothesisId) }.map(\.id))
-        return Array(tree.notes.filter { $0.archivedAt == nil && tasks.contains($0.taskId) }.sorted { $0.createdAt > $1.createdAt }.prefix(5))
+    private func hypothesisLink(_ hypothesis: ExperimentHypothesis, tree: ExperimentTree) -> some View {
+        NavigationLink {
+            HypothesisDetailView(state: state, themeID: id, id: hypothesis.id)
+        } label: {
+            VStack(alignment: .leading, spacing: 7) {
+                Text(hypothesis.statement)
+                HStack {
+                    let tasks = tree.tasks(for: hypothesis)
+                    let completed = tasks.filter { $0.status == .completed }.count
+                    Label("\(completed)/\(tasks.count)", systemImage: "checklist")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .accessibilityLabel("TODO \(completed) / \(tasks.count) 完了")
+                    Spacer()
+                    ExperimentBadge(status: hypothesis.status)
+                }
+            }.padding(.vertical, 3)
+        }
+    }
+}
+
+private struct ExperimentThemeInfoView: View {
+    let theme: ExperimentTheme
+    var body: some View {
+        List {
+            Section {
+                ExperimentBadge(status: theme.status)
+                if !theme.description.isEmpty { ProductOpsMarkdownView(markdown: theme.description) }
+            }
+            ExperimentTextSection(title: "対象", text: theme.audience)
+            ExperimentTextSection(title: "前提・制約", text: theme.constraints)
+        }
+        .listStyle(.plain)
+        .navigationTitle("テーマの詳細")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
