@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 
 // Isolated test host: real chat views/state, in-memory transport, no production login or GPU.
-enum AppTab { case today, nextActions, articles, ai, television }
+enum AppTab { case today, nextActions, themes, articles, ai, television }
 enum AppRoute { case aiConversation(id: String) }
 @MainActor @Observable final class AppRouter {
     var aiPath: [AppRoute] = []
