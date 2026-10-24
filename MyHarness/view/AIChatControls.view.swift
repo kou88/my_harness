@@ -273,6 +273,7 @@ struct AIChatSidebar: View {
             Menu {
                 Button("今日", systemImage: "checklist") { leave(.today) }
                 Button("本", systemImage: "books.vertical") { leave(.books) }
+                Button("テーマ", systemImage: "flask") { leave(.themes) }
                 Button("記事", systemImage: "doc.richtext") { leave(.articles) }
                 Button("テレビ", systemImage: "tv") { leave(.television) }
             } label: {

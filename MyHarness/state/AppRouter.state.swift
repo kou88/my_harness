@@ -16,6 +16,8 @@ final class AppRouter {
         switch route.preferredTab {
         case .books:
             selectedTab = .books
+        case .themes:
+            selectedTab = .themes
         case .today:
             selectedTab = .today
             todayPath.append(route)
@@ -90,6 +92,8 @@ final class AppRouter {
             showProductOpsDetail(nonEmptyId(tail.first).map(ProductOpsDeepLinkDestination.monitoringAlert))
         case "books":
             selectedTab = .books
+        case "themes":
+            selectedTab = .themes
         case "articles":
             selectedTab = .articles
             articlesPath = []
@@ -201,6 +205,7 @@ enum ProductOpsDeepLinkDestination: Identifiable, Hashable {
 enum AppTab: Hashable {
     case books
     case today
+    case themes
     case articles
     case ai
     case television

@@ -103,6 +103,14 @@ struct AppRootView: View {
             .tabItem { Label("本", systemImage: "books.vertical") }
             .tag(AppTab.books)
 
+            NavigationStack {
+                ThemeListView(state: experimentState)
+            }
+            .environment(\.locale, Locale(identifier: "ja_JP"))
+            .environment(\.timeZone, TimeZone(secondsFromGMT: 9 * 3600)!)
+            .tabItem { Label("テーマ", systemImage: "flask") }
+            .tag(AppTab.themes)
+
             NavigationStack(
                 path: Binding(
                     get: { router.articlesPath },

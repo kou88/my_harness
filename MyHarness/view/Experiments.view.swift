@@ -20,7 +20,6 @@ private struct ExperimentBadge: View {
 
 struct ThemeListView: View {
     @Bindable var state: ExperimentState
-    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         List {
@@ -82,9 +81,8 @@ struct ThemeListView: View {
             }
         }
         .listStyle(.plain)
-        .navigationTitle("仮説検証")
+        .navigationTitle("テーマ")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar { ToolbarItem(placement: .confirmationAction) { Button("閉じる") { dismiss() } } }
         .task(id: state.focus) { if state.isSignedIn { await state.refresh() } }
         .refreshable { await state.refresh() }
         .environment(\.locale, Locale(identifier: "ja_JP"))
