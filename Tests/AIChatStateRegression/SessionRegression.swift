@@ -84,7 +84,7 @@ import Foundation
         let deepseekAPI = AIAPIClient()
         let deepseek = AIChatState(apiClient: deepseekAPI, authSession: CognitoAuthSession(), configurationErrorMessage: nil,
             reconciliationInterval: .milliseconds(20))
-        await deepseek.loadList(); deepseek.choose(deepseekAPI.model); deepseek.chooseHarness(.deepseek)
+        await deepseek.loadList(); deepseek.choose(deepseekAPI.model)
         deepseek.composerText = "計算してください"
         precondition(deepseek.canSend)
         let deepseekId = await deepseek.send(conversationId: nil)
@@ -124,7 +124,7 @@ import Foundation
         while coding.requestsByRun[codingRun]?.count != 1 { await Task.yield() }
         coding.newChat()
         await coding.answer(request, reply: .permission(allow: false))
-        precondition(coding.detail == nil && coding.harness == .hermes && codingAPI.replies == ["permission"])
+        precondition(coding.detail == nil && coding.harness == .deepseek && codingAPI.replies == ["permission"])
         precondition(coding.requestsByRun[codingRun]?.first?.status == "applied")
         try codingAPI.emit(codingRun, type: "run.completed", data: ["responseId": .string("native-session")])
         await coding.openConversation(id: codingId!)
@@ -151,7 +151,7 @@ import Foundation
         let mediaAPI = AIAPIClient()
         let mediaState = AIChatState(apiClient: mediaAPI, authSession: CognitoAuthSession(), configurationErrorMessage: nil,
             reconciliationInterval: .milliseconds(20))
-        await mediaState.loadList(); mediaState.choose(mediaAPI.model)
+        await mediaState.loadList(); mediaState.choose(mediaAPI.model); mediaState.chooseHarness(.hermes)
         let imageId = UUID().uuidString.lowercased()
         mediaState.addComposerAttachments([AIComposerAttachment(id: imageId, kind: .image, fileName: "sample.jpg",
             contentType: "image/jpeg", data: Data([0xff, 0xd8, 0xff, 0xd9]))])
