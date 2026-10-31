@@ -10,9 +10,10 @@ struct AIHarnessSetup: View {
                 ForEach(AIHarness.allCases) { harness in
                     Button { state.chooseHarness(harness) } label: {
                         VStack(alignment: .leading, spacing: 5) {
-                            Label(harness.name, systemImage: harness.symbol).font(.system(size: 14, weight: .medium))
+                            Label(harness.name, systemImage: harness.symbol).font(.system(size: 13, weight: .medium))
+                                .lineLimit(1).minimumScaleFactor(0.75)
                             Text(harness.summary)
-                                .font(.system(size: 12)).foregroundStyle(AIChatStyle.muted)
+                                .font(.system(size: 11)).foregroundStyle(AIChatStyle.muted).lineLimit(1).minimumScaleFactor(0.8)
                         }.frame(maxWidth: .infinity, alignment: .leading).padding(12)
                             .background(state.harness == harness ? AIChatStyle.bubble : .clear, in: RoundedRectangle(cornerRadius: 12))
                             .overlay(RoundedRectangle(cornerRadius: 12).stroke(state.harness == harness ? AIChatStyle.focusedBorder : AIChatStyle.border))
