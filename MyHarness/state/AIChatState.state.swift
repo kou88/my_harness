@@ -180,7 +180,7 @@ final class AIChatState {
         }
         let modalitiesAccepted = visible.attachments.allSatisfy { model.accepts($0.modality) }
         let hasInput = !composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !visible.attachments.isEmpty
-        return model.online && model.accepts(settings) && modalitiesAccepted && (visible.attachments.isEmpty || harness == .hermes)
+        return model.online && model.harnesses.contains(harness) && model.accepts(settings) && modalitiesAccepted && (visible.attachments.isEmpty || harness == .hermes)
             && hasInput && !isSending && !visible.loading && activeRun == nil
     }
 
@@ -230,11 +230,11 @@ final class AIChatState {
     func chooseHarness(_ value: AIHarness) {
         guard visible.detail == nil, !isSending, !hasPendingSubmission else { return }
         guard visible.attachments.isEmpty || value == .hermes else {
-            errorMessage = "画像・動画を削除してからOpenCodeへ切り替えてください。"
+            errorMessage = "画像・動画を削除してからハーネスを切り替えてください。"
             return
         }
         visible.harness = value
-        if value == .hermes { visible.delivery = .changes }
+        if value != .opencode { visible.delivery = .changes }
     }
     func chooseRepository(_ repository: AIRepository, branch: String) {
         guard visible.detail == nil, !isSending, !hasPendingSubmission, repository.branches.contains(branch) else { return }
@@ -395,7 +395,7 @@ final class AIChatState {
                     session.error = "作業repoとブランチを選んでください。"; return nil
                 }
                 context = .opencode(repositoryId: repo.id, baseBranch: branch)
-            } else { context = .hermes }
+            } else { context = (session.detail?.context.harness ?? session.harness) == .deepseek ? .deepseek : .hermes }
             let title = text.isEmpty ? (session.attachments.contains(where: { $0.kind == .video }) ? "動画について" : "画像について") : String(text.prefix(80))
             session.pending = Pending(conversationId: id, title: title, isNew: conversationId == nil,
                 context: context, submission: AIAPIClient.Submission(id: UUID().uuidString.lowercased(), modelId: selectedModel.id, inputText: text,

@@ -120,7 +120,8 @@ struct AIChatScreen: View {
         .background(AIChatStyle.canvas.ignoresSafeArea())
         .foregroundStyle(.primary)
         .tint(.primary)
-        .toolbar(.hidden, for: .navigationBar, .tabBar)
+        .toolbar(.hidden, for: .navigationBar)
+        .toolbar(.visible, for: .tabBar)
         .navigationBarBackButtonHidden()
         .task(id: conversationId) {
             if state.models.isEmpty || isNew { await state.loadList() }
@@ -202,7 +203,7 @@ struct AIChatScreen: View {
                             .font(.system(size: 24, weight: .semibold)).lineLimit(1).truncationMode(.tail)
                     }.padding(.horizontal, 16).padding(.bottom, 14)
                         .onTapGesture { if !modelLocked { showModels = true } }
-                    Text(state.harness == .hermes ? "ローカルモデルで調べる、相談する、ファイルを扱う。" : "専用の作業場所で実装し、テストしてPRを作る。")
+                    Text(state.harness != .opencode ? "ローカルモデルで調べる、相談する、ツールを使う。" : "専用の作業場所で実装し、テストしてPRを作る。")
                         .font(.system(size: 14)).foregroundStyle(AIChatStyle.muted)
                         .multilineTextAlignment(.center).lineSpacing(3).padding(.bottom, 22)
                     AIHarnessSetup(state: state).padding(.bottom, 16)

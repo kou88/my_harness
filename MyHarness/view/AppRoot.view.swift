@@ -97,8 +97,13 @@ struct AppRootView: View {
             }
             .tag(AppTab.today)
 
-            NavigationStack {
-                BookShelfView(state: bookState, authState: actionInboxState)
+            NavigationStack(path: Binding(
+                get: { router.booksPath },
+                set: { router.booksPath = $0 }
+            )) {
+                BookShelfView(state: bookState, authState: actionInboxState,
+                              articleCandidateCount: blogPostState.importCandidates.count)
+                    .navigationDestination(for: AppRoute.self, destination: routeContent)
             }
             .tabItem { Label("本", systemImage: "books.vertical") }
             .tag(AppTab.books)
@@ -110,21 +115,6 @@ struct AppRootView: View {
             .environment(\.timeZone, TimeZone(secondsFromGMT: 9 * 3600)!)
             .tabItem { Label("テーマ", systemImage: "flask") }
             .tag(AppTab.themes)
-
-            NavigationStack(
-                path: Binding(
-                    get: { router.articlesPath },
-                    set: { router.articlesPath = $0 }
-                )
-            ) {
-                ArticleListView(state: blogPostState)
-                    .navigationDestination(for: AppRoute.self, destination: routeContent)
-            }
-            .tabItem {
-                Label("記事", systemImage: "doc.richtext")
-            }
-            .badge(blogPostState.importCandidates.count)
-            .tag(AppTab.articles)
 
             NavigationStack {
                 AIConversationListView(state: aiChatState, cronState: aiCronState)
@@ -212,7 +202,7 @@ struct AppRootView: View {
             blogPostState.refreshImportCandidates()
             Task {
                 await productOpsState.loadRecommendationsIfPossible()
-                if router.selectedTab == .articles {
+                if router.selectedTab == .books {
                     await blogPostState.loadIfPossible()
                 }
                 if router.selectedTab == .ai {
@@ -222,8 +212,8 @@ struct AppRootView: View {
         }
         .onChange(of: actionInboxState.isSignedIn) { _, isSignedIn in
             if isSignedIn, let articleID = pendingArticleLink.take() {
-                router.selectedTab = .articles
-                router.articlesPath = [.article(id: articleID)]
+                router.selectedTab = .books
+                router.booksPath = [.articles, .article(id: articleID)]
                 ActionPushNotificationCoordinator.shared.clearPendingDeepLink()
                 return
             }
@@ -309,6 +299,8 @@ struct AppRootView: View {
             ActionHistoryView(state: actionInboxState, mode: .history)
         case .completedActions:
             ActionHistoryView(state: actionInboxState, mode: .completed)
+        case .articles:
+            ArticleListView(state: blogPostState)
         case .article(let id):
             ArticleDetailView(id: id, state: blogPostState, authenticationRevision: actionInboxState.authenticationRevision)
         case .aiConversation(let id):

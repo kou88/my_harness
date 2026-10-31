@@ -10,6 +10,7 @@ private struct BookReading: Identifiable {
 struct BookShelfView: View {
     @State var state: BookState
     let authState: ActionInboxState
+    let articleCandidateCount: Int
     @Environment(\.scenePhase) private var scenePhase
     @State private var search = ""
     @State private var savedOnly = false
@@ -32,6 +33,17 @@ struct BookShelfView: View {
         }
         .navigationTitle("本棚")
         .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink(value: AppRoute.articles) {
+                    HStack(spacing: 4) {
+                        Text("記事")
+                        if articleCandidateCount > 0 {
+                            Text(articleCandidateCount.formatted()).font(.caption.bold())
+                        }
+                    }
+                }
+                .accessibilityIdentifier("Books.articles")
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     if authState.isSignedIn {

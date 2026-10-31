@@ -11,7 +11,7 @@ struct AIHarnessSetup: View {
                     Button { state.chooseHarness(harness) } label: {
                         VStack(alignment: .leading, spacing: 5) {
                             Label(harness.name, systemImage: harness.symbol).font(.system(size: 14, weight: .medium))
-                            Text(harness == .hermes ? "チャット・調査" : "repoの実装・PR")
+                            Text(harness.summary)
                                 .font(.system(size: 12)).foregroundStyle(AIChatStyle.muted)
                         }.frame(maxWidth: .infinity, alignment: .leading).padding(12)
                             .background(state.harness == harness ? AIChatStyle.bubble : .clear, in: RoundedRectangle(cornerRadius: 12))
@@ -20,6 +20,10 @@ struct AIHarnessSetup: View {
                         .accessibilityAddTraits(state.harness == harness ? .isSelected : [])
                 }
             }.disabled(state.isSending || state.hasPendingSubmission)
+            if let model = state.selectedModel, !model.harnesses.contains(state.harness) {
+                Text("このPCでは\(state.harness.name)が有効になっていません。対応するPCのモデルを選んでください。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             if state.harness == .opencode {
                 Button { showRepositories = true } label: {
                     HStack(spacing: 10) {

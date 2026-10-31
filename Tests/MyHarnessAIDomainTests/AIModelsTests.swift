@@ -115,7 +115,7 @@ private func run() -> AIRun {
 }
 @Test func invalidSettingsAreNotSentToTheModel() {
     let settings = AISettings(contextLength: 65536, maxOutputTokens: 4096, reasoningEffort: "medium")
-    let model = AIModel(id: "id", hostId: "host", hostName: "PC", model: "qwen", name: "Qwen", online: true, contextLengths: [65536,262144], maxOutputTokens: 32768, reasoningEfforts: ["medium","max"], reasoningBudgets: ["medium":1024,"max":16384], initialSettings: settings, inputModalities: [.text], features: AIModelFeatures(toolCalling: true, reasoning: true))
+    let model = AIModel(harnesses: [.hermes, .deepseek, .opencode], id: "id", hostId: "host", hostName: "PC", model: "qwen", name: "Qwen", online: true, contextLengths: [65536,262144], maxOutputTokens: 32768, reasoningEfforts: ["medium","max"], reasoningBudgets: ["medium":1024,"max":16384], initialSettings: settings, inputModalities: [.text], features: AIModelFeatures(toolCalling: true, reasoning: true))
     #expect(model.accepts(settings))
     #expect(!model.accepts(AISettings(contextLength: 65536, maxOutputTokens: 4096, reasoningEffort: "max")))
 }
@@ -161,4 +161,12 @@ private func run() -> AIRun {
     #expect(try JSONDecoder().decode(AIContext.self, from: encoded) == context)
     #expect(throws: DecodingError.self) { try JSONDecoder().decode(AIContext.self, from: Data(#"{"harness":"unknown"}"#.utf8)) }
     #expect(throws: DecodingError.self) { try JSONDecoder().decode(AIContext.self, from: Data(#"{"harness":"opencode"}"#.utf8)) }
+}
+
+@Test func deepSeekContextKeepsHarnessSeparateFromTheModel() throws {
+    let input = try JSONEncoder().encode(AIContextInput.deepseek)
+    #expect(String(decoding: input, as: UTF8.self) == "{\"harness\":\"deepseek\"}")
+    let context = try JSONDecoder().decode(AIContext.self, from: input)
+    #expect(context.harness == .deepseek)
+    #expect(try JSONDecoder().decode(AIContext.self, from: JSONEncoder().encode(context)).harness == .deepseek)
 }
