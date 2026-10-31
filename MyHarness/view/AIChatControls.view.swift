@@ -274,7 +274,7 @@ struct AIChatSidebar: View {
                 Button("今日", systemImage: "checklist") { leave(.today) }
                 Button("本", systemImage: "books.vertical") { leave(.books) }
                 Button("テーマ", systemImage: "flask") { leave(.themes) }
-                Button("記事", systemImage: "doc.richtext") { leave(.articles) }
+                Button("記事", systemImage: "doc.richtext") { onClose(); router.push(.articles) }
                 Button("テレビ", systemImage: "tv") { leave(.television) }
             } label: {
                 HStack(spacing: 10) {

@@ -1,10 +1,11 @@
 import Foundation
 
 enum AIHarness: String, Codable, CaseIterable, Identifiable {
-    case hermes, opencode
+    case hermes, deepseek, opencode
     var id: String { rawValue }
-    var name: String { self == .hermes ? "Hermes" : "OpenCode" }
-    var symbol: String { self == .hermes ? "sparkles" : "chevron.left.forwardslash.chevron.right" }
+    var name: String { switch self { case .hermes: "Hermes"; case .deepseek: "DeepSeek"; case .opencode: "OpenCode" } }
+    var symbol: String { switch self { case .hermes: "sparkles"; case .deepseek: "brain"; case .opencode: "chevron.left.forwardslash.chevron.right" } }
+    var summary: String { self == .opencode ? "repoの実装・PR" : "チャット・ツール" }
 }
 enum AIDelivery: String, Codable, CaseIterable, Identifiable {
     case changes, draftPR = "draft_pr"
@@ -29,13 +30,15 @@ struct AICodingContext: Codable, Hashable {
 }
 enum AIContext: Codable, Hashable {
     case hermes
+    case deepseek
     case opencode(AICodingContext)
-    var harness: AIHarness { if case .hermes = self { return .hermes }; return .opencode }
+    var harness: AIHarness { switch self { case .hermes: .hermes; case .deepseek: .deepseek; case .opencode: .opencode } }
     private enum Keys: String, CodingKey { case harness }
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: Keys.self)
         switch try container.decode(AIHarness.self, forKey: .harness) {
         case .hermes: self = .hermes
+        case .deepseek: self = .deepseek
         case .opencode: self = .opencode(try AICodingContext(from: decoder))
         }
     }
@@ -47,12 +50,14 @@ enum AIContext: Codable, Hashable {
 }
 enum AIContextInput: Encodable {
     case hermes
+    case deepseek
     case opencode(repositoryId: String, baseBranch: String)
     private enum Keys: String, CodingKey { case harness, repositoryId, baseBranch }
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: Keys.self)
         switch self {
         case .hermes: try container.encode("hermes", forKey: .harness)
+        case .deepseek: try container.encode("deepseek", forKey: .harness)
         case .opencode(let id, let branch):
             try container.encode("opencode", forKey: .harness)
             try container.encode(id, forKey: .repositoryId)
@@ -135,6 +140,7 @@ struct AIModelFeatures: Codable, Hashable {
 }
 
 struct AIModel: Codable, Identifiable, Hashable {
+    let harnesses: [AIHarness]
     let id: String
     let hostId: String
     let hostName: String

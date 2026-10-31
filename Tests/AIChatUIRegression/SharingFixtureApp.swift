@@ -7,7 +7,7 @@ import SwiftUI
     @State private var api: AIAPIClient
     init() {
         let api = AIAPIClient()
-        let model = AIModel(id: "flash", hostId: "host", hostName: "PC-02", model: "flash",
+        let model = AIModel(harnesses: [.hermes, .deepseek, .opencode], id: "flash", hostId: "host", hostName: "PC-02", model: "flash",
             name: "Qwen3.8 Flash-Next / IQ4_XS", online: false, contextLengths: [32768, 65536, 131072, 262144],
             maxOutputTokens: 16384, reasoningEfforts: ["medium"], reasoningBudgets: ["medium": 1024],
             initialSettings: AISettings(contextLength: 32768, maxOutputTokens: 4096, reasoningEffort: "medium"),
@@ -28,7 +28,7 @@ import SwiftUI
                     Text("検証用データ").font(.caption)
                     Button("Agent復旧") {
                         let m = api.catalog[0]
-                        api.catalog = [AIModel(id: m.id, hostId: m.hostId, hostName: m.hostName, model: m.model,
+                        api.catalog = [AIModel(harnesses: [.hermes, .deepseek, .opencode], id: m.id, hostId: m.hostId, hostName: m.hostName, model: m.model,
                             name: m.name, online: true, contextLengths: m.contextLengths, maxOutputTokens: m.maxOutputTokens,
                             reasoningEfforts: m.reasoningEfforts, reasoningBudgets: m.reasoningBudgets,
                             initialSettings: m.initialSettings, inputModalities: m.inputModalities, features: m.features)]

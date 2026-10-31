@@ -82,7 +82,7 @@ group.com.kou888.myharness
 
 ## AIタブ
 
-4つ目の「AI」タブは、`my_api` の `/api/v5/ai` を会話履歴の正本として利用し、OS Agentを経由してHermesまたはOpenCodeを実行します。
+4つ目の「AI」タブは、`my_api` の `/api/v6/ai` を会話履歴の正本として利用し、OS Agentを経由してHermes、DeepSeek Harness、OpenCodeを実行します。
 
 - OpenAIはChatGPTサブスクリプションでログインした専用Codex runtimeを使い、OpenAI APIキーは使用しません。
 - OpenRouterは実行ホストだけが保持するAPIキーを使います。キーやChatGPT認証情報をiPhoneへ渡しません。
@@ -96,3 +96,10 @@ group.com.kou888.myharness
 ## 仮説検証
 
 [仮説検証の操作・仕様](docs/experiments.md)を参照してください。
+
+
+## ナビゲーション
+
+下部タブは「今日・本・テーマ・AI・テレビ」の5項目。AIの会話中もタブバーを表示する。記事は「本」画面のヘッダにある「記事」から開く。記事の共有リンク・通知・`myharness://articles` も本棚内の記事一覧／詳細へ遷移し、戻る操作で本棚へ戻れる。
+
+DeepSeek Harnessは新規会話のハーネス選択から使用する。モデル一覧の `harnesses` でPCの実対応を確認し、未対応PCでは送信を許可しない。初回はテキスト・隔離環境のツールに対応する。画像・動画はHermes、リポジトリの実装・PR作成はOpenCodeで使用する。既存会話のハーネスは変更しない。

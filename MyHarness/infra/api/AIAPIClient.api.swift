@@ -198,7 +198,7 @@ final class AIAPIClient {
         return try decoder.decode(Envelope<Value>.self, from: data).data
     }
     private func makeRequest(_ path: String, method: String, body: Data?) async throws -> URLRequest {
-        guard let url = URL(string: config.apiBaseURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + "/api/v5/ai" + path) else { throw APIError.invalidResponse }
+        guard let url = URL(string: config.apiBaseURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + "/api/v6/ai" + path) else { throw APIError.invalidResponse }
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
         request.httpMethod = method; request.httpBody = body
         request.setValue("Bearer \(try await authSession.accessToken())", forHTTPHeaderField: "Authorization")

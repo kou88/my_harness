@@ -5,7 +5,7 @@ import Foundation
     @MainActor static func main() async throws {
         // Switching from W8/128K must use Flash-Next's server policy, not the old context or its maximum.
         func flashModel(online: Bool, context: Int) -> AIModel {
-            AIModel(id: "flash", hostId: "host", hostName: "PC-02", model: "flash", name: "Flash-Next", online: online,
+            AIModel(harnesses: [.hermes, .deepseek, .opencode], id: "flash", hostId: "host", hostName: "PC-02", model: "flash", name: "Flash-Next", online: online,
                 contextLengths: [8192, 16384, 32768], maxOutputTokens: 16384, reasoningEfforts: ["medium"],
                 reasoningBudgets: ["medium": 1024], initialSettings: AISettings(contextLength: context,
                     maxOutputTokens: 4096, reasoningEffort: "medium"), inputModalities: [.text],
@@ -80,6 +80,23 @@ import Foundation
         updatedPolicy.revision += 1
         precondition(contextState.inferenceHosts.first?.desiredPolicy == updatedPolicy,
                      "Changing chat context must preserve API, scheduled, auxiliary, and concurrency settings")
+
+        let deepseekAPI = AIAPIClient()
+        let deepseek = AIChatState(apiClient: deepseekAPI, authSession: CognitoAuthSession(), configurationErrorMessage: nil,
+            reconciliationInterval: .milliseconds(20))
+        await deepseek.loadList(); deepseek.choose(deepseekAPI.model); deepseek.chooseHarness(.deepseek)
+        deepseek.composerText = "計算してください"
+        precondition(deepseek.canSend)
+        let deepseekId = await deepseek.send(conversationId: nil)
+        precondition(deepseekId != nil)
+        await deepseek.openConversation(id: deepseekId!)
+        precondition(deepseek.detail?.context.harness == .deepseek)
+        deepseek.chooseHarness(.hermes)
+        precondition(deepseek.harness == .deepseek)
+        let deepseekRun = deepseek.detail!.runs[0].id
+        while deepseekAPI.listeners[deepseekRun] == nil { await Task.yield() }
+        try deepseekAPI.emit(deepseekRun, type: "run.completed", data: ["responseId": .string(deepseekId!)])
+        for listener in deepseekAPI.listeners.values { listener.finish() }
 
         // A coding chat fixes its harness/repository at creation, independently of model choice.
         let codingAPI = AIAPIClient()

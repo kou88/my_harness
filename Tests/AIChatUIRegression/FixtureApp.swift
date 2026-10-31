@@ -3,8 +3,9 @@ import UIKit
 
 // Isolated test host: real chat views/state, in-memory transport, no production login or GPU.
 enum AppTab { case today, nextActions, themes, articles, ai, television }
-enum AppRoute { case aiConversation(id: String) }
+enum AppRoute { case aiConversation(id: String); case articles }
 @MainActor @Observable final class AppRouter {
+    func push(_ route: AppRoute) { }
     var aiPath: [AppRoute] = []
     var selectedTab = AppTab.ai
 }

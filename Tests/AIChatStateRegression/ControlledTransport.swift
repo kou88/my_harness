@@ -9,7 +9,7 @@ import Foundation
 @MainActor final class AIAPIClient {
     enum APIError: Error { case response(Int, String) }
     struct Submission { let id: String; let modelId: String; let inputText: String; let settings: AISettings; let delivery: AIDelivery; let attachmentIds: [String] }
-    let model = AIModel(id: "regression-model", hostId: "host", hostName: "host", model: "test", name: "test", online: true,
+    let model = AIModel(harnesses: [.hermes, .deepseek, .opencode], id: "regression-model", hostId: "host", hostName: "host", model: "test", name: "test", online: true,
         contextLengths: [65536], maxOutputTokens: 32768, reasoningEfforts: ["low"], reasoningBudgets: ["low": 512],
         initialSettings: AISettings(contextLength: 65536, maxOutputTokens: 1024, reasoningEffort: "low"), inputModalities: [.text, .image, .video],
         features: AIModelFeatures(toolCalling: true, reasoning: true))
@@ -25,7 +25,7 @@ import Foundation
         catalog = catalog.map { item in
             guard item.hostId == hostId, let configured = saved.models.first(where: { $0.model == item.model }) else { return item }
             if sharingValue.modelId == item.id { sharingValue.contextLength = configured.chatContextLength }
-            return AIModel(id: item.id, hostId: item.hostId, hostName: item.hostName, model: item.model, name: item.name,
+            return AIModel(harnesses: [.hermes, .deepseek, .opencode], id: item.id, hostId: item.hostId, hostName: item.hostName, model: item.model, name: item.name,
                 online: item.online, contextLengths: item.contextLengths, maxOutputTokens: item.maxOutputTokens,
                 reasoningEfforts: item.reasoningEfforts, reasoningBudgets: item.reasoningBudgets,
                 initialSettings: AISettings(contextLength: configured.chatContextLength, maxOutputTokens: item.initialSettings.maxOutputTokens,
@@ -85,6 +85,7 @@ import Foundation
         let value: AIContext
         switch context {
         case .hermes: value = .hermes
+        case .deepseek: value = .deepseek
         case .opencode(let repo, let branch): value = .opencode(AICodingContext(repositoryId: repo, repository: "test/repo", hostId: "host", baseBranch: branch, workBranch: "agent/" + id))
         }
         details[id] = AIConversationDetail(id: id, title: title, context: value, createdAt: "test", updatedAt: "test", runs: [])

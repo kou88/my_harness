@@ -41,7 +41,7 @@ struct ArticleListView: View {
         }
         .listStyle(.plain)
         .navigationTitle("")
-        .toolbar(.hidden, for: .navigationBar)
+        .toolbar(.visible, for: .navigationBar)
         .contentMargins(.top, 0, for: .scrollContent)
         .refreshable {
             state.refreshImportCandidates()
