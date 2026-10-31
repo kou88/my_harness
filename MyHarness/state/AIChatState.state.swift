@@ -17,7 +17,7 @@ final class AIChatState {
         var loading = false
         var loadGeneration = 0
         var pending: Pending?
-        var harness: AIHarness = .hermes
+        var harness: AIHarness = .deepseek
         var repository: AIRepositorySelection = .unselected
         var delivery: AIDelivery = .changes
         var activeRun: AIRun? { detail?.runs.last(where: { $0.isActive }) }
