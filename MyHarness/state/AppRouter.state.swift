@@ -225,6 +225,8 @@ enum AppRoute: Hashable {
     case completedActions
     case articles
     case uiPalette
+    case cameraAtlas
+    case cameraAtlasShot(slug: String, title: String)
     case article(id: String)
     case aiConversation(id: String)
 
@@ -232,7 +234,7 @@ enum AppRoute: Hashable {
         switch self {
         case .legacyActions, .oneShotTasks:
             return .today
-        case .articles, .article, .uiPalette:
+        case .articles, .article, .uiPalette, .cameraAtlas, .cameraAtlasShot:
             return .books
         case .aiConversation:
             return .ai
@@ -251,13 +253,15 @@ enum AppRoute: Hashable {
 
     var referenceId: String {
         switch self {
-        case .legacyActions, .oneShotTasks, .articles, .uiPalette:
+        case .legacyActions, .oneShotTasks, .articles, .uiPalette, .cameraAtlas:
             return ""
         case .actionSuggestionDetail(let id),
              .actionExecution(let id),
              .need(let id),
              .codexResult(let id):
             return id
+        case .cameraAtlasShot(let slug, _):
+            return slug
         case .article(let id):
             return id
         case .aiConversation(let id):

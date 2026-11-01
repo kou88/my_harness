@@ -109,3 +109,7 @@ group.com.kou888.myharness
 「本」タブの「UI図鑑」、または `myharness://ui-palette` から開きます。部品の見本は一覧から操作できます。用語・見た目・動きで検索し、部品名を押すと英語名、別名、使いどころ、似た部品が表示されます。名前のコピー、検索、見本の操作はオフラインで使えます。
 
 以前のプリセットは図鑑の「配色エディタ」で開けます。JSON・PNGの入出力には「ファイル」を使います。
+
+## 画角集
+
+「本」タブの本棚から「画角集」を開きます。10種類のカメラワークと12種類の静止構図を端末内で表示し、英語名のコピー、カメラの調整、PDF・GLBの共有ができます。データの正本はMy Frontの `packages/camera-atlas` です。更新時は同リポジトリで `pnpm run bundle:camera-ios` を実行し、出力された `CameraAtlas.bundle` で `MyHarness/Resources/CameraAtlas.bundle` を置き換えます。
