@@ -19,6 +19,8 @@ final class ExperimentState {
     @ObservationIgnored private var pending: Task<Void, Never>?
     private var pendingOffset: Int?
     private var failedOffset = 0
+    private var failedReturnThemeID: String?
+    var returnThemeID: String?
     private var listing = ExperimentThemeList()
     private(set) var phase: Phase = .idle
     var themes: [ExperimentThemeSummary] { listing.items }
@@ -49,7 +51,9 @@ final class ExperimentState {
         generation += 1
         ownerID = ""
         listing = ExperimentThemeList()
+        returnThemeID = nil
         failedOffset = 0
+        failedReturnThemeID = nil
         phase = .idle
     }
     func clearSession() {
@@ -85,17 +89,19 @@ final class ExperimentState {
         guard case .connected(_, let auth) = connection, let current = try? auth.bookOwnerID() else { return false }
         return stamp == current + ":" + String(generation) && current == ownerID
     }
-    func loadIfNeeded() async {
+    func loadIfNeeded(keeping themeID: String?) async {
         do { _ = try client() }
         catch { clearSession(); phase = .failed(error.localizedDescription); return }
-        if !listing.isFresh(at: Date()) { await refresh() }
+        if !listing.isFresh(at: Date()) { await load(offset: 0, keeping: themeID) }
     }
-    func refresh() async { await load(offset: 0) }
+    func refresh() async { await load(offset: 0, keeping: returnThemeID) }
     func loadMore(after id: String) async {
+        // The last row can appear while the current window is being revalidated.
+        if pendingOffset == 0, let pending { await pending.value }
         guard case .loaded = phase, listing.hasMore, listing.items.last?.id == id else { return }
-        await load(offset: listing.nextOffset)
+        await load(offset: listing.nextOffset, keeping: nil)
     }
-    func retry() async { await load(offset: failedOffset) }
+    func retry() async { await load(offset: failedOffset, keeping: failedReturnThemeID) }
 
     func createTheme(_ request: ExperimentThemeCreateRequest, session stamp: String) async throws -> ExperimentTheme {
         let theme = try await create("themes", request: request, session: stamp, as: ExperimentTheme.self)
@@ -123,7 +129,7 @@ final class ExperimentState {
         NSError(domain: "Experiments", code: 2, userInfo: [NSLocalizedDescriptionKey: "ログインが変更されました。画面を開き直してください。"])
     }
 
-    private func load(offset: Int) async {
+    private func load(offset: Int, keeping themeID: String?) async {
         let api: ExperimentAPIClient
         let stamp: String
         do { api = try client(); stamp = try sessionStamp() }
@@ -138,14 +144,23 @@ final class ExperimentState {
                 if request == requestGeneration { pending = nil; pendingOffset = nil }
             }
             do {
-                let page = try await api.page("themes", limit: ExperimentThemeList.pageSize, offset: offset,
+                @MainActor func fetch(_ offset: Int) async throws -> ExperimentPage<ExperimentThemeSummary> {
+                    try Task.checkCancellation()
+                    guard isCurrent(stamp), request == requestGeneration else { throw CancellationError() }
+                    return try await api.page("themes", limit: ExperimentThemeList.pageSize, offset: offset,
                                               query: [URLQueryItem(name: "archived", value: "exclude")], as: ExperimentThemeSummary.self)
-                guard isCurrent(stamp), request == requestGeneration else { return }
+                }
                 let now = Date()
-                try listing.accept(page, offset: offset, at: now)
                 if offset == 0 {
-                    do { try cache.write(.init(ownerID: ownerID, fetchedAt: now, items: listing.items, total: page.total)) }
+                    let refreshed = try await listing.refreshed(keeping: themeID, at: now, fetch: fetch)
+                    guard isCurrent(stamp), request == requestGeneration else { return }
+                    listing = refreshed.list
+                    do { try cache.write(.init(ownerID: ownerID, fetchedAt: now, items: refreshed.first.items, total: refreshed.first.total)) }
                     catch { cache.clear() }
+                } else {
+                    let page = try await fetch(offset)
+                    guard isCurrent(stamp), request == requestGeneration else { return }
+                    try listing.accept(page, offset: offset, at: now)
                 }
                 phase = .loaded
             } catch {
@@ -154,6 +169,7 @@ final class ExperimentState {
                     clearSession()
                 }
                 failedOffset = listing.items.isEmpty ? 0 : offset
+                failedReturnThemeID = listing.items.isEmpty ? nil : themeID
                 phase = .failed(error.localizedDescription)
             }
         }

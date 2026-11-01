@@ -24,8 +24,22 @@ struct ThemeListView: View {
     @State private var createdTheme: ExperimentTheme?
     @State private var themeToOpen: ExperimentTheme?
     @State private var creationError = ""
+    @State private var visibleThemeIDs: Set<String> = []
 
     var body: some View {
+        ScrollViewReader { proxy in
+            list.task {
+                guard state.isSignedIn else { return }
+                let openedID = state.returnThemeID
+                state.returnThemeID = nil
+                // Keep the native offset when the row is still visible; only recover a lost position.
+                if let openedID, !visibleThemeIDs.contains(openedID) { proxy.scrollTo(openedID) }
+                await state.loadIfNeeded(keeping: openedID)
+            }
+        }
+    }
+
+    private var list: some View {
         List {
             if !state.isSignedIn {
                 Button("ログイン") { Task { await state.signIn() } }
@@ -33,6 +47,7 @@ struct ThemeListView: View {
                 ForEach(state.themes) { theme in
                     NavigationLink {
                         ThemeDetailView(state: state, id: theme.id)
+                            .onAppear { state.returnThemeID = theme.id }
                     } label: {
                         VStack(alignment: .leading, spacing: 7) {
                             HStack(alignment: .firstTextBaseline) {
@@ -49,11 +64,14 @@ struct ThemeListView: View {
                             }.font(.caption).foregroundStyle(.secondary)
                         }.padding(.vertical, 5)
                     }
+                    .id(theme.id)
                     .onAppear {
+                        visibleThemeIDs.insert(theme.id)
                         if theme.id == state.themes.last?.id {
                             Task { await state.loadMore(after: theme.id) }
                         }
                     }
+                    .onDisappear { visibleThemeIDs.remove(theme.id) }
                 }
             }
             switch state.phase {
@@ -101,7 +119,6 @@ struct ThemeListView: View {
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("cognitoDidSignOut"))) { _ in
             editor = nil; createdTheme = nil; themeToOpen = nil
         }
-        .task { if state.isSignedIn { await state.loadIfNeeded() } }
         .refreshable { await state.refresh() }
         .environment(\.locale, Locale(identifier: "ja_JP"))
         .environment(\.timeZone, TimeZone(secondsFromGMT: 9 * 3600)!)
