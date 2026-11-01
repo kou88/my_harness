@@ -5,7 +5,7 @@ import WebKit
 struct UIPaletteView: View {
     var body: some View {
         PaletteWebView()
-            .navigationTitle("UIパレット")
+            .navigationTitle("UI図鑑")
             .navigationBarTitleDisplayMode(.inline)
     }
 }
@@ -52,7 +52,7 @@ private final class PaletteController: UIViewController, WKScriptMessageHandlerW
             web.loadHTMLString(html, baseURL: Self.origin)
         } catch {
             var unavailable = UIContentUnavailableConfiguration.empty()
-            unavailable.text = "UIパレットを読み込めません"
+            unavailable.text = "UI図鑑を読み込めません"
             unavailable.secondaryText = error.localizedDescription
             contentUnavailableConfiguration = unavailable
         }
@@ -78,6 +78,14 @@ private final class PaletteController: UIViewController, WKScriptMessageHandlerW
         }
         let picker: UIDocumentPickerViewController
         switch request["action"] {
+        case "copyName":
+            guard let text = request["text"], !text.isEmpty, text.utf8.count <= 256 else {
+                replyHandler(nil, "部品名をコピーできません。")
+                return
+            }
+            UIPasteboard.general.string = text
+            replyHandler(true, nil)
+            return
         case "import":
             picker = UIDocumentPickerViewController(forOpeningContentTypes: [.json], asCopy: true)
             pending = (.importing, replyHandler)
