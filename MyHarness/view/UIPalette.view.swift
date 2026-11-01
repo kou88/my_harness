@@ -1,4 +1,5 @@
 import SwiftUI
+import SafariServices
 import UniformTypeIdentifiers
 import WebKit
 
@@ -61,6 +62,15 @@ private final class PaletteController: UIViewController, WKScriptMessageHandlerW
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
                  decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         let url = action.request.url
+        if action.navigationType == .linkActivated, action.sourceFrame.isMainFrame,
+           action.sourceFrame.securityOrigin.host == Self.origin.host,
+           let url, url.absoluteString.range(of: #"^https://x\.com/[A-Za-z0-9_]{1,15}/status/[0-9]+$"#, options: .regularExpression) != nil {
+            decisionHandler(.cancel)
+            if presentedViewController == nil {
+                present(SFSafariViewController(url: url), animated: true)
+            }
+            return
+        }
         decisionHandler(url == Self.origin || url?.absoluteString == "about:blank" ? .allow : .cancel)
     }
 
@@ -78,9 +88,10 @@ private final class PaletteController: UIViewController, WKScriptMessageHandlerW
         }
         let picker: UIDocumentPickerViewController
         switch request["action"] {
-        case "copyName":
-            guard let text = request["text"], !text.isEmpty, text.utf8.count <= 256 else {
-                replyHandler(nil, "部品名をコピーできません。")
+        case "copyName", "copyCode":
+            let limit = request["action"] == "copyCode" ? 16_384 : 256
+            guard let text = request["text"], !text.isEmpty, text.utf8.count <= limit else {
+                replyHandler(nil, "テキストをコピーできません。")
                 return
             }
             UIPasteboard.general.string = text
