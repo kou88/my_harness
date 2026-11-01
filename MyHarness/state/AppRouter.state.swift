@@ -47,6 +47,9 @@ final class AppRouter {
         case "open":
             selectedTab = .today
             todayPath = []
+        case "ui-palette":
+            selectedTab = .books
+            booksPath = [.uiPalette]
         case "next-actions":
             showNextActions()
         case "suggestions":
@@ -221,6 +224,7 @@ enum AppRoute: Hashable {
     case actionHistory
     case completedActions
     case articles
+    case uiPalette
     case article(id: String)
     case aiConversation(id: String)
 
@@ -228,7 +232,7 @@ enum AppRoute: Hashable {
         switch self {
         case .legacyActions, .oneShotTasks:
             return .today
-        case .articles, .article:
+        case .articles, .article, .uiPalette:
             return .books
         case .aiConversation:
             return .ai
@@ -247,7 +251,7 @@ enum AppRoute: Hashable {
 
     var referenceId: String {
         switch self {
-        case .legacyActions, .oneShotTasks, .articles:
+        case .legacyActions, .oneShotTasks, .articles, .uiPalette:
             return ""
         case .actionSuggestionDetail(let id),
              .actionExecution(let id),
