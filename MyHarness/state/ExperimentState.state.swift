@@ -19,6 +19,7 @@ final class ExperimentState {
     @ObservationIgnored private var pending: Task<Void, Never>?
     private var pendingOffset: Int?
     private var failedOffset = 0
+    private var failedReturnThemeID: String?
     var returnThemeID: String?
     private var listing = ExperimentThemeList()
     private(set) var phase: Phase = .idle
@@ -52,6 +53,7 @@ final class ExperimentState {
         listing = ExperimentThemeList()
         returnThemeID = nil
         failedOffset = 0
+        failedReturnThemeID = nil
         phase = .idle
     }
     func clearSession() {
@@ -94,10 +96,12 @@ final class ExperimentState {
     }
     func refresh() async { await load(offset: 0, keeping: returnThemeID) }
     func loadMore(after id: String) async {
+        // The last row can appear while the current window is being revalidated.
+        if pendingOffset == 0, let pending { await pending.value }
         guard case .loaded = phase, listing.hasMore, listing.items.last?.id == id else { return }
         await load(offset: listing.nextOffset, keeping: nil)
     }
-    func retry() async { await load(offset: failedOffset, keeping: returnThemeID) }
+    func retry() async { await load(offset: failedOffset, keeping: failedReturnThemeID) }
 
     func createTheme(_ request: ExperimentThemeCreateRequest, session stamp: String) async throws -> ExperimentTheme {
         let theme = try await create("themes", request: request, session: stamp, as: ExperimentTheme.self)
@@ -165,6 +169,7 @@ final class ExperimentState {
                     clearSession()
                 }
                 failedOffset = listing.items.isEmpty ? 0 : offset
+                failedReturnThemeID = listing.items.isEmpty ? nil : themeID
                 phase = .failed(error.localizedDescription)
             }
         }
