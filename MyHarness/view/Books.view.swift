@@ -33,11 +33,13 @@ struct BookShelfView: View {
         }
         .navigationTitle("本棚")
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
+            ToolbarItemGroup(placement: .topBarLeading) {
                 NavigationLink(value: AppRoute.uiPalette) {
                     Text("UI図鑑")
                 }
                 .accessibilityIdentifier("Books.uiPalette")
+                NavigationLink(value: AppRoute.cameraAtlas) { Text("画角集") }
+                    .accessibilityIdentifier("Books.cameraAtlas")
             }
             ToolbarItem(placement: .topBarTrailing) {
                 NavigationLink(value: AppRoute.articles) {

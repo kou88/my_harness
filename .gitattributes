@@ -1,1 +1,4 @@
 MyHarness/Resources/mermaid.min.js -whitespace linguist-vendored
+MyHarness/Resources/CameraAtlas.bundle/*.js -diff
+MyHarness/Resources/CameraAtlas.bundle/viewer.html -diff
+MyHarness/Resources/CameraAtlas.bundle/*.css -diff

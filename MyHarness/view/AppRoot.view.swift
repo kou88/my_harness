@@ -299,6 +299,14 @@ struct AppRootView: View {
             ActionHistoryView(state: actionInboxState, mode: .history)
         case .completedActions:
             ActionHistoryView(state: actionInboxState, mode: .completed)
+        case .cameraAtlas:
+            CameraAtlasView(page: "", title: "画角集") { slug, title in
+                router.push(.cameraAtlasShot(slug: slug, title: title))
+            }
+        case .cameraAtlasShot(let slug, let title):
+            CameraAtlasView(page: slug, title: title) { next, name in
+                router.push(.cameraAtlasShot(slug: next, title: name))
+            }
         case .uiPalette:
             UIPaletteView()
         case .articles:
