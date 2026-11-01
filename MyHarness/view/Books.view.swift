@@ -33,6 +33,12 @@ struct BookShelfView: View {
         }
         .navigationTitle("本棚")
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                NavigationLink(value: AppRoute.uiPalette) {
+                    Label("UIパレット", systemImage: "swatchpalette").labelStyle(.titleAndIcon)
+                }
+                .accessibilityIdentifier("Books.uiPalette")
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 NavigationLink(value: AppRoute.articles) {
                     HStack(spacing: 4) {

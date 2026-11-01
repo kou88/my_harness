@@ -299,6 +299,8 @@ struct AppRootView: View {
             ActionHistoryView(state: actionInboxState, mode: .history)
         case .completedActions:
             ActionHistoryView(state: actionInboxState, mode: .completed)
+        case .uiPalette:
+            UIPaletteView()
         case .articles:
             ArticleListView(state: blogPostState)
         case .article(let id):
