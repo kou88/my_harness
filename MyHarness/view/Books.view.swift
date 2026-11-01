@@ -35,7 +35,7 @@ struct BookShelfView: View {
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 NavigationLink(value: AppRoute.uiPalette) {
-                    Label("UI図鑑", systemImage: "books.vertical").labelStyle(.titleAndIcon)
+                    Text("UI図鑑")
                 }
                 .accessibilityIdentifier("Books.uiPalette")
             }
