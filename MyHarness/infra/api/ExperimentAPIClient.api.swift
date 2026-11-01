@@ -11,8 +11,8 @@ struct ExperimentAPIClient {
         return try decoder.decode(ExperimentEnvelope<Value>.self, from: data).data
     }
 
-    func page<Value: Decodable>(_ path: String, offset: Int, query: [URLQueryItem], as type: Value.Type) async throws -> ExperimentPage<Value> {
-        try await get(path, query: query + [URLQueryItem(name: "limit", value: "50"), URLQueryItem(name: "offset", value: String(offset))], as: ExperimentPage<Value>.self)
+    func page<Value: Decodable>(_ path: String, limit: Int, offset: Int, query: [URLQueryItem], as type: Value.Type) async throws -> ExperimentPage<Value> {
+        try await get(path, query: query + [URLQueryItem(name: "limit", value: String(limit)), URLQueryItem(name: "offset", value: String(offset))], as: ExperimentPage<Value>.self)
     }
 
     func create<Input: Encodable, Value: Decodable>(_ path: String, input: Input, as type: Value.Type) async throws -> Value {

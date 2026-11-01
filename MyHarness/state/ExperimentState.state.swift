@@ -12,13 +12,16 @@ final class ExperimentState {
         case idle, loading, loaded, failed(String)
     }
     private let connection: Connection
+    private let cache = ExperimentThemePageCache(directory: .cachesDirectory)
     private var ownerID = ""
     private var generation = 0
     private var requestGeneration = 0
-    private(set) var themes: [ExperimentThemeSummary] = []
+    @ObservationIgnored private var pending: Task<Void, Never>?
+    private var pendingOffset: Int?
+    private var failedOffset = 0
+    private var listing = ExperimentThemeList()
     private(set) var phase: Phase = .idle
-    private(set) var hasMore = false
-    private var nextOffset = 0
+    var themes: [ExperimentThemeSummary] { listing.items }
 
     init(api: ActionInboxAPIClient?, auth: CognitoAuthSession?, configurationError: String?) {
         if let api, let auth { connection = .connected(ExperimentAPIClient(transport: api), auth) }
@@ -35,10 +38,23 @@ final class ExperimentState {
             await refresh()
         } catch { phase = .failed(error.localizedDescription) }
     }
+    private func cancelRequest() {
+        requestGeneration += 1
+        pending?.cancel()
+        pending = nil
+        pendingOffset = nil
+    }
+    private func resetMemory() {
+        cancelRequest()
+        generation += 1
+        ownerID = ""
+        listing = ExperimentThemeList()
+        failedOffset = 0
+        phase = .idle
+    }
     func clearSession() {
-        generation += 1; requestGeneration += 1; ownerID = ""
-        themes = []
-        nextOffset = 0; hasMore = false; phase = .idle
+        resetMemory()
+        cache.clear()
     }
     private func unavailableError() -> NSError {
         let message: String
@@ -51,7 +67,14 @@ final class ExperimentState {
     func client() throws -> ExperimentAPIClient {
         guard case .connected(let api, let auth) = connection else { throw unavailableError() }
         let current = try auth.bookOwnerID()
-        if current != ownerID { clearSession(); ownerID = current }
+        if current != ownerID {
+            resetMemory()
+            ownerID = current
+            if let page = cache.read(owner: current, now: Date()) {
+                listing.restore(page)
+                phase = .loaded
+            }
+        }
         return api
     }
     func sessionStamp() throws -> String {
@@ -62,8 +85,17 @@ final class ExperimentState {
         guard case .connected(_, let auth) = connection, let current = try? auth.bookOwnerID() else { return false }
         return stamp == current + ":" + String(generation) && current == ownerID
     }
-    func refresh() async { await load(append: false) }
-    func loadMore() async { if hasMore { await load(append: true) } }
+    func loadIfNeeded() async {
+        do { _ = try client() }
+        catch { clearSession(); phase = .failed(error.localizedDescription); return }
+        if !listing.isFresh(at: Date()) { await refresh() }
+    }
+    func refresh() async { await load(offset: 0) }
+    func loadMore(after id: String) async {
+        guard case .loaded = phase, listing.hasMore, listing.items.last?.id == id else { return }
+        await load(offset: listing.nextOffset)
+    }
+    func retry() async { await load(offset: failedOffset) }
 
     func createTheme(_ request: ExperimentThemeCreateRequest, session stamp: String) async throws -> ExperimentTheme {
         let theme = try await create("themes", request: request, session: stamp, as: ExperimentTheme.self)
@@ -81,25 +113,51 @@ final class ExperimentState {
         guard isCurrent(stamp) else { throw sessionChangedError() }
         let value = try await client().create(path, input: request, as: type)
         guard isCurrent(stamp) else { throw sessionChangedError() }
+        cancelRequest()
+        listing.invalidate()
+        cache.clear()
         return value
     }
 
     private func sessionChangedError() -> NSError {
         NSError(domain: "Experiments", code: 2, userInfo: [NSLocalizedDescriptionKey: "ログインが変更されました。画面を開き直してください。"])
     }
-    private func load(append: Bool) async {
-        if append, case .loading = phase { return }
-        do {
-            let api = try client(); let stamp = try sessionStamp()
-            requestGeneration += 1; let request = requestGeneration
-            let offset = append ? nextOffset : 0
-            if !append { themes = [] }
-            phase = .loading
-            let page = try await api.page("themes", offset: offset, query: [URLQueryItem(name: "archived", value: "exclude")], as: ExperimentThemeSummary.self)
-            guard isCurrent(stamp), request == requestGeneration else { return }
-            themes = append ? themes + page.items : page.items
-            nextOffset = offset + page.items.count; hasMore = page.hasMore; phase = .loaded
-        } catch is CancellationError { }
-        catch { phase = .failed(error.localizedDescription) }
+
+    private func load(offset: Int) async {
+        let api: ExperimentAPIClient
+        let stamp: String
+        do { api = try client(); stamp = try sessionStamp() }
+        catch { clearSession(); phase = .failed(error.localizedDescription); return }
+        if let pending, pendingOffset == offset || offset != 0 { await pending.value; return }
+        cancelRequest()
+        let request = requestGeneration
+        pendingOffset = offset
+        phase = .loading
+        let task = Task {
+            defer {
+                if request == requestGeneration { pending = nil; pendingOffset = nil }
+            }
+            do {
+                let page = try await api.page("themes", limit: ExperimentThemeList.pageSize, offset: offset,
+                                              query: [URLQueryItem(name: "archived", value: "exclude")], as: ExperimentThemeSummary.self)
+                guard isCurrent(stamp), request == requestGeneration else { return }
+                let now = Date()
+                try listing.accept(page, offset: offset, at: now)
+                if offset == 0 {
+                    do { try cache.write(.init(ownerID: ownerID, fetchedAt: now, items: listing.items, total: page.total)) }
+                    catch { cache.clear() }
+                }
+                phase = .loaded
+            } catch {
+                guard isCurrent(stamp), request == requestGeneration else { return }
+                if case ActionInboxAPIClient.ClientError.requestFailed(let status, _) = error, [401, 403].contains(status) {
+                    clearSession()
+                }
+                failedOffset = listing.items.isEmpty ? 0 : offset
+                phase = .failed(error.localizedDescription)
+            }
+        }
+        pending = task
+        await task.value
     }
 }
