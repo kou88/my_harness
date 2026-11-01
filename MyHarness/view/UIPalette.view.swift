@@ -64,7 +64,7 @@ private final class PaletteController: UIViewController, WKScriptMessageHandlerW
         let url = action.request.url
         if action.navigationType == .linkActivated, action.sourceFrame.isMainFrame,
            action.sourceFrame.securityOrigin.host == Self.origin.host,
-           let url, url.absoluteString.range(of: #"^https://x\.com/[A-Za-z0-9_]{1,15}/status/[0-9]+$"#, options: .regularExpression) != nil {
+           let url, url.absoluteString.range(of: #"^https://(?:x\.com/[A-Za-z0-9_]{1,15}/status/[0-9]+|kumagi\.com/motions/#[a-z0-9-]+)$"#, options: .regularExpression) != nil {
             decisionHandler(.cancel)
             if presentedViewController == nil {
                 present(SFSafariViewController(url: url), animated: true)
