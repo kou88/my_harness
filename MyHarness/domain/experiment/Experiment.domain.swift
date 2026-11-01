@@ -21,7 +21,7 @@ enum ExperimentStatus: String, Codable, Hashable {
     }
 }
 
-struct ExperimentThemeSummary: Decodable, Identifiable, Hashable {
+struct ExperimentThemeSummary: Codable, Identifiable, Hashable {
     let id: String
     let title: String
     let status: ExperimentStatus

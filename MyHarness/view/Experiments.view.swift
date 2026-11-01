@@ -49,8 +49,12 @@ struct ThemeListView: View {
                             }.font(.caption).foregroundStyle(.secondary)
                         }.padding(.vertical, 5)
                     }
+                    .onAppear {
+                        if theme.id == state.themes.last?.id {
+                            Task { await state.loadMore(after: theme.id) }
+                        }
+                    }
                 }
-                if state.hasMore { Button("さらに読み込む") { Task { await state.loadMore() } } }
             }
             switch state.phase {
             case .idle: EmptyView()
@@ -58,7 +62,7 @@ struct ThemeListView: View {
             case .failed(let message):
                 VStack(alignment: .leading, spacing: 12) {
                     Text(message).foregroundStyle(.red)
-                    Button("再読み込み") { Task { await state.refresh() } }
+                    Button("再試行") { Task { await state.retry() } }
                 }
             case .loaded:
                 if state.themes.isEmpty {
@@ -97,7 +101,7 @@ struct ThemeListView: View {
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("cognitoDidSignOut"))) { _ in
             editor = nil; createdTheme = nil; themeToOpen = nil
         }
-        .task { if state.isSignedIn { await state.refresh() } }
+        .task { if state.isSignedIn { await state.loadIfNeeded() } }
         .refreshable { await state.refresh() }
         .environment(\.locale, Locale(identifier: "ja_JP"))
         .environment(\.timeZone, TimeZone(secondsFromGMT: 9 * 3600)!)
@@ -559,7 +563,7 @@ private struct ExperimentNoteHistoryView: View {
     let id: String
     @State private var offset = 0
     var body: some View {
-        ExperimentRemoteView(state: state, load: { api in try await api.page("notes/\(id)/history", offset: offset, query: [], as: ExperimentRevision<ExperimentNote>.self) }) { page in
+        ExperimentRemoteView(state: state, load: { api in try await api.page("notes/\(id)/history", limit: 50, offset: offset, query: [], as: ExperimentRevision<ExperimentNote>.self) }) { page in
             List {
                 ForEach(page.items) { revision in
                     NavigationLink {
