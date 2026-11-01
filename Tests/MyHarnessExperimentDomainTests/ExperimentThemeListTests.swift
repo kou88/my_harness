@@ -37,6 +37,63 @@ final class ExperimentThemeListTests: XCTestCase {
         XCTAssertFalse(list.isFresh(at: now))
     }
 
+    @MainActor
+    func testReturningToAnExpiredListKeepsAllLoadedPagesAndOnlyCachesTheFirst() async throws {
+        var list = ExperimentThemeList()
+        for offset in [0, 15, 30] {
+            try list.accept(.init(items: themes(offset..<offset+15), total: 78, limit: 15, offset: offset), offset: offset, at: now)
+        }
+        let later = now.addingTimeInterval(301)
+        XCTAssertFalse(list.isFresh(at: later))
+        var requested: [Int] = []
+        let result = try await list.refreshed(keeping: "32", at: later) { offset in
+            requested.append(offset)
+            return .init(items: self.themes(offset..<offset+15), total: 78, limit: 15, offset: offset)
+        }
+        XCTAssertEqual(requested, [0, 15, 30])
+        XCTAssertEqual(result.list.items, list.items)
+        XCTAssertEqual(result.list.nextOffset, 45)
+        XCTAssertEqual(result.first.items.count, 15)
+        XCTAssertTrue(result.list.isFresh(at: later))
+    }
+
+    @MainActor
+    func testInsertionAtTheHeadKeepsAnOpenedThemeThatMovedToTheNextPage() async throws {
+        var list = ExperimentThemeList()
+        for offset in [0, 15] {
+            try list.accept(.init(items: themes(offset..<offset+15), total: 60, limit: 15, offset: offset), offset: offset, at: now)
+        }
+        let reordered = themes(60..<64) + themes(0..<60)
+        let result = try await list.refreshed(keeping: "29", at: now) { offset in
+            .init(items: Array(reordered.dropFirst(offset).prefix(15)), total: reordered.count, limit: 15, offset: offset)
+        }
+        XCTAssertEqual(result.list.items[33].id, "29")
+        XCTAssertEqual(result.list.nextOffset, 45)
+        XCTAssertTrue(result.list.hasMore)
+    }
+
+    @MainActor
+    func testFailureOnSecondPageLeavesTheOldWindowAndShrinkageTerminates() async throws {
+        var list = ExperimentThemeList()
+        for offset in [0, 15] {
+            try list.accept(.init(items: themes(offset..<offset+15), total: 40, limit: 15, offset: offset), offset: offset, at: now)
+        }
+        do {
+            _ = try await list.refreshed(keeping: "29", at: now) { offset in
+                if offset == 15 { throw URLError(.notConnectedToInternet) }
+                return .init(items: self.themes(0..<15), total: 40, limit: 15, offset: offset)
+            }
+            XCTFail("途中で通信が失敗した一覧を採用した")
+        } catch let err as URLError { XCTAssertEqual(err.code, .notConnectedToInternet) }
+        XCTAssertEqual(list.items.map(\.id), (0..<30).map(String.init))
+        let result = try await list.refreshed(keeping: "29", at: now) { offset in
+            let end = min(offset + 15, 18)
+            return .init(items: self.themes(offset..<end), total: 18, limit: 15, offset: offset)
+        }
+        XCTAssertEqual(result.list.nextOffset, 18)
+        XCTAssertFalse(result.list.hasMore)
+    }
+
     func testColdStartReadsOnlyTheOwnersFirstPageAndExpires() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: false)

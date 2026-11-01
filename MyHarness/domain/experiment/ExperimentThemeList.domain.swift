@@ -38,6 +38,26 @@ struct ExperimentThemeList {
 
     mutating func invalidate() { fetchedAt = nil }
 
+    /// Revalidate into a separate list so the visible window stays intact until all its pages succeed.
+    @MainActor
+    func refreshed(keeping themeID: String?, at now: Date,
+                   fetch: @MainActor (Int) async throws -> ExperimentPage<ExperimentThemeSummary>) async throws
+        -> (list: Self, first: ExperimentPage<ExperimentThemeSummary>) {
+        var updated = Self()
+        let first = try await fetch(0)
+        try updated.accept(first, offset: 0, at: now)
+        let retainedID = themeID.flatMap { id in items.contains { $0.id == id } ? id : nil }
+        while updated.hasMore {
+            let needsAnchor = retainedID.map { id in !updated.items.contains { $0.id == id } } ?? false
+            if updated.nextOffset >= nextOffset && !needsAnchor { break }
+            try Task.checkCancellation()
+            let offset = updated.nextOffset
+            let page = try await fetch(offset)
+            try updated.accept(page, offset: offset, at: now)
+        }
+        return (updated, first)
+    }
+
     mutating func accept(_ page: ExperimentPage<ExperimentThemeSummary>, offset: Int, at now: Date) throws {
         guard page.limit == Self.pageSize, page.offset == offset,
               offset == 0 || offset == nextOffset, page.total >= 0,
