@@ -81,6 +81,16 @@ import Foundation
     func conversations() async throws -> [AIConversation] {
         details.values.map { AIConversation(id: $0.id, title: $0.title, context: $0.context, createdAt: $0.createdAt, updatedAt: $0.updatedAt) }
     }
+    func temporaryReply(modelId: String, settings: AISettings, turns: [AITemporaryTurn], inputText: String) async throws -> AITemporaryTurn {
+        AITemporaryTurn(id: UUID().uuidString.lowercased(), model: model.model, inputText: inputText,
+                        outputText: "回答 " + String(turns.count + 1))
+    }
+    func saveTemporaryChat(id: String, turns: [AITemporaryTurn]) async throws -> AIConversationDetail {
+        let saved = AIConversationDetail(id: id, title: turns[0].inputText, context: .hermes,
+                                         createdAt: "test", updatedAt: "test", savedTurns: turns, runs: [])
+        details[id] = saved
+        return saved
+    }
     func create(id: String, title: String, context: AIContextInput) async throws -> AIConversation {
         let value: AIContext
         switch context {
@@ -88,7 +98,7 @@ import Foundation
         case .deepseek: value = .deepseek
         case .opencode(let repo, let branch): value = .opencode(AICodingContext(repositoryId: repo, repository: "test/repo", hostId: "host", baseBranch: branch, workBranch: "agent/" + id))
         }
-        details[id] = AIConversationDetail(id: id, title: title, context: value, createdAt: "test", updatedAt: "test", runs: [])
+        details[id] = AIConversationDetail(id: id, title: title, context: value, createdAt: "test", updatedAt: "test", savedTurns: [], runs: [])
         return AIConversation(id: id, title: title, context: value, createdAt: "test", updatedAt: "test")
     }
     func conversation(_ id: String) async throws -> AIConversationDetail {

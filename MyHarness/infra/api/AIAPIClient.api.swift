@@ -52,6 +52,25 @@ final class AIAPIClient {
         try await request("/power/hosts/\(hostId)/operations/\(id)/cancel", method: "POST", body: nil)
     }
     func models() async throws -> [AIModel] { try await request("/models", method: "GET", body: nil) }
+    private lazy var temporarySession: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        configuration.timeoutIntervalForRequest = 2700
+        configuration.timeoutIntervalForResource = 2700
+        return URLSession(configuration: configuration)
+    }()
+
+    func temporaryReply(modelId: String, settings: AISettings, turns: [AITemporaryTurn], inputText: String) async throws -> AITemporaryTurn {
+        struct Input: Encodable { let modelId: String; let settings: AISettings; let turns: [AITemporaryTurn]; let inputText: String }
+        let body = try encoder.encode(Input(modelId: modelId, settings: settings, turns: turns, inputText: inputText))
+        let request = try await makeRequest("/temporary/reply", method: "POST", body: body)
+        let (data, response) = try await temporarySession.data(for: request)
+        return try decode(data, response: response)
+    }
+    func saveTemporaryChat(id: String, turns: [AITemporaryTurn]) async throws -> AIConversationDetail {
+        struct Input: Encodable { let id: String; let turns: [AITemporaryTurn] }
+        return try await request("/temporary/save", method: "POST", body: encoder.encode(Input(id: id, turns: turns)))
+    }
     func repositories() async throws -> [AIRepository] { try await request("/repositories", method: "GET", body: nil) }
     func requests(_ runId: String) async throws -> [AIRequest] { try await request("/runs/\(runId)/requests", method: "GET", body: nil) }
     func reply(_ id: String, value: AIReply) async throws {
@@ -190,6 +209,9 @@ final class AIAPIClient {
     }
     private func response<Value: Decodable>(_ request: URLRequest) async throws -> Value {
         let (data, response) = try await session.data(for: request)
+        return try decode(data, response: response)
+    }
+    private func decode<Value: Decodable>(_ data: Data, response: URLResponse) throws -> Value {
         guard let http = response as? HTTPURLResponse else { throw APIError.invalidResponse }
         guard (200..<300).contains(http.statusCode) else {
             guard let failure = try? decoder.decode(Failure.self, from: data) else { throw APIError.response(http.statusCode, "サーバーとの通信に失敗しました") }

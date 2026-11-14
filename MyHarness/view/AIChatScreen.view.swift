@@ -31,6 +31,7 @@ struct AIChatScreen: View {
     @Bindable var state: AIChatState
     @Bindable var cronState: AICronState
     let conversationId: String?
+    @State private var showTemporaryChat = false
     @State private var showSidebar = false
     @State private var showModels = false
     @State private var showSettings = false
@@ -61,7 +62,7 @@ struct AIChatScreen: View {
                     if !state.isSignedIn { signIn }
                     else if isNew { welcome }
                     else if let detail = state.detail, detail.id == conversationId {
-                        if detail.runs.isEmpty {
+                        if detail.runs.isEmpty && detail.savedTurns.isEmpty {
                             VStack(spacing: 12) {
                                 if state.isSending { ProgressView("送信内容を確認中") }
                                 else if state.hasPendingSubmission { Text("送信結果を確認できません。入力欄から再送してください。") }
@@ -129,6 +130,15 @@ struct AIChatScreen: View {
             if let conversationId { await state.openConversation(id: conversationId) }
             else { state.newChat() }
         }
+        .sheet(isPresented: $showTemporaryChat) {
+            AITemporaryChatView(state: state) { id in
+                showTemporaryChat = false
+                router.aiPath = [.aiConversation(id: id)]
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("cognitoDidSignOut"))) { _ in
+            showTemporaryChat = false
+        }
         .sheet(isPresented: $showSettings) {
             if let model = state.selectedModel, let settings = state.settings {
                 AISettingsView(state: state, model: model, draft: settings, sharedMode: state.sharedMode) { state.saveSettings($0) }
@@ -176,6 +186,12 @@ struct AIChatScreen: View {
                     Image(systemName: "square.and.pencil").font(.system(size: 18)).frame(width: 36, height: 44)
                 }.accessibilityLabel("新しいチャット")
             } else { Spacer() }
+            if state.isSignedIn {
+                Button { showTemporaryChat = true } label: {
+                    Label("一時", systemImage: "bubble.left.and.bubble.right")
+                        .font(.subheadline).fixedSize().padding(.horizontal, 6).frame(height: 44)
+                }.accessibilityLabel("一時チャットを開く").accessibilityIdentifier("AI.temporary")
+            }
             Button { showCron = true } label: {
                 Image(systemName: "calendar.badge.clock").font(.system(size: 18)).frame(width: 40, height: 44)
             }.accessibilityLabel("定期タスク").accessibilityIdentifier("AI.cron")
