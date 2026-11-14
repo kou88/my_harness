@@ -52,25 +52,6 @@ final class AIAPIClient {
         try await request("/power/hosts/\(hostId)/operations/\(id)/cancel", method: "POST", body: nil)
     }
     func models() async throws -> [AIModel] { try await request("/models", method: "GET", body: nil) }
-    private lazy var temporarySession: URLSession = {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.urlCache = nil
-        configuration.timeoutIntervalForRequest = 2700
-        configuration.timeoutIntervalForResource = 2700
-        return URLSession(configuration: configuration)
-    }()
-
-    func temporaryReply(modelId: String, settings: AISettings, turns: [AITemporaryTurn], inputText: String) async throws -> AITemporaryTurn {
-        struct Input: Encodable { let modelId: String; let settings: AISettings; let turns: [AITemporaryTurn]; let inputText: String }
-        let body = try encoder.encode(Input(modelId: modelId, settings: settings, turns: turns, inputText: inputText))
-        let request = try await makeRequest("/temporary/reply", method: "POST", body: body)
-        let (data, response) = try await temporarySession.data(for: request)
-        return try decode(data, response: response)
-    }
-    func saveTemporaryChat(id: String, turns: [AITemporaryTurn]) async throws -> AIConversationDetail {
-        struct Input: Encodable { let id: String; let turns: [AITemporaryTurn] }
-        return try await request("/temporary/save", method: "POST", body: encoder.encode(Input(id: id, turns: turns)))
-    }
     func repositories() async throws -> [AIRepository] { try await request("/repositories", method: "GET", body: nil) }
     func requests(_ runId: String) async throws -> [AIRequest] { try await request("/runs/\(runId)/requests", method: "GET", body: nil) }
     func reply(_ id: String, value: AIReply) async throws {
@@ -82,9 +63,20 @@ final class AIAPIClient {
     func conversations() async throws -> [AIConversation] { try await request("/conversations", method: "GET", body: nil) }
     func conversation(_ id: String) async throws -> AIConversationDetail { try await request("/conversations/\(id)", method: "GET", body: nil) }
     func run(_ id: String) async throws -> AIRun { try await request("/runs/\(id)", method: "GET", body: nil) }
-    func create(id: String, title: String, context: AIContextInput) async throws -> AIConversation {
+    func create(id: String, title: String, context: AIContextInput, temporary: Bool = false) async throws -> AIConversation {
         struct Creation: Encodable { let id: String; let title: String; let context: AIContextInput }
-        return try await request("/conversations", method: "POST", body: encoder.encode(Creation(id: id, title: title, context: context)))
+        return try await request(temporary ? "/temporary/sessions" : "/conversations", method: "POST", body: encoder.encode(Creation(id: id, title: title, context: context)))
+    }
+    func renewTemporarySession(_ id: String) async throws {
+        struct Result: Decodable { let renewed: Bool }
+        let _: Result = try await request("/temporary/sessions/\(id)/renew", method: "POST", body: nil)
+    }
+    func keepTemporarySession(_ id: String) async throws -> AIConversationDetail {
+        try await request("/temporary/sessions/\(id)/keep", method: "POST", body: nil)
+    }
+    func discardTemporarySession(_ id: String) async throws {
+        struct Result: Decodable { let deleted: Bool }
+        let _: Result = try await request("/temporary/sessions/\(id)", method: "DELETE", body: nil)
     }
     func send(conversation: String, submission: Submission) async throws -> AIRun {
         try await request("/conversations/\(conversation)/runs", method: "POST", body: encoder.encode(submission))

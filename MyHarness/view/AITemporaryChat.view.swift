@@ -2,140 +2,92 @@ import SwiftUI
 
 struct AITemporaryChatView: View {
     @Environment(\.dismiss) private var dismiss
-    let state: AIChatState
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var state: AIChatState
+    let parent: AIChatState
     let onSaved: (String) -> Void
-
-    @State private var id = UUID().uuidString.lowercased()
-    @State private var turns: [AITemporaryTurn] = []
-    @State private var draft = ""
-    @State private var modelId: String
-    @State private var task: Task<Void, Never>?
-    @State private var saving = false
-    @State private var saveAttempted = false
-    @State private var confirmDiscard = false
-    @State private var error = ""
-    @FocusState private var focused: Bool
+    @State private var models = false
+    @State private var settings = false
+    @State private var closing = false
+    @State private var confirming = false
 
     init(state: AIChatState, onSaved: @escaping (String) -> Void) {
-        self.state = state
+        parent = state
+        _state = State(initialValue: state.temporaryState())
         self.onSaved = onSaved
-        _modelId = State(initialValue: state.selectedModel?.id ?? "")
-    }
-    private var model: AIModel? {
-        let selected = state.sharedMode ? state.sharing?.modelId : modelId
-        return state.models.first { $0.id == selected }
-    }
-    private var settings: AISettings? {
-        guard let model else { return nil }
-        var value = state.selectedModel?.id == model.id ? state.settings ?? model.initialSettings : model.initialSettings
-        if let sharing = state.sharing, sharing.enabled { value.contextLength = sharing.contextLength }
-        return value
     }
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                if turns.isEmpty {
-                    VStack(spacing: 12) {
-                        Image(systemName: "bubble.left.and.bubble.right").font(.largeTitle)
-                        Text("閉じると会話を破棄します。残したいときは「履歴に保存」を選んでください。")
-                            .font(.callout).multilineTextAlignment(.center)
-                    }.foregroundStyle(.secondary).padding(30).frame(maxWidth: .infinity, maxHeight: .infinity)
+                if let detail = state.detail {
+                    AIMessageList(detail: detail, state: state)
                 } else {
-                    ScrollViewReader { proxy in
-                        ScrollView {
-                            VStack(alignment: .leading, spacing: 28) {
-                                ForEach(turns) { turn in AITemporaryTurnView(turn: turn).id(turn.id) }
-                            }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
+                    VStack(spacing: 18) {
+                        Text("閉じると削除します。接続が切れた場合は、最終接続から1時間で削除対象になります。")
+                            .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                        AIHarnessSetup(state: state)
+                        if state.harness == .opencode {
+                            Text("GitHubに作成したPR・ブランチは残ります。").font(.caption).foregroundStyle(.secondary)
                         }
-                        .defaultScrollAnchor(.bottom)
-                        .scrollDismissesKeyboard(.interactively)
-                        .onChange(of: turns.count) { if let last = turns.last { proxy.scrollTo(last.id, anchor: .bottom) } }
-                    }
+                    }.padding().frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                if task != nil && !saving {
-                    HStack { ProgressView(); Text("回答を待っています") }.font(.caption).padding(6)
-                }
-                let notice = !error.isEmpty ? error : state.models.isEmpty ? state.errorMessage : ""
-                if !notice.isEmpty { Text(notice).font(.caption).foregroundStyle(.red).padding(.horizontal) }
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Menu {
-                            ForEach(state.models) { item in
-                                Button(item.name + (item.online ? "" : "（オフライン）")) { modelId = item.id }
-                                    .disabled(!item.online)
-                            }
-                        } label: {
-                            Label(model?.name ?? "モデルを選択", systemImage: state.sharedMode ? "lock.fill" : "cpu")
-                                .lineLimit(1)
-                        }.disabled(task != nil || state.sharedMode || saveAttempted)
-                        Spacer()
-                        Text("テキストのみ").foregroundStyle(.secondary)
-                    }.font(.caption)
-                    if let model, !model.online { Text("実行PCがオフラインです").font(.caption).foregroundStyle(.secondary) }
-                    HStack(alignment: .bottom) {
-                        TextField("一時メッセージ", text: $draft, axis: .vertical)
-                            .lineLimit(1...6).focused($focused).disabled(task != nil || saveAttempted)
-                            .accessibilityIdentifier("AI.temporary.prompt")
-                        if task != nil && !saving {
-                            Button { task?.cancel() } label: { Image(systemName: "stop.circle.fill").font(.title) }
-                                .accessibilityLabel("回答を停止")
-                        } else {
-                            Button(action: send) { Image(systemName: "arrow.up.circle.fill").font(.title) }
-                                .disabled(task != nil || saveAttempted || model?.online != true || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                                .accessibilityLabel("送信").accessibilityIdentifier("AI.temporary.send")
-                        }
-                    }
-                }.padding(14).background(AIChatStyle.bubble, in: RoundedRectangle(cornerRadius: 18)).padding(10)
+                if !state.connectionMessage.isEmpty { Text(state.connectionMessage).font(.caption).foregroundStyle(.secondary) }
+                if !state.errorMessage.isEmpty { Text(state.errorMessage).font(.caption).foregroundStyle(.red) }
+                AIChatComposer(state: state, conversationId: state.detail?.id, onModels: { models = true },
+                               onSettings: { settings = true }, onSent: { _ in }).padding(8)
             }
+            .disabled(closing)
             .navigationTitle("一時チャット").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("閉じる") { if turns.isEmpty && draft.isEmpty { dismiss() } else { confirmDiscard = true } }
-                        .disabled(saving)
+                    Button("閉じる") {
+                        if state.detail == nil && !state.hasPendingSubmission && state.composerText.isEmpty && state.composerAttachments.isEmpty { dismiss() }
+                        else { confirming = true }
+                    }.disabled(closing || state.isSending)
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(action: save) {
-                        if saving { ProgressView() } else { Text("履歴に保存") }
-                    }.disabled(task != nil || turns.isEmpty)
+                    Button("履歴に保存") { finish(save: true) }
+                        .disabled(closing || state.isSending || state.hasPendingSubmission || !state.temporaryCreated)
                         .accessibilityIdentifier("AI.temporary.save")
                 }
             }
-            .confirmationDialog("一時チャットを破棄しますか？", isPresented: $confirmDiscard, titleVisibility: .visible) {
-                Button("破棄して閉じる", role: .destructive) { dismiss() }
+            .confirmationDialog("一時チャットを破棄しますか？", isPresented: $confirming, titleVisibility: .visible) {
+                Button("破棄して閉じる", role: .destructive) { finish(save: false) }
                 Button("キャンセル", role: .cancel) {}
             }
+            .sheet(isPresented: $models) { AIModelPicker(state: state, onClose: { models = false }) }
+            .sheet(isPresented: $settings) {
+                if let model = state.selectedModel, let draft = state.settings {
+                    AISettingsView(state: state, model: model, draft: draft, sharedMode: state.sharedMode) { state.saveSettings($0) }
+                }
+            }
         }
-        .interactiveDismissDisabled(task != nil || !turns.isEmpty || !draft.isEmpty)
-        .onDisappear { task?.cancel() }
+        .interactiveDismissDisabled()
         .task { await state.loadList() }
+        .task(id: scenePhase) {
+            guard scenePhase == .active else { return }
+            while !Task.isCancelled {
+                await state.renewTemporarySession()
+                do { try await Task.sleep(for: .seconds(60)) } catch { return }
+            }
+        }
+        .onDisappear { state.stopTemporaryObservation() }
     }
 
-    private func send() {
-        guard task == nil, !saveAttempted, let model, let settings else { return }
-        focused = false
-        error = ""
-        task = Task {
-            defer { task = nil }
+    private func finish(save: Bool) {
+        guard !closing else { return }
+        closing = true
+        Task {
+            defer { closing = false }
             do {
-                let turn = try await state.temporaryReply(model: model, settings: settings, turns: turns, text: draft)
-                try Task.checkCancellation()
-                turns.append(turn)
-                draft = ""
-            } catch { if !Task.isCancelled { self.error = error.localizedDescription } }
-        }
-    }
-    private func save() {
-        guard task == nil, !turns.isEmpty else { return }
-        saving = true
-        saveAttempted = true
-        error = ""
-        task = Task {
-            defer { task = nil; saving = false }
-            do {
-                let saved = try await state.saveTemporaryChat(id: id, turns: turns, model: model, settings: settings, draft: draft)
-                onSaved(saved)
-            } catch { if !Task.isCancelled { self.error = "保存を確認できません。「履歴に保存」で再試行できます。\\n" + error.localizedDescription } }
+                if save {
+                    let saved = try await state.keepTemporarySession()
+                    parent.adoptSavedSession(from: state, detail: saved)
+                    onSaved(saved.id)
+                }
+                else { try await state.discardTemporarySession(); dismiss() }
+            } catch { state.errorMessage = error.localizedDescription }
         }
     }
 }

@@ -190,6 +190,46 @@ final class AIChatState {
         isSignedIn = authSession?.isSignedIn == true
         let initial = Session(); newSession = initial; visible = initial
     }
+    private(set) var temporaryId: String?
+    private(set) var temporaryCreated = false
+
+    func temporaryState() -> AIChatState {
+        let child = AIChatState(apiClient: api, authSession: authSession, configurationErrorMessage: configurationErrorMessage,
+                                reconciliationInterval: reconciliationInterval)
+        child.temporaryId = UUID().uuidString.lowercased()
+        child.models = models
+        child.sharing = sharing
+        child.repositories = repositories
+        child.visible.harness = harness
+        child.visible.repository = repositorySelection
+        child.visible.delivery = delivery
+        child.visible.model = selectedModel
+        child.visible.settings = settings
+        return child
+    }
+
+    func renewTemporarySession() async {
+        guard let api, let temporaryId, temporaryCreated else { return }
+        do { try await api.renewTemporarySession(temporaryId) }
+        catch { if !Task.isCancelled { errorMessage = error.localizedDescription } }
+    }
+
+    func keepTemporarySession() async throws -> AIConversationDetail {
+        guard let api, let temporaryId, temporaryCreated else { throw AIContractError.malformedEvent }
+        return try await api.keepTemporarySession(temporaryId)
+    }
+
+    func discardTemporarySession() async throws {
+        guard let api, let temporaryId else { return }
+        try await api.discardTemporarySession(temporaryId)
+    }
+
+    func stopTemporaryObservation() {
+        for task in streams.values { task.cancel() }
+        for task in reconciliations.values { task.cancel() }
+        for task in presentationTasks.values { task.cancel() }
+    }
+
     func signIn() async {
         do { try await authSession?.signIn(); await loadList() }
         catch { errorMessage = error.localizedDescription }
@@ -367,27 +407,26 @@ final class AIChatState {
         for (id, session) in targets { await refresh(id: id, session: session) }
     }
 
-    func temporaryReply(model: AIModel, settings: AISettings, turns: [AITemporaryTurn], text: String) async throws -> AITemporaryTurn {
-        guard let api, authSession?.isSignedIn == true else { throw AIContractError.malformedEvent }
-        return try await api.temporaryReply(modelId: model.id, settings: settings, turns: turns, inputText: text)
-    }
-
-    func saveTemporaryChat(id: String, turns: [AITemporaryTurn], model: AIModel?, settings: AISettings?, draft: String) async throws -> String {
-        guard let api, authSession?.isSignedIn == true else { throw AIContractError.malformedEvent }
-        let saved = try await api.saveTemporaryChat(id: id, turns: turns)
-        try Task.checkCancellation()
+    func adoptSavedSession(from child: AIChatState, detail saved: AIConversationDetail) {
         let session = Session()
         session.detail = saved
-        session.draft = draft
-        session.model = model
-        session.settings = settings
-        sessions[id] = session
+        session.draft = child.composerText
+        session.attachments = child.composerAttachments
+        session.model = child.selectedModel
+        session.settings = child.settings
+        session.delivery = child.delivery
+        sessions[saved.id] = session
+        for run in saved.runs {
+            eventsByRun[run.id] = child.eventsByRun[run.id]
+            for attachment in run.attachments {
+                attachmentDataById[attachment.id] = child.cachedAttachmentData(attachment.id)
+            }
+        }
         listGeneration += 1
         listLoading = false
-        conversations.removeAll { $0.id == id }
+        conversations.removeAll { $0.id == saved.id }
         conversations.insert(AIConversation(id: saved.id, title: saved.title, context: saved.context,
                                           createdAt: saved.createdAt, updatedAt: saved.updatedAt), at: 0)
-        return saved.id
     }
 
     func send(conversationId: String?) async -> String? {
@@ -409,7 +448,7 @@ final class AIChatState {
             session.sending = false
             guard let selectedModel = session.model, let settings = session.settings else { return nil }
             let text = session.draft.trimmingCharacters(in: .whitespacesAndNewlines)
-            let id = conversationId ?? UUID().uuidString.lowercased()
+            let id = conversationId ?? temporaryId ?? UUID().uuidString.lowercased()
             let context: AIContextInput
             if let detail = session.detail, case .opencode(let value) = detail.context {
                 context = .opencode(repositoryId: value.repositoryId, baseBranch: value.baseBranch)
@@ -431,12 +470,13 @@ final class AIChatState {
         defer { session.sending = false }
         do {
             if pending.isNew {
-                let created = try await api.create(id: pending.conversationId, title: pending.title, context: pending.context)
+                let created = try await api.create(id: pending.conversationId, title: pending.title, context: pending.context, temporary: temporaryId != nil)
+                if temporaryId != nil { temporaryCreated = true }
                 if session.detail == nil {
                     session.detail = AIConversationDetail(id: created.id, title: created.title, context: created.context, createdAt: created.createdAt, updatedAt: created.updatedAt, savedTurns: [], runs: [])
                 }
                 listGeneration += 1; listLoading = false
-                if !conversations.contains(where: { $0.id == created.id }) { conversations.insert(created, at: 0) }
+                if temporaryId == nil && !conversations.contains(where: { $0.id == created.id }) { conversations.insert(created, at: 0) }
             }
             for attachment in pending.uploads {
                 _ = try await api.upload(conversation: pending.conversationId, attachment: attachment)
