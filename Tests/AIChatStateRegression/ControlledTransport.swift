@@ -78,20 +78,22 @@ import Foundation
         if failCatalog { throw APIError.response(503, "Catalog unavailable") }
         return hideModel ? [] : catalog
     }
+    var temporarySessions: Set<String> = []
     func conversations() async throws -> [AIConversation] {
-        details.values.map { AIConversation(id: $0.id, title: $0.title, context: $0.context, createdAt: $0.createdAt, updatedAt: $0.updatedAt) }
+        details.values.filter { !temporarySessions.contains($0.id) }.map { AIConversation(id: $0.id, title: $0.title, context: $0.context, createdAt: $0.createdAt, updatedAt: $0.updatedAt) }
     }
-    func temporaryReply(modelId: String, settings: AISettings, turns: [AITemporaryTurn], inputText: String) async throws -> AITemporaryTurn {
-        AITemporaryTurn(id: UUID().uuidString.lowercased(), model: model.model, inputText: inputText,
-                        outputText: "回答 " + String(turns.count + 1))
+    func renewTemporarySession(_ id: String) async throws {
+        guard temporarySessions.contains(id) else { throw APIError.response(404, "一時会話がありません") }
     }
-    func saveTemporaryChat(id: String, turns: [AITemporaryTurn]) async throws -> AIConversationDetail {
-        let saved = AIConversationDetail(id: id, title: turns[0].inputText, context: .hermes,
-                                         createdAt: "test", updatedAt: "test", savedTurns: turns, runs: [])
-        details[id] = saved
-        return saved
+    func keepTemporarySession(_ id: String) async throws -> AIConversationDetail {
+        temporarySessions.remove(id)
+        return try await conversation(id)
     }
-    func create(id: String, title: String, context: AIContextInput) async throws -> AIConversation {
+    func discardTemporarySession(_ id: String) async throws {
+        if temporarySessions.remove(id) != nil { details.removeValue(forKey: id) }
+    }
+    func create(id: String, title: String, context: AIContextInput, temporary: Bool = false) async throws -> AIConversation {
+        if temporary { temporarySessions.insert(id) }
         let value: AIContext
         switch context {
         case .hermes: value = .hermes
