@@ -7,13 +7,25 @@ import Foundation
         let temporary = AIChatState(apiClient: temporaryAPI, authSession: CognitoAuthSession(), configurationErrorMessage: nil, reconciliationInterval: .seconds(2))
         await temporary.loadList()
         let model = temporaryAPI.model
-        let one = try await temporary.temporaryReply(model: model, settings: model.initialSettings, turns: [], text: "一つ目")
-        let two = try await temporary.temporaryReply(model: model, settings: model.initialSettings, turns: [one], text: "二つ目")
-        await temporary.restoreAfterForeground()
-        precondition(temporary.conversations.isEmpty && temporaryAPI.details.isEmpty && temporaryAPI.history.isEmpty)
-        let converted = try await temporary.saveTemporaryChat(id: UUID().uuidString.lowercased(), turns: [one, two], model: model, settings: model.initialSettings, draft: "次の質問")
-        await temporary.openConversation(id: converted)
-        precondition(temporary.detail?.savedTurns == [one, two] && temporary.conversations.count == 1 && temporary.composerText == "次の質問")
+        temporary.choose(model)
+        let child = temporary.temporaryState()
+        child.composerText = "一時会話"
+        guard let id = await child.send(conversationId: nil) else { fatalError("一時会話を送信できません") }
+        let beforeSave = try await temporaryAPI.conversations()
+        precondition(beforeSave.isEmpty && temporary.conversations.isEmpty && child.detail?.context == .deepseek)
+        child.composerText = "次の質問"
+        try await temporaryAPI.renewTemporarySession(id)
+        let promotedDetail = try await child.keepTemporarySession()
+        temporary.adoptSavedSession(from: child, detail: promotedDetail)
+        child.stopTemporaryObservation()
+        await temporary.openConversation(id: id)
+        precondition(temporary.detail?.runs.first?.id == promotedDetail.runs.first?.id && temporary.conversations.count == 1 && temporary.composerText == "次の質問")
+        let discarded = temporary.temporaryState()
+        discarded.composerText = "破棄する会話"
+        guard let discardedID = await discarded.send(conversationId: nil) else { fatalError("送信失敗") }
+        try await discarded.discardTemporarySession()
+        discarded.stopTemporaryObservation()
+        precondition(temporaryAPI.details[discardedID] == nil && temporaryAPI.details[id] != nil)
 
         // Switching from W8/128K must use Flash-Next's server policy, not the old context or its maximum.
         func flashModel(online: Bool, context: Int) -> AIModel {
