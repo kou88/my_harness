@@ -3,6 +3,18 @@ import Foundation
 
 @main struct SessionRegression {
     @MainActor static func main() async throws {
+        let temporaryAPI = AIAPIClient()
+        let temporary = AIChatState(apiClient: temporaryAPI, authSession: CognitoAuthSession(), configurationErrorMessage: nil, reconciliationInterval: .seconds(2))
+        await temporary.loadList()
+        let model = temporaryAPI.model
+        let one = try await temporary.temporaryReply(model: model, settings: model.initialSettings, turns: [], text: "一つ目")
+        let two = try await temporary.temporaryReply(model: model, settings: model.initialSettings, turns: [one], text: "二つ目")
+        await temporary.restoreAfterForeground()
+        precondition(temporary.conversations.isEmpty && temporaryAPI.details.isEmpty && temporaryAPI.history.isEmpty)
+        let converted = try await temporary.saveTemporaryChat(id: UUID().uuidString.lowercased(), turns: [one, two], model: model, settings: model.initialSettings, draft: "次の質問")
+        await temporary.openConversation(id: converted)
+        precondition(temporary.detail?.savedTurns == [one, two] && temporary.conversations.count == 1 && temporary.composerText == "次の質問")
+
         // Switching from W8/128K must use Flash-Next's server policy, not the old context or its maximum.
         func flashModel(online: Bool, context: Int) -> AIModel {
             AIModel(harnesses: [.hermes, .deepseek, .opencode], id: "flash", hostId: "host", hostName: "PC-02", model: "flash", name: "Flash-Next", online: online,

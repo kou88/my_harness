@@ -200,12 +200,20 @@ struct AIConversation: Codable, Identifiable, Hashable {
     var updatedAt: String
 }
 
+struct AITemporaryTurn: Codable, Identifiable, Equatable {
+    let id: String
+    let model: String
+    let inputText: String
+    let outputText: String
+}
+
 struct AIConversationDetail: Codable, Identifiable {
     let id: String
     var title: String
     let context: AIContext
     let createdAt: String
     var updatedAt: String
+    let savedTurns: [AITemporaryTurn]
     var runs: [AIRun]
 }
 

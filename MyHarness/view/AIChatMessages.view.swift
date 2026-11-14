@@ -15,6 +15,7 @@ struct AIMessageList: View {
                 // Lazy estimates plus scrollTo(onAppear) can restore an offset
                 // outside the rendered rows. Measure actual message heights first.
                 VStack(alignment: .leading, spacing: 36) {
+                    ForEach(detail.savedTurns) { turn in AITemporaryTurnView(turn: turn) }
                     ForEach(detail.runs) { run in AIRunMessage(run: run, state: state).id(run.id) }
                     Color.clear.frame(height: 1).id("bottom")
                         .background(GeometryReader { geometry in

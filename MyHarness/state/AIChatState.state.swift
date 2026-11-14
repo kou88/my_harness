@@ -367,6 +367,29 @@ final class AIChatState {
         for (id, session) in targets { await refresh(id: id, session: session) }
     }
 
+    func temporaryReply(model: AIModel, settings: AISettings, turns: [AITemporaryTurn], text: String) async throws -> AITemporaryTurn {
+        guard let api, authSession?.isSignedIn == true else { throw AIContractError.malformedEvent }
+        return try await api.temporaryReply(modelId: model.id, settings: settings, turns: turns, inputText: text)
+    }
+
+    func saveTemporaryChat(id: String, turns: [AITemporaryTurn], model: AIModel?, settings: AISettings?, draft: String) async throws -> String {
+        guard let api, authSession?.isSignedIn == true else { throw AIContractError.malformedEvent }
+        let saved = try await api.saveTemporaryChat(id: id, turns: turns)
+        try Task.checkCancellation()
+        let session = Session()
+        session.detail = saved
+        session.draft = draft
+        session.model = model
+        session.settings = settings
+        sessions[id] = session
+        listGeneration += 1
+        listLoading = false
+        conversations.removeAll { $0.id == id }
+        conversations.insert(AIConversation(id: saved.id, title: saved.title, context: saved.context,
+                                          createdAt: saved.createdAt, updatedAt: saved.updatedAt), at: 0)
+        return saved.id
+    }
+
     func send(conversationId: String?) async -> String? {
         guard let api, canSend else { return nil }
         let session = visible
@@ -410,7 +433,7 @@ final class AIChatState {
             if pending.isNew {
                 let created = try await api.create(id: pending.conversationId, title: pending.title, context: pending.context)
                 if session.detail == nil {
-                    session.detail = AIConversationDetail(id: created.id, title: created.title, context: created.context, createdAt: created.createdAt, updatedAt: created.updatedAt, runs: [])
+                    session.detail = AIConversationDetail(id: created.id, title: created.title, context: created.context, createdAt: created.createdAt, updatedAt: created.updatedAt, savedTurns: [], runs: [])
                 }
                 listGeneration += 1; listLoading = false
                 if !conversations.contains(where: { $0.id == created.id }) { conversations.insert(created, at: 0) }
