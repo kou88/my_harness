@@ -1,0 +1,101 @@
+name: TestFlight Build Status
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_number:
+        description: TestFlight build number to inspect
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      ASC_KEY_ID: ${{ vars.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ vars.ASC_ISSUER_ID }}
+      ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}
+      BUILD_NUMBER: ${{ inputs.build_number }}
+    steps:
+      - name: Read build processing and internal testing states
+        run: |
+          ruby <<'RUBY'
+          require 'base64'
+          require 'json'
+          require 'net/http'
+          require 'openssl'
+          require 'uri'
+
+          number = ENV.fetch('BUILD_NUMBER')
+          abort 'Invalid build number' unless number.match?(/\A[0-9]{1,10}\z/)
+          key = OpenSSL::PKey::EC.new(Base64.strict_decode64(ENV.fetch('ASC_KEY_P8_BASE64')))
+          base64url = ->(value) { Base64.urlsafe_encode64(value).delete('=') }
+          header = base64url.call(JSON.generate(alg: 'ES256', kid: ENV.fetch('ASC_KEY_ID'), typ: 'JWT'))
+          payload = base64url.call(JSON.generate(iss: ENV.fetch('ASC_ISSUER_ID'), exp: Time.now.to_i + 1200, aud: 'appstoreconnect-v1'))
+          signing_input = "#{header}.#{payload}"
+          signature_der = key.dsa_sign_asn1(OpenSSL::Digest::SHA256.digest(signing_input))
+          signature = OpenSSL::ASN1.decode(signature_der).value.map { |integer| integer.value.to_i.to_s(16).rjust(64, '0') }.join
+          token = "#{signing_input}.#{base64url.call([signature].pack('H*'))}"
+
+          get_json = lambda do |uri, allow_missing: false|
+            request = Net::HTTP::Get.new(uri)
+            request['Authorization'] = "Bearer #{token}"
+            response = Net::HTTP.start(uri.hostname, uri.port, use_ssl: true) { |http| http.request(request) }
+            next nil if allow_missing && response.code == '404'
+            unless response.is_a?(Net::HTTPSuccess)
+              warn "App Store Connect request failed: HTTP #{response.code}"
+              begin
+                errors = JSON.parse(response.body).fetch('errors', [])
+                codes = errors.filter_map do |error|
+                  code = error.is_a?(Hash) ? error['code'].to_s : ''
+                  code if code.match?(/\A[A-Za-z0-9_.-]{1,80}\z/)
+                end
+                warn "App Store Connect error codes: #{codes.join(', ')}" unless codes.empty?
+              rescue JSON::ParserError, TypeError
+                # Never print the raw response, JWT, or key.
+              end
+              exit 1
+            end
+            JSON.parse(response.body)
+          end
+
+          apps_uri = URI('https://api.appstoreconnect.apple.com/v1/apps')
+          apps_uri.query = URI.encode_www_form('filter[bundleId]' => 'com.kou888.myharness', 'fields[apps]' => 'bundleId', 'limit' => '2')
+          app = get_json.call(apps_uri).fetch('data').find { |entry| entry.dig('attributes', 'bundleId') == 'com.kou888.myharness' }
+          abort 'App not found' unless app
+
+          builds_uri = URI('https://api.appstoreconnect.apple.com/v1/builds')
+          builds_uri.query = URI.encode_www_form(
+            'filter[app]' => app.fetch('id'),
+            'fields[builds]' => 'version,uploadedDate,processingState,preReleaseVersion',
+            'fields[preReleaseVersions]' => 'version',
+            'include' => 'preReleaseVersion',
+            'sort' => '-uploadedDate',
+            'limit' => '200'
+          )
+          result = get_json.call(builds_uri)
+          build = result.fetch('data').find { |entry| entry.dig('attributes', 'version') == number }
+          unless build
+            puts "Build #{number}: not listed in App Store Connect yet"
+            exit 0
+          end
+          version_id = build.dig('relationships', 'preReleaseVersion', 'data', 'id')
+          release = result.fetch('included', []).find { |entry| entry['id'] == version_id }
+          product_version = release&.dig('attributes', 'version') || 'unknown'
+          processing = build.dig('attributes', 'processingState') || 'unknown'
+          puts "Build #{number}: app version #{product_version}, processingState=#{processing}"
+
+          beta_uri = URI("https://api.appstoreconnect.apple.com/v1/builds/#{build.fetch('id')}/buildBetaDetail")
+          beta_uri.query = URI.encode_www_form('fields[buildBetaDetails]' => 'internalBuildState,externalBuildState')
+          detail = get_json.call(beta_uri, allow_missing: true)
+          if detail
+            internal = detail.dig('data', 'attributes', 'internalBuildState') || 'unknown'
+            external = detail.dig('data', 'attributes', 'externalBuildState') || 'unknown'
+            puts "Build #{number}: internalBuildState=#{internal}, externalBuildState=#{external}"
+          else
+            puts "Build #{number}: beta detail is not available yet"
+          end
+          RUBY

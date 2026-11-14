@@ -3,6 +3,113 @@ import Foundation
 
 @main struct SessionRegression {
     @MainActor static func main() async throws {
+        let temporaryAPI = AIAPIClient()
+        let temporary = AIChatState(apiClient: temporaryAPI, authSession: CognitoAuthSession(), configurationErrorMessage: nil, reconciliationInterval: .seconds(2))
+        await temporary.loadList()
+        let model = temporaryAPI.model
+        let one = try await temporary.temporaryReply(model: model, settings: model.initialSettings, turns: [], text: "一つ目")
+        let two = try await temporary.temporaryReply(model: model, settings: model.initialSettings, turns: [one], text: "二つ目")
+        await temporary.restoreAfterForeground()
+        precondition(temporary.conversations.isEmpty && temporaryAPI.details.isEmpty && temporaryAPI.history.isEmpty)
+        let converted = try await temporary.saveTemporaryChat(id: UUID().uuidString.lowercased(), turns: [one, two], model: model, settings: model.initialSettings, draft: "次の質問")
+        await temporary.openConversation(id: converted)
+        precondition(temporary.detail?.savedTurns == [one, two] && temporary.conversations.count == 1 && temporary.composerText == "次の質問")
+
+        // Switching from W8/128K must use Flash-Next's server policy, not the old context or its maximum.
+        func flashModel(online: Bool, context: Int) -> AIModel {
+            AIModel(harnesses: [.hermes, .deepseek, .opencode], id: "flash", hostId: "host", hostName: "PC-02", model: "flash", name: "Flash-Next", online: online,
+                contextLengths: [8192, 16384, 32768], maxOutputTokens: 16384, reasoningEfforts: ["medium"],
+                reasoningBudgets: ["medium": 1024], initialSettings: AISettings(contextLength: context,
+                    maxOutputTokens: 4096, reasoningEffort: "medium"), inputModalities: [.text],
+                features: AIModelFeatures(toolCalling: true, reasoning: true))
+        }
+        let flash = flashModel(online: true, context: 32768)
+        var sharingDraft = AISharing(enabled: true, modelId: "w8", contextLength: 131072, maxConcurrentRuns: 1, revision: 4)
+        sharingDraft.modelId = flash.id
+        precondition(!sharingDraft.validationMessage(models: [flash]).isEmpty)
+        sharingDraft.selectModel(flash)
+        precondition(sharingDraft.contextLength == 32768 && sharingDraft.revision == 4)
+        precondition(sharingDraft.validationMessage(models: [flash]).isEmpty)
+        let smallerPolicy = flashModel(online: true, context: 16384)
+        sharingDraft.selectModel(smallerPolicy)
+        precondition(sharingDraft.contextLength == 16384, "Use configured chat context, not maximum capacity")
+        let offline = flashModel(online: false, context: 32768)
+        precondition(sharingDraft.validationMessage(models: [offline]).contains("OS Agent"))
+        sharingDraft.enabled = false
+        precondition(sharingDraft.validationMessage(models: [offline]).isEmpty, "Turning sharing off does not require an online PC")
+
+        // AI failure does not mean the powered host is off. Catalog refresh is
+        // independent from draft/sharing refresh and must expose fetch failures.
+        let presenceAPI = AIAPIClient()
+        presenceAPI.catalog = [offline]
+        presenceAPI.powerHostValues = [AIPowerHost(hostId: "host", hostName: "PC-02", relayOnline: true,
+            online: true, state: "online", checking: false, probeId: nil, aiReady: false, capturedAt: "test", activeRuns: 0, queuedRuns: 0,
+            blockers: [], error: "推論サービスが停止しています。", operations: [])]
+        let presence = AIChatState(apiClient: presenceAPI, authSession: CognitoAuthSession(), configurationErrorMessage: nil,
+            reconciliationInterval: .milliseconds(20))
+        await presence.loadList()
+        let savedSharing = presence.sharing
+        await presence.refreshSharingStatus()
+        let stoppedAI = presence.sharingConnection(for: presence.models[0])
+        precondition(stoppedAI.pc == "稼働中" && stoppedAI.agent == "未接続" && stoppedAI.ai == "準備中・要確認")
+        precondition(stoppedAI.message == "推論サービスが停止しています。")
+        presenceAPI.catalog = [flash]
+        await presence.refreshSharingStatus()
+        precondition(presence.models[0].online && presence.sharing == savedSharing)
+        precondition(presence.sharingConnection(for: presence.models[0]).agent == "接続中")
+        presenceAPI.failCatalog = true; presenceAPI.failPower = true
+        await presence.refreshSharingStatus()
+        precondition(!presence.sharingStatusError.isEmpty)
+        let failedPresence = presence.sharingConnection(for: presence.models[0])
+        precondition(failedPresence.pc == "状態未取得" && failedPresence.agent == "確認できません")
+        presenceAPI.failCatalog = false; presenceAPI.failPower = false
+        await presence.refreshSharingStatus()
+        precondition(presence.sharingStatusError.isEmpty && presence.powerError.isEmpty)
+        await presence.checkPower()
+        precondition(presenceAPI.powerProbeHostIds == ["host"] && !presence.powerChecking)
+
+        // Saving the chat policy refreshes both the shared value and the next request settings.
+        let contextAPI = AIAPIClient()
+        contextAPI.catalog = [flash]
+        contextAPI.sharingValue = AISharing(enabled: true, modelId: flash.id, contextLength: 32768, maxConcurrentRuns: 1, revision: 4)
+        let originalPolicy = AIInferencePolicy(revision: 4, maxConcurrentInferences: 3, models: [
+            AIInferenceModelPolicy(model: flash.model, chatContextLength: 32768, apiContextLength: 16384,
+                scheduledContextLength: 8192, auxiliaryContextLength: 16384)])
+        let capability = AIInferenceCapability(model: flash.model, contextLengths: flash.contextLengths,
+            totalContextTokens: 32768, maxConcurrentInferences: 1, maxOutputTokens: 16384, initialOutputTokens: 4096)
+        contextAPI.inferenceHostValues = [AIInferenceHost(hostId: flash.hostId, hostName: flash.hostName, online: true,
+            capturedAt: "test", desiredPolicy: originalPolicy, state: AIInferenceSnapshot(policy: originalPolicy,
+                capabilities: [capability], loadedModel: flash.model, phase: "idle", error: "",
+                reservedContextTokens: 0, active: [], queued: []))]
+        let contextState = AIChatState(apiClient: contextAPI, authSession: CognitoAuthSession(), configurationErrorMessage: nil,
+            reconciliationInterval: .milliseconds(20))
+        await contextState.loadList(); await contextState.refreshInference()
+        var updatedPolicy = originalPolicy
+        updatedPolicy.models[0].chatContextLength = 16384
+        let contextSaved = await contextState.saveInference(hostId: flash.hostId, policy: updatedPolicy)
+        precondition(contextSaved && contextState.sharing?.contextLength == 16384 && contextState.settings?.contextLength == 16384)
+        precondition(contextState.models.first?.initialSettings.contextLength == 16384)
+        updatedPolicy.revision += 1
+        precondition(contextState.inferenceHosts.first?.desiredPolicy == updatedPolicy,
+                     "Changing chat context must preserve API, scheduled, auxiliary, and concurrency settings")
+
+        let deepseekAPI = AIAPIClient()
+        let deepseek = AIChatState(apiClient: deepseekAPI, authSession: CognitoAuthSession(), configurationErrorMessage: nil,
+            reconciliationInterval: .milliseconds(20))
+        await deepseek.loadList(); deepseek.choose(deepseekAPI.model)
+        deepseek.composerText = "計算してください"
+        precondition(deepseek.canSend)
+        let deepseekId = await deepseek.send(conversationId: nil)
+        precondition(deepseekId != nil)
+        await deepseek.openConversation(id: deepseekId!)
+        precondition(deepseek.detail?.context.harness == .deepseek)
+        deepseek.chooseHarness(.hermes)
+        precondition(deepseek.harness == .deepseek)
+        let deepseekRun = deepseek.detail!.runs[0].id
+        while deepseekAPI.listeners[deepseekRun] == nil { await Task.yield() }
+        try deepseekAPI.emit(deepseekRun, type: "run.completed", data: ["responseId": .string(deepseekId!)])
+        for listener in deepseekAPI.listeners.values { listener.finish() }
+
         // A coding chat fixes its harness/repository at creation, independently of model choice.
         let codingAPI = AIAPIClient()
         let repository = AIRepository(id: "repository", hostId: "host", hostName: "host", online: true, repository: "test/repo", branches: ["main", "develop"], defaultBranch: "main")
@@ -29,7 +136,7 @@ import Foundation
         while coding.requestsByRun[codingRun]?.count != 1 { await Task.yield() }
         coding.newChat()
         await coding.answer(request, reply: .permission(allow: false))
-        precondition(coding.detail == nil && coding.harness == .hermes && codingAPI.replies == ["permission"])
+        precondition(coding.detail == nil && coding.harness == .deepseek && codingAPI.replies == ["permission"])
         precondition(coding.requestsByRun[codingRun]?.first?.status == "applied")
         try codingAPI.emit(codingRun, type: "run.completed", data: ["responseId": .string("native-session")])
         await coding.openConversation(id: codingId!)
@@ -56,10 +163,10 @@ import Foundation
         let mediaAPI = AIAPIClient()
         let mediaState = AIChatState(apiClient: mediaAPI, authSession: CognitoAuthSession(), configurationErrorMessage: nil,
             reconciliationInterval: .milliseconds(20))
-        await mediaState.loadList(); mediaState.choose(mediaAPI.model)
+        await mediaState.loadList(); mediaState.choose(mediaAPI.model); mediaState.chooseHarness(.hermes)
         let imageId = UUID().uuidString.lowercased()
-        mediaState.addComposerAttachments([AIComposerAttachment(id: imageId, kind: .image, groupId: imageId, fileName: "sample.jpg",
-            contentType: "image/jpeg", frameIndex: 1, frameCount: 1, data: Data([0xff, 0xd8, 0xff, 0xd9]))])
+        mediaState.addComposerAttachments([AIComposerAttachment(id: imageId, kind: .image, fileName: "sample.jpg",
+            contentType: "image/jpeg", data: Data([0xff, 0xd8, 0xff, 0xd9]))])
         precondition(mediaState.canSend, "A capable model must accept an image without mandatory text")
         let mediaConversation = await mediaState.send(conversationId: nil)
         precondition(mediaConversation != nil && mediaAPI.details[mediaConversation!]!.runs[0].attachments.first?.id == imageId)
@@ -138,6 +245,17 @@ import Foundation
         // authoritative run snapshot must still recover output and completion.
         await state.openConversation(id: "b")
         let stalled = api.listeners.removeValue(forKey: runB)
+        try api.emit(runB, type: "reasoning.delta", data: ["text": .string("network recovery reasoning")])
+        try api.emit(runB, type: "tool.call", data: ["id": .string("lookup"), "name": .string("search"), "arguments": .string("{}")])
+        // A later socket event arrives first; HTTP replay must fill the gap.
+        if let later = api.history[runB]?.last { stalled?.yield(later) }
+        let progressDeadline = ContinuousClock.now + .seconds(1)
+        while !state.trace(runB).reasoning.contains("network recovery reasoning") && ContinuousClock.now < progressDeadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        precondition(state.activeRun != nil && state.trace(runB).reasoning.contains("network recovery reasoning"),
+                     "Stalled streams must recover reasoning before the run completes")
+        precondition(state.trace(runB).tools.contains(where: { $0.id == "lookup" && !$0.completed }))
         try api.emit(runB, type: "text.delta", data: ["text": .string(" after network")])
         try api.emit(runB, type: "run.completed", data: ["responseId": .string("response-b")])
         let recoveryDeadline = ContinuousClock.now + .seconds(1)

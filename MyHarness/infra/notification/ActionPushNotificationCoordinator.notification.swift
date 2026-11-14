@@ -529,7 +529,7 @@ final class MyHarnessAppDelegate: NSObject, UIApplicationDelegate, UNUserNotific
         supportedInterfaceOrientationsFor window: UIWindow?
     ) -> UIInterfaceOrientationMask {
         guard UIDevice.current.userInterfaceIdiom == .phone else { return .all }
-        return TelevisionInterfaceOrientationController.shared.supportedOrientations
+        return AppInterfaceOrientationController.shared.supportedOrientations
     }
 
     func userNotificationCenter(

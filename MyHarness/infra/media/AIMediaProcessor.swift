@@ -19,11 +19,14 @@ struct AIImportedVideo: Transferable, @unchecked Sendable {
 }
 
 enum AIMediaProcessingError: LocalizedError {
-    case unreadableImage, unreadableVideo, encodingFailed, tooManyImages
+    case unreadableImage, unreadableVideo, unsupportedVideoFormat, videoConversionFailed, videoTooLarge, encodingFailed, tooManyImages
     var errorDescription: String? {
         switch self {
         case .unreadableImage: "画像を読み取れませんでした。別の画像を選んでください。"
         case .unreadableVideo: "動画を読み取れませんでした。別の動画を選んでください。"
+        case .unsupportedVideoFormat: "この動画はiPhone上でMP4に変換できません。別の動画を選んでください。"
+        case .videoConversionFailed: "動画をMP4に変換できませんでした。別の動画を選んでください。"
+        case .videoTooLarge: "動画はMP4への変換後も32 MiB以下のみ送信できます。短い動画を選んでください。"
         case .encodingFailed: "画像を送信用のJPEGへ変換できませんでした。"
         case .tooManyImages: "画像は4枚まで選択できます。"
         }
@@ -36,35 +39,58 @@ enum AIMediaProcessor {
             guard let source = UIImage(data: data) else { throw AIMediaProcessingError.unreadableImage }
             let encoded = try jpeg(source)
             let id = UUID().uuidString.lowercased()
-            return AIComposerAttachment(id: id, kind: .image, groupId: id, fileName: fileName,
-                contentType: "image/jpeg", frameIndex: 1, frameCount: 1, data: encoded)
+            return AIComposerAttachment(id: id, kind: .image, fileName: fileName,
+                contentType: "image/jpeg", data: encoded)
         }.value
     }
 
-    static func video(url: URL, fileName: String) async throws -> [AIComposerAttachment] {
+    static func video(url: URL, fileName: String) async throws -> AIComposerAttachment {
         defer { try? FileManager.default.removeItem(at: url) }
-        let asset = AVURLAsset(url: url)
-        let duration = try await asset.load(.duration)
-        let seconds = duration.seconds
-        guard seconds.isFinite, seconds > 0 else { throw AIMediaProcessingError.unreadableVideo }
-        let frameCount = min(8, max(2, Int(ceil(seconds / 3))))
-        let groupId = UUID().uuidString.lowercased()
         return try await Task.detached(priority: .userInitiated) {
-            let generator = AVAssetImageGenerator(asset: asset)
-            generator.appliesPreferredTrackTransform = true
-            generator.maximumSize = CGSize(width: 2048, height: 2048)
-            generator.requestedTimeToleranceBefore = CMTime(seconds: 0.25, preferredTimescale: 600)
-            generator.requestedTimeToleranceAfter = CMTime(seconds: 0.25, preferredTimescale: 600)
-            return try (0..<frameCount).map { index in
-                let time = CMTime(seconds: seconds * (Double(index) + 0.5) / Double(frameCount), preferredTimescale: 600)
-                let cgImage: CGImage
-                do { cgImage = try generator.copyCGImage(at: time, actualTime: nil) }
-                catch { throw AIMediaProcessingError.unreadableVideo }
-                let encoded = try jpeg(UIImage(cgImage: cgImage))
-                return AIComposerAttachment(id: UUID().uuidString.lowercased(), kind: .videoFrame, groupId: groupId,
-                    fileName: fileName, contentType: "image/jpeg", frameIndex: index + 1, frameCount: frameCount, data: encoded)
+            let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+            guard let size = attributes[.size] as? Int, size > 0 else { throw AIMediaProcessingError.unreadableVideo }
+            let originalMP4 = url.pathExtension.lowercased() == "mp4" && isMP4(url: url)
+            let outputURL = originalMP4 ? url : try await convertToMP4(url: url)
+            defer { if !originalMP4 { try? FileManager.default.removeItem(at: outputURL) } }
+            let outputAttributes = try FileManager.default.attributesOfItem(atPath: outputURL.path)
+            guard let outputSize = outputAttributes[.size] as? Int, outputSize > 0 else {
+                throw AIMediaProcessingError.unreadableVideo
             }
+            guard outputSize <= 32 * 1024 * 1024 else { throw AIMediaProcessingError.videoTooLarge }
+            let data = try Data(contentsOf: outputURL)
+            guard data.count >= 12, String(data: data[4..<8], encoding: .ascii) == "ftyp" else {
+                throw AIMediaProcessingError.unreadableVideo
+            }
+            return AIComposerAttachment(id: UUID().uuidString.lowercased(), kind: .video,
+                fileName: (fileName as NSString).deletingPathExtension + ".mp4", contentType: "video/mp4", data: data)
         }.value
+    }
+
+    private static func isMP4(url: URL) -> Bool {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return false }
+        defer { try? handle.close() }
+        guard let header = try? handle.read(upToCount: 8), header.count == 8 else { return false }
+        return String(data: header[4..<8], encoding: .ascii) == "ftyp"
+    }
+
+    private static func convertToMP4(url: URL) async throws -> URL {
+        let asset = AVURLAsset(url: url)
+        guard let tracks = try? await asset.loadTracks(withMediaType: .video), !tracks.isEmpty else {
+            throw AIMediaProcessingError.unsupportedVideoFormat
+        }
+        guard let session = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetMediumQuality),
+              session.supportedFileTypes.contains(.mp4) else {
+            throw AIMediaProcessingError.unsupportedVideoFormat
+        }
+        let target = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString.lowercased()).appendingPathExtension("mp4")
+        do {
+            try await session.export(to: target, as: .mp4)
+            return target
+        } catch {
+            try? FileManager.default.removeItem(at: target)
+            throw AIMediaProcessingError.videoConversionFailed
+        }
     }
 
     private static func jpeg(_ source: UIImage) throws -> Data {

@@ -8,6 +8,8 @@ struct AppRootView: View {
     @StateObject private var televisionPlayerController: TelevisionPlayerController
 
     @State private var router = AppRouter()
+    @State private var experimentState: ExperimentState
+    @State private var bookState: BookState
     @State private var showsHomeControl = false
     @State private var todayState: TodayState
     @State private var settingsState: SettingsState
@@ -18,9 +20,12 @@ struct AppRootView: View {
     @State private var aiCronState: AICronState
     @State private var lastForegroundRefreshAt = Date.distantPast
     @State private var pushRegistrationErrorMessage: String?
+    @State private var pendingArticleLink = PendingArticleLink()
 
     init(dependencies: AppDependencies) {
         self.dependencies = dependencies
+        _experimentState = State(initialValue: ExperimentState(api: dependencies.actionInbox.apiClient, auth: dependencies.actionInbox.authSession, configurationError: dependencies.actionInbox.configurationErrorMessage))
+        _bookState = State(initialValue: BookState(api: dependencies.actionInbox.apiClient, auth: dependencies.actionInbox.authSession, configurationError: dependencies.actionInbox.configurationErrorMessage))
         let televisionAPIClient = KonomiTVAPIClient.automatic(
             localServerURL: KonomiTVConfiguration.serverURL,
             expectedGatewayBaseURL: KonomiTVConfiguration.expectedGatewayBaseURL,
@@ -92,37 +97,24 @@ struct AppRootView: View {
             }
             .tag(AppTab.today)
 
-            NavigationStack(
-                path: Binding(
-                    get: { router.nextActionsPath },
-                    set: { router.nextActionsPath = $0 }
-                )
-            ) {
-                NextActionsView(
-                    actionInboxState: actionInboxState,
-                    productOpsState: productOpsState
-                )
+            NavigationStack(path: Binding(
+                get: { router.booksPath },
+                set: { router.booksPath = $0 }
+            )) {
+                BookShelfView(state: bookState, authState: actionInboxState,
+                              articleCandidateCount: blogPostState.importCandidates.count)
                     .navigationDestination(for: AppRoute.self, destination: routeContent)
             }
-            .tabItem {
-                Label("次にやる", systemImage: "sparkles")
-            }
-            .tag(AppTab.nextActions)
+            .tabItem { Label("本", systemImage: "books.vertical") }
+            .tag(AppTab.books)
 
-            NavigationStack(
-                path: Binding(
-                    get: { router.articlesPath },
-                    set: { router.articlesPath = $0 }
-                )
-            ) {
-                ArticleListView(state: blogPostState)
-                    .navigationDestination(for: AppRoute.self, destination: routeContent)
+            NavigationStack {
+                ThemeListView(state: experimentState)
             }
-            .tabItem {
-                Label("記事", systemImage: "doc.richtext")
-            }
-            .badge(blogPostState.importCandidates.count)
-            .tag(AppTab.articles)
+            .environment(\.locale, Locale(identifier: "ja_JP"))
+            .environment(\.timeZone, TimeZone(secondsFromGMT: 9 * 3600)!)
+            .tabItem { Label("テーマ", systemImage: "flask") }
+            .tag(AppTab.themes)
 
             NavigationStack {
                 AIConversationListView(state: aiChatState, cronState: aiCronState)
@@ -152,8 +144,17 @@ struct AppRootView: View {
                 }
             }
         }
+        .environment(experimentState)
         .environment(router)
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("cognitoDidSignOut"))) { _ in
+            experimentState.clearSession()
+            bookState.clearSession()
+        }
         .onOpenURL { url in
+            handleDeepLink(url)
+        }
+        .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
+            guard let url = activity.webpageURL else { return }
             handleDeepLink(url)
         }
         .onReceive(NotificationCenter.default.publisher(for: .actionInboxDeepLink)) { notification in
@@ -201,7 +202,7 @@ struct AppRootView: View {
             blogPostState.refreshImportCandidates()
             Task {
                 await productOpsState.loadRecommendationsIfPossible()
-                if router.selectedTab == .articles {
+                if router.selectedTab == .books {
                     await blogPostState.loadIfPossible()
                 }
                 if router.selectedTab == .ai {
@@ -210,6 +211,12 @@ struct AppRootView: View {
             }
         }
         .onChange(of: actionInboxState.isSignedIn) { _, isSignedIn in
+            if isSignedIn, let articleID = pendingArticleLink.take() {
+                router.selectedTab = .books
+                router.booksPath = [.articles, .article(id: articleID)]
+                ActionPushNotificationCoordinator.shared.clearPendingDeepLink()
+                return
+            }
             guard isSignedIn,
                   let pendingURL = ActionPushNotificationCoordinator.shared.pendingDeepLinkURL else {
                 return
@@ -249,6 +256,8 @@ struct AppRootView: View {
     }
 
     private func handleDeepLink(_ url: URL) {
+        // The newest link replaces any article waiting for authentication.
+        pendingArticleLink.receive(url, isSignedIn: actionInboxState.isSignedIn)
         if url.scheme == "myharness", url.host == "home-control" {
             showsHomeControl = true
             return
@@ -262,6 +271,14 @@ struct AppRootView: View {
     @ViewBuilder
     private func routeContent(_ route: AppRoute) -> some View {
         switch route {
+        case .legacyActions:
+            NextActionsView(actionInboxState: actionInboxState, productOpsState: productOpsState)
+                .safeAreaInset(edge: .top) {
+                    HStack {
+                        Button("今日へ戻る", systemImage: "chevron.left") { router.todayPath = [] }
+                        Spacer()
+                    }.padding().background(.bar)
+                }
         case .oneShotTasks:
             OneShotTasksView(state: todayState)
         case .actionSuggestionDetail(let id):
@@ -282,8 +299,20 @@ struct AppRootView: View {
             ActionHistoryView(state: actionInboxState, mode: .history)
         case .completedActions:
             ActionHistoryView(state: actionInboxState, mode: .completed)
+        case .cameraAtlas:
+            CameraAtlasView(page: "", title: "画角集") { slug, title in
+                router.push(.cameraAtlasShot(slug: slug, title: title))
+            }
+        case .cameraAtlasShot(let slug, let title):
+            CameraAtlasView(page: slug, title: title) { next, name in
+                router.push(.cameraAtlasShot(slug: next, title: name))
+            }
+        case .uiPalette:
+            UIPaletteView()
+        case .articles:
+            ArticleListView(state: blogPostState)
         case .article(let id):
-            ArticleDetailView(id: id, state: blogPostState)
+            ArticleDetailView(id: id, state: blogPostState, authenticationRevision: actionInboxState.authenticationRevision)
         case .aiConversation(let id):
             AIConversationDetailView(id: id, state: aiChatState, cronState: aiCronState)
         }

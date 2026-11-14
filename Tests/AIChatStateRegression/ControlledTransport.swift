@@ -9,12 +9,30 @@ import Foundation
 @MainActor final class AIAPIClient {
     enum APIError: Error { case response(Int, String) }
     struct Submission { let id: String; let modelId: String; let inputText: String; let settings: AISettings; let delivery: AIDelivery; let attachmentIds: [String] }
-    let model = AIModel(id: "regression-model", hostId: "host", hostName: "host", model: "test", name: "test", online: true,
+    let model = AIModel(harnesses: [.hermes, .deepseek, .opencode], id: "regression-model", hostId: "host", hostName: "host", model: "test", name: "test", online: true,
         contextLengths: [65536], maxOutputTokens: 32768, reasoningEfforts: ["low"], reasoningBudgets: ["low": 512],
-        initialSettings: AISettings(contextLength: 65536, maxOutputTokens: 1024, reasoningEffort: "low"), inputModalities: [.text, .image, .video])
+        initialSettings: AISettings(contextLength: 65536, maxOutputTokens: 1024, reasoningEffort: "low"), inputModalities: [.text, .image, .video],
+        features: AIModelFeatures(toolCalling: true, reasoning: true))
     var sharingValue = AISharing(enabled: false, modelId: "", contextLength: 65536, maxConcurrentRuns: 2, revision: 1)
-    func inferenceHosts() async throws -> [AIInferenceHost] { [] }
-    func saveInferencePolicy(hostId: String, policy: AIInferencePolicy) async throws -> AIInferencePolicy { policy }
+    var inferenceHostValues: [AIInferenceHost] = []
+    lazy var catalog = [model]
+    func inferenceHosts() async throws -> [AIInferenceHost] { inferenceHostValues }
+    func saveInferencePolicy(hostId: String, policy: AIInferencePolicy) async throws -> AIInferencePolicy {
+        var saved = policy
+        saved.revision += 1
+        guard let index = inferenceHostValues.firstIndex(where: { $0.hostId == hostId }) else { throw APIError.response(404, "Host missing") }
+        inferenceHostValues[index].desiredPolicy = saved
+        catalog = catalog.map { item in
+            guard item.hostId == hostId, let configured = saved.models.first(where: { $0.model == item.model }) else { return item }
+            if sharingValue.modelId == item.id { sharingValue.contextLength = configured.chatContextLength }
+            return AIModel(harnesses: [.hermes, .deepseek, .opencode], id: item.id, hostId: item.hostId, hostName: item.hostName, model: item.model, name: item.name,
+                online: item.online, contextLengths: item.contextLengths, maxOutputTokens: item.maxOutputTokens,
+                reasoningEfforts: item.reasoningEfforts, reasoningBudgets: item.reasoningBudgets,
+                initialSettings: AISettings(contextLength: configured.chatContextLength, maxOutputTokens: item.initialSettings.maxOutputTokens,
+                    reasoningEffort: item.initialSettings.reasoningEffort), inputModalities: item.inputModalities, features: item.features)
+        }
+        return saved
+    }
     func sharing() async throws -> AISharing { sharingValue }
     func saveSharing(_ value: AISharing) async throws -> AISharing { sharingValue = value; sharingValue.revision += 1; return sharingValue }
     var details: [String: AIConversationDetail] = [:]
@@ -42,17 +60,45 @@ import Foundation
             }
         }
     }
-    func models() async throws -> [AIModel] { hideModel ? [] : [model] }
+    var powerHostValues: [AIPowerHost] = []
+    var powerProbeHostIds: [String] = []
+    var failCatalog = false
+    var failPower = false
+    func powerHosts() async throws -> [AIPowerHost] {
+        if failPower { throw APIError.response(503, "Power unavailable") }
+        return powerHostValues
+    }
+    func probePower(hostId: String, id: String) async throws -> AIPowerProbe {
+        powerProbeHostIds.append(hostId)
+        return AIPowerProbe(id: id, requestedAt: "test")
+    }
+    func power(hostId: String, id: String, action: String) async throws -> AIPowerOperation { throw APIError.response(404, "Not configured") }
+    func cancelPower(hostId: String, id: String) async throws -> AIPowerOperation { throw APIError.response(404, "Not configured") }
+    func models() async throws -> [AIModel] {
+        if failCatalog { throw APIError.response(503, "Catalog unavailable") }
+        return hideModel ? [] : catalog
+    }
     func conversations() async throws -> [AIConversation] {
         details.values.map { AIConversation(id: $0.id, title: $0.title, context: $0.context, createdAt: $0.createdAt, updatedAt: $0.updatedAt) }
+    }
+    func temporaryReply(modelId: String, settings: AISettings, turns: [AITemporaryTurn], inputText: String) async throws -> AITemporaryTurn {
+        AITemporaryTurn(id: UUID().uuidString.lowercased(), model: model.model, inputText: inputText,
+                        outputText: "回答 " + String(turns.count + 1))
+    }
+    func saveTemporaryChat(id: String, turns: [AITemporaryTurn]) async throws -> AIConversationDetail {
+        let saved = AIConversationDetail(id: id, title: turns[0].inputText, context: .hermes,
+                                         createdAt: "test", updatedAt: "test", savedTurns: turns, runs: [])
+        details[id] = saved
+        return saved
     }
     func create(id: String, title: String, context: AIContextInput) async throws -> AIConversation {
         let value: AIContext
         switch context {
         case .hermes: value = .hermes
+        case .deepseek: value = .deepseek
         case .opencode(let repo, let branch): value = .opencode(AICodingContext(repositoryId: repo, repository: "test/repo", hostId: "host", baseBranch: branch, workBranch: "agent/" + id))
         }
-        details[id] = AIConversationDetail(id: id, title: title, context: value, createdAt: "test", updatedAt: "test", runs: [])
+        details[id] = AIConversationDetail(id: id, title: title, context: value, createdAt: "test", updatedAt: "test", savedTurns: [], runs: [])
         return AIConversation(id: id, title: title, context: value, createdAt: "test", updatedAt: "test")
     }
     func conversation(_ id: String) async throws -> AIConversationDetail {
@@ -70,9 +116,8 @@ import Foundation
         return run
     }
     func upload(conversation: String, attachment: AIComposerAttachment) async throws -> AIAttachment {
-        let value = AIAttachment(id: attachment.id, conversationId: conversation, kind: attachment.kind, groupId: attachment.groupId,
-            fileName: attachment.fileName, contentType: attachment.contentType, byteSize: attachment.data.count,
-            frameIndex: attachment.frameIndex, frameCount: attachment.frameCount, createdAt: "test")
+        let value = AIAttachment(id: attachment.id, conversationId: conversation, kind: attachment.kind,
+            fileName: attachment.fileName, contentType: attachment.contentType, byteSize: attachment.data.count, createdAt: "test")
         uploaded[attachment.id] = value
         attachmentValues[attachment.id] = attachment.data
         return value

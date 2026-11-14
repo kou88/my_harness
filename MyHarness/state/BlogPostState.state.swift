@@ -20,6 +20,7 @@ final class BlogPostState {
 
     var listState: LoadState<[BlogPost]> = .idle
     var detailState: LoadState<BlogPost> = .idle
+    private var requestedDetailID: String?
     var importHostsState: LoadState<[XArticleImportHost]> = .idle
     var importRequestState: ImportRequestState = .idle
     var importCandidates: [SharedXImportCandidate] = []
@@ -48,6 +49,17 @@ final class BlogPostState {
 
     var isSignedIn: Bool {
         authSession?.isSignedIn == true
+    }
+
+    func loadArticleImage(postID: String, imageID: String) async throws -> Data {
+        guard let apiClient, isSignedIn else { throw ActionInboxAPIClient.ClientError.invalidResponse }
+        return try await apiClient.fetchBlogPostImage(postID: postID, imageID: imageID)
+    }
+
+    func addArticleImage(post: BlogPost, jpeg: Data, alt: String) async throws {
+        guard let apiClient, isSignedIn else { throw ActionInboxAPIClient.ClientError.invalidResponse }
+        let updated = try await apiClient.appendBlogPostImage(post: post, jpeg: jpeg, alt: alt)
+        detailState = .loaded(updated)
     }
 
     var posts: [BlogPost] {
@@ -109,6 +121,7 @@ final class BlogPostState {
     }
 
     func loadDetail(id: String) async {
+        requestedDetailID = id
         guard let apiClient else {
             detailState = .failed(configurationErrorMessage ?? "API設定を読み込めません。")
             return
@@ -120,10 +133,13 @@ final class BlogPostState {
 
         detailState = .loading
         do {
-            detailState = .loaded(try await apiClient.fetchBlogPost(id: id))
+            let post = try await apiClient.fetchBlogPost(id: id)
+            guard requestedDetailID == id, !Task.isCancelled else { return }
+            detailState = .loaded(post)
         } catch is CancellationError {
             return
         } catch {
+            guard requestedDetailID == id, !Task.isCancelled else { return }
             detailState = .failed("記事の読み込みに失敗しました: \(error.localizedDescription)")
         }
     }

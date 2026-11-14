@@ -15,7 +15,13 @@ sources = %w[
   MyHarness/domain/ai/AIMarkdownContent.swift
   MyHarness/domain/ai/AICodeSyntax.swift
   MyHarness/state/AIChatState.state.swift
+  MyHarness/domain/ai/AIInferenceModels.swift
+  MyHarness/domain/ai/AICronModels.swift
+  MyHarness/state/AICronState.state.swift
+  MyHarness/view/AICron.view.swift
+  MyHarness/view/AIInference.view.swift
   MyHarness/view/AIConversationList.view.swift
+  MyHarness/view/AITemporaryChat.view.swift
   MyHarness/view/AIChatScreen.view.swift
   MyHarness/view/AIHarnessControls.view.swift
   MyHarness/view/AIChatControls.view.swift

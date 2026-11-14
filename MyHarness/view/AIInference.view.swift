@@ -57,6 +57,81 @@ struct AIInferenceView: View {
     }
 }
 
+struct AIChatContextView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Bindable var state: AIChatState
+    let model: AIModel
+    @State private var loading = true
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if loading { ProgressView("コンテキスト設定を取得中") }
+                else if let host = state.inferenceHosts.first(where: { $0.hostId == model.hostId }),
+                        let cap = host.state.capabilities.first(where: { $0.model == model.model }) {
+                    AIChatContextEditor(state: state, model: model, host: host, cap: cap, draft: host.desiredPolicy)
+                } else {
+                    VStack(spacing: 16) {
+                        Text(state.inferenceError.isEmpty ? "このPCのコンテキスト設定を取得できません。" : state.inferenceError)
+                        Button("再読み込み") { Task { await reload() } }
+                    }.padding()
+                }
+            }
+            .navigationTitle("コンテキスト").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("閉じる") { dismiss() } } }
+            .task { await reload() }
+        }
+    }
+
+    private func reload() async {
+        loading = true
+        await state.refreshInference()
+        loading = false
+    }
+}
+
+private struct AIChatContextEditor: View {
+    @Environment(\.dismiss) private var dismiss
+    @Bindable var state: AIChatState
+    let model: AIModel
+    let host: AIInferenceHost
+    let cap: AIInferenceCapability
+    @State var draft: AIInferencePolicy
+    @State private var saving = false
+    @State private var failure = ""
+
+    var body: some View {
+        Form {
+            Section { Text(model.name); Text(host.hostName).foregroundStyle(.secondary) }
+            Section {
+                ForEach($draft.models) { $policy in
+                    if policy.model == model.model {
+                        Picker("チャットのコンテキスト", selection: $policy.chatContextLength) {
+                            ForEach(cap.contextLengths, id: \.self) { Text("\($0 / 1024)K").tag($0) }
+                        }.pickerStyle(.inline).accessibilityIdentifier("AI.context.length")
+                    }
+                }
+            } footer: {
+                Text("共有チャットと新規会話に適用します。実行中の応答はそのまま続き、保存後の送信から切り替わります。")
+            }
+            if !failure.isEmpty { Section { Text(failure).foregroundStyle(.red) } }
+        }
+        .disabled(saving)
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                Button("保存") {
+                    saving = true
+                    Task {
+                        let saved = await state.saveInference(hostId: host.hostId, policy: draft)
+                        saving = false
+                        if saved { dismiss() } else { failure = state.inferenceError }
+                    }
+                }.disabled(saving || draft == host.desiredPolicy).accessibilityIdentifier("AI.context.save")
+            }
+        }
+    }
+}
+
 private struct AIInferencePolicyView: View {
     @Environment(\.dismiss) private var dismiss
     @Bindable var state: AIChatState
@@ -109,5 +184,108 @@ private struct AIInferencePolicyView: View {
         Picker(title, selection: value) {
             ForEach(cap.contextLengths, id: \.self) { Text("\($0 / 1024)K").tag($0) }
         }
+    }
+}
+
+struct AIPowerView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
+    @Bindable var state: AIChatState
+    let selectedHostId: String
+    @State private var confirmation = false
+    @State private var scrolledToHost = false
+    @State private var selectedHost = ""
+    @State private var selectedName = ""
+    @State private var selectedAction = ""
+    @State private var showInference = false
+    var body: some View {
+        NavigationStack {
+            ScrollViewReader { scroll in
+                List {
+                    if !state.powerError.isEmpty { Section { Text(state.powerError).foregroundStyle(.red) } }
+                    if state.powerHosts.isEmpty {
+                        Section { Text(state.powerLoaded ? "電源管理に登録されたPCがありません。" : "電源管理に対応したPCを確認しています。").foregroundStyle(.secondary) }
+                    }
+                    ForEach(state.powerHosts) { host in
+                        Section(host.hostName) {
+                            LabeledContent("PC", value: host.stateText)
+                            LabeledContent("AI", value: host.state == "waiting" || host.state == "stopping" ? "新規受付を停止中" : host.aiReady ? "利用可能" : host.online ? "準備中・要確認" : "未接続")
+                            LabeledContent("自宅の中継機", value: host.relayOnline ? "確認済み" : host.checking ? "確認中" : "未確認")
+                            if host.online { LabeledContent("実行中 / 待機中", value: "\(host.activeRuns) / \(host.queuedRuns)") }
+                            if !host.capturedAt.isEmpty { LabeledContent("最終確認", value: displayDate(host.capturedAt)) }
+                            if !host.error.isEmpty { Text(host.error).foregroundStyle(.red) }
+                            ForEach(host.blockers, id: \.self) { Text($0).font(.caption).foregroundStyle(.secondary) }
+                            Button("現在の状態を確認", systemImage: "arrow.clockwise") { Task { await state.checkPower() } }
+                                .disabled(host.checking || state.powerChecking || state.powerSubmitting)
+                                .accessibilityIdentifier("AI.power.check")
+                            if !host.hasActiveOperation {
+                                if host.checking {
+                                    HStack { ProgressView(); Text("PCと中継機を確認しています。最大1分ほどかかります。") }
+                                        .foregroundStyle(.secondary)
+                                } else if host.state == "stopped" || host.state == "unreachable" {
+                                    Button("起動", systemImage: "power") { request(host, action: "wake") }
+                                        .disabled(!host.relayOnline || state.powerSubmitting).accessibilityIdentifier("AI.power.wake")
+                                } else if host.online {
+                                    Button("シャットダウン", systemImage: "power", role: .destructive) { request(host, action: "shutdown") }
+                                        .disabled(state.powerSubmitting || !host.relayOnline || host.activeRuns + host.queuedRuns > 0 || !host.blockers.isEmpty)
+                                        .accessibilityIdentifier("AI.power.shutdown")
+                                    Button("作業完了後に停止", systemImage: "clock") { request(host, action: "shutdown_when_idle") }
+                                        .disabled(state.powerSubmitting || !host.relayOnline).accessibilityIdentifier("AI.power.wait")
+                                }
+                            }
+                            ForEach(host.operations.filter(\.isActive)) { op in
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text(op.title + " · " + op.statusText)
+                                    Text("確認期限 \(displayDate(op.expiresAt))").font(.caption).foregroundStyle(.secondary)
+                                    if op.canCancel { Button("停止予約を取り消す") { Task { await state.cancelPower(op) } }
+                                        .disabled(state.powerSubmitting).accessibilityIdentifier("AI.power.cancel") }
+                                }
+                            }
+                            Button("GPUの実行枠・コンテキスト") { showInference = true }
+                        }.id(host.id)
+                        if !host.operations.isEmpty {
+                            Section("操作履歴") {
+                                ForEach(host.operations.filter { !$0.isActive }.prefix(5)) { op in
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(op.title + " · " + op.statusText)
+                                        Text(displayDate(op.updatedAt)).font(.caption).foregroundStyle(.secondary)
+                                        if !op.error.isEmpty { Text(op.error).font(.caption).foregroundStyle(.red) }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                .onChange(of: state.powerHosts) { _, _ in if !scrolledToHost && state.powerHosts.contains(where: { $0.id == selectedHostId }) { scroll.scrollTo(selectedHostId, anchor: .top); scrolledToHost = true } }
+                .refreshable { await state.checkPower() }
+            }
+            .navigationTitle("PC管理").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("閉じる") { dismiss() } } }
+            .confirmationDialog(selectedName + (selectedAction == "wake" ? "を起動しますか？" : "を停止しますか？"), isPresented: $confirmation, titleVisibility: .visible) {
+                Button(selectedAction == "wake" ? "起動" : selectedAction == "shutdown" ? "シャットダウン" : "作業完了後に停止", role: selectedAction == "wake" ? nil : .destructive) {
+                    Task { await state.operatePower(hostId: selectedHost, action: selectedAction) }
+                }
+                Button("キャンセル", role: .cancel) {}
+            } message: {
+                Text(selectedAction == "wake" ? "起動後、AIサービスの準備完了まで確認します。" : "新しい作業の受付を止め、受付済みの作業と結果の保存が終わってから通常シャットダウンします。停止予約は60分で期限切れになります。")
+            }
+            .sheet(isPresented: $showInference) { AIInferenceView(state: state) }
+            .task {
+                await state.checkPower()
+                while !Task.isCancelled {
+                    if scenePhase == .active && state.powerHosts.contains(where: { $0.checking || $0.hasActiveOperation }) { await state.refreshPower() }
+                    do { try await Task.sleep(for: .seconds(5)) } catch { return }
+                }
+            }
+            .onChange(of: scenePhase) { _, phase in if phase == .active { Task { await state.checkPower() } } }
+        }
+    }
+    private func request(_ host: AIPowerHost, action: String) {
+        selectedHost = host.id; selectedName = host.hostName; selectedAction = action; confirmation = true
+    }
+    private func displayDate(_ value: String) -> String {
+        let parser = ISO8601DateFormatter(); parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        guard let date = parser.date(from: value) else { return value }
+        return date.formatted(date: .abbreviated, time: .standard)
     }
 }

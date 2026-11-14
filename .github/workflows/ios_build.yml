@@ -51,6 +51,9 @@ jobs:
       - name: Verify widget session refresh
         run: swift test --jobs 2 --filter HomeControlSessionTests
 
+      - name: 仮説検証API契約を検証
+        run: swift test --jobs 2 --filter Experiment
+
       - name: Build for simulator
         run: |
           set -euo pipefail

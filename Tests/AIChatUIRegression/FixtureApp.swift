@@ -2,11 +2,19 @@ import SwiftUI
 import UIKit
 
 // Isolated test host: real chat views/state, in-memory transport, no production login or GPU.
-enum AppTab { case today, nextActions, articles, ai, television }
-enum AppRoute { case aiConversation(id: String) }
+enum AppTab { case today, books, nextActions, themes, articles, ai, television }
+enum AppRoute { case aiConversation(id: String); case articles }
 @MainActor @Observable final class AppRouter {
+    func push(_ route: AppRoute) { }
+    var pcManagementHostId = ""
     var aiPath: [AppRoute] = []
     var selectedTab = AppTab.ai
+}
+
+@MainActor final class ActionPushNotificationCoordinator {
+    static let shared = ActionPushNotificationCoordinator()
+    func setVisibleAIConversation(id: String) {}
+    func clearVisibleAIConversation(id: String) {}
 }
 
 @main struct ChatUIRegressionApp: App {
@@ -26,6 +34,7 @@ enum AppRoute { case aiConversation(id: String) }
 
     @State private var router = AppRouter()
     @State private var state: AIChatState
+    private let cronState: AICronState
     private let api: AIAPIClient
     private let conversationId: String
     private let runId: String
@@ -51,13 +60,13 @@ enum AppRoute { case aiConversation(id: String) }
                 status: index == 11 ? "running" : "completed", cancelRequested: false, lastSeq: 0,
                 error: "", responseId: "", previousResponseId: "", createdAt: "test", updatedAt: "test")
         }
-        api.details[id] = AIConversationDetail(id: id, title: "生成中の長文", context: .hermes, createdAt: "test", updatedAt: "test", runs: runs)
+        api.details[id] = AIConversationDetail(id: id, title: "生成中の長文", context: .hermes, createdAt: "test", updatedAt: "test", savedTurns: [], runs: runs)
         let other = UUID().uuidString.lowercased()
-        api.details[other] = AIConversationDetail(id: other, title: "別の会話", context: .hermes, createdAt: "test", updatedAt: "test", runs: [])
+        api.details[other] = AIConversationDetail(id: other, title: "別の会話", context: .hermes, createdAt: "test", updatedAt: "test", savedTurns: [], runs: [])
         let coding = UUID().uuidString.lowercased(), codingRun = UUID().uuidString.lowercased()
         let repo = AIRepository(id: UUID().uuidString.lowercased(), hostId: "host", hostName: "PC-02", online: true, repository: "kou88/my_api", branches: ["prod", "develop"], defaultBranch: "prod")
         api.repositoryValues = [repo]
-        api.details[coding] = AIConversationDetail(id: coding, title: "APIのテストを追加", context: .opencode(AICodingContext(repositoryId: repo.id, repository: repo.repository, hostId: "host", baseBranch: "develop", workBranch: "agent/" + coding)), createdAt: "test", updatedAt: "test", runs: [
+        api.details[coding] = AIConversationDetail(id: coding, title: "APIのテストを追加", context: .opencode(AICodingContext(repositoryId: repo.id, repository: repo.repository, hostId: "host", baseBranch: "develop", workBranch: "agent/" + coding)), createdAt: "test", updatedAt: "test", savedTurns: [], runs: [
             AIRun(id: codingRun, conversationId: coding, hostId: "host", modelId: api.model.id, model: "表示確認モデル", settings: api.model.initialSettings, delivery: .draftPR, inputText: "入力の検証を追加してDraft PRを作って", attachments: [], outputText: "入力の検証とテストを追加しました。確認が必要な操作があります。", status: "running", cancelRequested: false, lastSeq: 0, error: "", responseId: "", previousResponseId: "", createdAt: "test", updatedAt: "test")])
         api.requestValues[codingRun] = [AIRequest(id: UUID().uuidString.lowercased(), runId: codingRun, kind: "permission", payload: ["permission": .string("bash"), "patterns": .array([.string("rm -rf temporary-build")])], status: "pending", createdAt: "test", updatedAt: "test"),
             AIRequest(id: UUID().uuidString.lowercased(), runId: codingRun, kind: "question", payload: ["questions": .array([.object(["header": .string("対象"), "question": .string("どちらの入力を検証しますか？"), "options": .array([.object(["label": .string("名前"), "description": .string("空の名前を拒否する")]), .object(["label": .string("メール"), "description": .string("メール形式を検証する")])]), "multiple": .bool(false), "custom": .bool(true)])])], status: "pending", createdAt: "test", updatedAt: "test")]
@@ -73,15 +82,15 @@ enum AppRoute { case aiConversation(id: String) }
                 .foregroundColor: UIColor.white, .paragraphStyle: paragraph]
             NSString(string: "742").draw(in: CGRect(x: 0, y: 155, width: 960, height: 220), withAttributes: attributes)
         }.jpegData(compressionQuality: 0.82)!
-        let fixtureAttachment = AIAttachment(id: imageId, conversationId: media, kind: .image, groupId: imageId,
-            fileName: "表示確認.jpg", contentType: "image/jpeg", byteSize: imageData.count, frameIndex: 1, frameCount: 1, createdAt: "test")
+        let fixtureAttachment = AIAttachment(id: imageId, conversationId: media, kind: .image,
+            fileName: "表示確認.jpg", contentType: "image/jpeg", byteSize: imageData.count, createdAt: "test")
         api.attachmentValues[imageId] = imageData
-        api.details[media] = AIConversationDetail(id: media, title: "画像を確認", context: .hermes, createdAt: "test", updatedAt: "test", runs: [
+        api.details[media] = AIConversationDetail(id: media, title: "画像を確認", context: .hermes, createdAt: "test", updatedAt: "test", savedTurns: [], runs: [
             AIRun(id: mediaRun, conversationId: media, hostId: "host", modelId: api.model.id, model: "表示確認モデル", settings: api.model.initialSettings,
                 delivery: .changes, inputText: "画像中央の数字を教えて", attachments: [fixtureAttachment], outputText: "画像中央の数字は **742** です。",
                 status: "completed", cancelRequested: false, lastSeq: 0, error: "", responseId: "", previousResponseId: "", createdAt: "test", updatedAt: "test")])
         let rendering = UUID().uuidString.lowercased(), renderingRun = UUID().uuidString.lowercased()
-        api.details[rendering] = AIConversationDetail(id: rendering, title: "コードとMermaid", context: .hermes, createdAt: "test", updatedAt: "test", runs: [
+        api.details[rendering] = AIConversationDetail(id: rendering, title: "コードとMermaid", context: .hermes, createdAt: "test", updatedAt: "test", savedTurns: [], runs: [
             AIRun(id: renderingRun, conversationId: rendering, hostId: "host", modelId: api.model.id, model: "表示確認モデル", settings: api.model.initialSettings, delivery: .changes,
                 inputText: "コードと図を表示して", attachments: [], outputText: """
                 Swiftコードは言語別に色分けします。
@@ -99,7 +108,7 @@ enum AppRoute { case aiConversation(id: String) }
                 ```
                 """, status: "completed", cancelRequested: false, lastSeq: 0, error: "", responseId: "", previousResponseId: "", createdAt: "test", updatedAt: "test")])
         let table = UUID().uuidString.lowercased(), tableRun = UUID().uuidString.lowercased()
-        api.details[table] = AIConversationDetail(id: table, title: "Markdown表", context: .hermes, createdAt: "test", updatedAt: "test", runs: [
+        api.details[table] = AIConversationDetail(id: table, title: "Markdown表", context: .hermes, createdAt: "test", updatedAt: "test", savedTurns: [], runs: [
             AIRun(id: tableRun, conversationId: table, hostId: "host", modelId: api.model.id, model: "表示確認モデル", settings: api.model.initialSettings, delivery: .changes,
                 inputText: "候補を表で比較して", attachments: [], outputText: """
                 ## モデル比較
@@ -118,6 +127,7 @@ enum AppRoute { case aiConversation(id: String) }
         renderingId = rendering
         tableId = table
         mediaId = media
+        cronState = AICronState(apiClient: nil, authSession: nil, configurationErrorMessage: "検証対象外です")
         self.api = api; conversationId = id; runId = activeId
         otherId = other
         _state = State(initialValue: AIChatState(apiClient: api, authSession: CognitoAuthSession(), configurationErrorMessage: nil,
@@ -140,7 +150,7 @@ enum AppRoute { case aiConversation(id: String) }
             }.padding(8)
             // Match AppRoot: keep the tab's NavigationStack while replacing its screen.
             NavigationStack {
-                if shown { AIConversationListView(state: state) }
+                if shown { AIConversationListView(state: state, cronState: cronState) }
                 else { Text("別画面").frame(maxWidth: .infinity, maxHeight: .infinity) }
             }.environment(router)
         }
@@ -153,6 +163,10 @@ enum AppRoute { case aiConversation(id: String) }
                 try? await Task.sleep(for: .milliseconds(100))
             }
             await state.loadList(); state.choose(api.model)
+            if ProcessInfo.processInfo.environment["TEMPORARY_CHAT_UI"] == "1" {
+                result = "一時チャット検証"
+                return
+            }
             if ProcessInfo.processInfo.environment["MULTIMODAL_SCREENSHOT"] == "1" {
                 router.aiPath = [.aiConversation(id: mediaId)]
                 result = "PASS: 画像履歴表示"
@@ -207,4 +221,12 @@ enum AppRoute { case aiConversation(id: String) }
         print("CHAT_UI_FRAME \(label) visible=\(visible) latest=\(latestVisible) texts=\(texts.count) active=\(UIApplication.shared.applicationState.rawValue) loaded=\(state.detail?.runs.count ?? -1) \(dimensions)")
         return visible && latestVisible
     }
+}
+
+
+// Cron is outside this fixture. Keep its transport isolated from production.
+extension AIAPIClient {
+    func cronSnapshots() async throws -> [AICronHostSnapshot] { [] }
+    func queueCronOperation(_ submission: AICronOperationSubmission) async throws -> AICronOperation { throw APIError.response(503, "検証対象外です") }
+    func cronOperation(_ id: String) async throws -> AICronOperation { throw APIError.response(503, "検証対象外です") }
 }

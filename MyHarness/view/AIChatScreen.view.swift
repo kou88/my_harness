@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-// Open WebUI's narrow layout: one canvas, an overlay drawer and a two-row composer.
+// One canvas, an overlay drawer and a two-row composer at any window size.
 enum AIChatStyle {
     // Resolve against the app's appearance, including changes while a chat is open.
     static let canvas = adaptive(light: 1, dark: 0.09)
@@ -31,12 +31,14 @@ struct AIChatScreen: View {
     @Bindable var state: AIChatState
     @Bindable var cronState: AICronState
     let conversationId: String?
+    @State private var showTemporaryChat = false
     @State private var showSidebar = false
     @State private var showModels = false
     @State private var showSettings = false
     @State private var showSharing = false
     @State private var showCron = false
     @State private var showInference = false
+    @State private var showPower = false
     @State private var deleteTarget: String?
     @State private var showRename = false
     @State private var title = ""
@@ -60,7 +62,7 @@ struct AIChatScreen: View {
                     if !state.isSignedIn { signIn }
                     else if isNew { welcome }
                     else if let detail = state.detail, detail.id == conversationId {
-                        if detail.runs.isEmpty {
+                        if detail.runs.isEmpty && detail.savedTurns.isEmpty {
                             VStack(spacing: 12) {
                                 if state.isSending { ProgressView("送信内容を確認中") }
                                 else if state.hasPendingSubmission { Text("送信結果を確認できません。入力欄から再送してください。") }
@@ -85,6 +87,8 @@ struct AIChatScreen: View {
                         composer.padding(.horizontal, 8).padding(.top, 8).padding(.bottom, 8)
                     }
                 }
+                .frame(maxWidth: 960)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityHidden(showSidebar || showModels)
                 if showSidebar {
                     Color.black.opacity(0.48).ignoresSafeArea()
@@ -117,7 +121,8 @@ struct AIChatScreen: View {
         .background(AIChatStyle.canvas.ignoresSafeArea())
         .foregroundStyle(.primary)
         .tint(.primary)
-        .toolbar(.hidden, for: .navigationBar, .tabBar)
+        .toolbar(.hidden, for: .navigationBar)
+        .toolbar(.visible, for: .tabBar)
         .navigationBarBackButtonHidden()
         .task(id: conversationId) {
             if state.models.isEmpty || isNew { await state.loadList() }
@@ -125,11 +130,23 @@ struct AIChatScreen: View {
             if let conversationId { await state.openConversation(id: conversationId) }
             else { state.newChat() }
         }
-        .sheet(isPresented: $showSettings) {
-            if let model = state.selectedModel, let settings = state.settings {
-                AISettingsView(model: model, draft: settings, sharedMode: state.sharedMode) { state.saveSettings($0) }
+        .sheet(isPresented: $showTemporaryChat) {
+            AITemporaryChatView(state: state) { id in
+                showTemporaryChat = false
+                router.aiPath = [.aiConversation(id: id)]
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("cognitoDidSignOut"))) { _ in
+            showTemporaryChat = false
+        }
+        .sheet(isPresented: $showSettings) {
+            if let model = state.selectedModel, let settings = state.settings {
+                AISettingsView(state: state, model: model, draft: settings, sharedMode: state.sharedMode) { state.saveSettings($0) }
+            }
+        }
+        .sheet(isPresented: $showPower, onDismiss: { router.pcManagementHostId = "" }) { AIPowerView(state: state, selectedHostId: router.pcManagementHostId) }
+        .onChange(of: router.pcManagementHostId) { _, id in if !id.isEmpty { showPower = true } }
+        .onAppear { if !router.pcManagementHostId.isEmpty { showPower = true } }
         .sheet(isPresented: $showInference) { AIInferenceView(state: state) }
         .sheet(isPresented: $showSharing) {
             if let sharing = state.sharing { AISharingView(state: state, draft: sharing) }
@@ -169,12 +186,19 @@ struct AIChatScreen: View {
                     Image(systemName: "square.and.pencil").font(.system(size: 18)).frame(width: 36, height: 44)
                 }.accessibilityLabel("新しいチャット")
             } else { Spacer() }
+            if state.isSignedIn {
+                Button { showTemporaryChat = true } label: {
+                    Label("一時", systemImage: "bubble.left.and.bubble.right")
+                        .font(.subheadline).fixedSize().padding(.horizontal, 6).frame(height: 44)
+                }.accessibilityLabel("一時チャットを開く").accessibilityIdentifier("AI.temporary")
+            }
             Button { showCron = true } label: {
                 Image(systemName: "calendar.badge.clock").font(.system(size: 18)).frame(width: 40, height: 44)
             }.accessibilityLabel("定期タスク").accessibilityIdentifier("AI.cron")
             Menu {
                 Button("モデル設定", systemImage: "slider.horizontal.3") { showSettings = true }
                     .disabled(state.selectedModel == nil || state.activeRun != nil || state.hasPendingSubmission)
+                Button("PC管理", systemImage: "power") { showPower = true }
                 Button("GPUの実行枠", systemImage: "cpu") { showInference = true }
             } label: {
                 Image(systemName: "slider.horizontal.3").font(.system(size: 18)).frame(width: 44, height: 44)
@@ -195,7 +219,7 @@ struct AIChatScreen: View {
                             .font(.system(size: 24, weight: .semibold)).lineLimit(1).truncationMode(.tail)
                     }.padding(.horizontal, 16).padding(.bottom, 14)
                         .onTapGesture { if !modelLocked { showModels = true } }
-                    Text(state.harness == .hermes ? "ローカルモデルで調べる、相談する、ファイルを扱う。" : "専用の作業場所で実装し、テストしてPRを作る。")
+                    Text(state.harness != .opencode ? "ローカルモデルで調べる、相談する、ツールを使う。" : "専用の作業場所で実装し、テストしてPRを作る。")
                         .font(.system(size: 14)).foregroundStyle(AIChatStyle.muted)
                         .multilineTextAlignment(.center).lineSpacing(3).padding(.bottom, 22)
                     AIHarnessSetup(state: state).padding(.bottom, 16)
@@ -218,7 +242,9 @@ struct AIChatScreen: View {
                     Text("MyHarness · " + state.harness.name).font(.system(size: 12)).foregroundStyle(AIChatStyle.muted).padding(.top, 20)
                 }
                 .padding(.horizontal, 12).padding(.bottom, 90)
+                .frame(maxWidth: 720)
                 .frame(minHeight: geometry.size.height)
+                .frame(maxWidth: .infinity)
             }.scrollDismissesKeyboard(.interactively)
         }
     }

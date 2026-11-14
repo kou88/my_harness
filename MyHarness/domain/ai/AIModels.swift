@@ -1,10 +1,11 @@
 import Foundation
 
 enum AIHarness: String, Codable, CaseIterable, Identifiable {
-    case hermes, opencode
+    case hermes, deepseek, opencode
     var id: String { rawValue }
-    var name: String { self == .hermes ? "Hermes" : "OpenCode" }
-    var symbol: String { self == .hermes ? "sparkles" : "chevron.left.forwardslash.chevron.right" }
+    var name: String { switch self { case .hermes: "Hermes"; case .deepseek: "DeepSeek"; case .opencode: "OpenCode" } }
+    var symbol: String { switch self { case .hermes: "sparkles"; case .deepseek: "brain"; case .opencode: "chevron.left.forwardslash.chevron.right" } }
+    var summary: String { self == .opencode ? "repoの実装・PR" : "チャット・ツール" }
 }
 enum AIDelivery: String, Codable, CaseIterable, Identifiable {
     case changes, draftPR = "draft_pr"
@@ -29,13 +30,15 @@ struct AICodingContext: Codable, Hashable {
 }
 enum AIContext: Codable, Hashable {
     case hermes
+    case deepseek
     case opencode(AICodingContext)
-    var harness: AIHarness { if case .hermes = self { return .hermes }; return .opencode }
+    var harness: AIHarness { switch self { case .hermes: .hermes; case .deepseek: .deepseek; case .opencode: .opencode } }
     private enum Keys: String, CodingKey { case harness }
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: Keys.self)
         switch try container.decode(AIHarness.self, forKey: .harness) {
         case .hermes: self = .hermes
+        case .deepseek: self = .deepseek
         case .opencode: self = .opencode(try AICodingContext(from: decoder))
         }
     }
@@ -47,12 +50,14 @@ enum AIContext: Codable, Hashable {
 }
 enum AIContextInput: Encodable {
     case hermes
+    case deepseek
     case opencode(repositoryId: String, baseBranch: String)
     private enum Keys: String, CodingKey { case harness, repositoryId, baseBranch }
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: Keys.self)
         switch self {
         case .hermes: try container.encode("hermes", forKey: .harness)
+        case .deepseek: try container.encode("deepseek", forKey: .harness)
         case .opencode(let id, let branch):
             try container.encode("opencode", forKey: .harness)
             try container.encode(id, forKey: .repositoryId)
@@ -95,6 +100,24 @@ struct AISharing: Codable, Equatable {
     var maxConcurrentRuns: Int
     var revision: Int
 
+    mutating func selectModel(_ model: AIModel) {
+        modelId = model.id
+        // The catalog supplies the model's current chat policy from the server.
+        contextLength = model.initialSettings.contextLength
+        maxConcurrentRuns = 1
+    }
+
+    func validationMessage(models: [AIModel]) -> String {
+        if enabled {
+            guard let model = models.first(where: { $0.id == modelId }) else { return "モデルを選択してください。" }
+            guard model.online else { return "OS Agentに接続できません。「PC管理」でPCとAIの状態を確認してください。" }
+            guard model.contextLengths.contains(contextLength) else {
+                return "選択したモデルは\(contextLength / 1024)Kに対応していません。「GPUの実行枠」の設定を確認してください。"
+            }
+        }
+        return capacityIsValid ? "" : "コンテキストと実行枠の設定を確認してください。"
+    }
+
     var capacityIsValid: Bool {
         (1...8).contains(maxConcurrentRuns)
             && [8192, 16384, 32768, 65536, 131072, 262144].contains(contextLength)
@@ -111,7 +134,13 @@ enum AIInputModality: String, Codable, Hashable {
     case text, image, video
 }
 
+struct AIModelFeatures: Codable, Hashable {
+    let toolCalling: Bool
+    let reasoning: Bool
+}
+
 struct AIModel: Codable, Identifiable, Hashable {
+    let harnesses: [AIHarness]
     let id: String
     let hostId: String
     let hostName: String
@@ -124,6 +153,7 @@ struct AIModel: Codable, Identifiable, Hashable {
     let reasoningBudgets: [String: Int]
     let initialSettings: AISettings
     let inputModalities: [AIInputModality]
+    let features: AIModelFeatures
 
     func accepts(_ modality: AIInputModality) -> Bool { inputModalities.contains(modality) }
 
@@ -139,30 +169,24 @@ struct AIModel: Codable, Identifiable, Hashable {
 
 enum AIAttachmentKind: String, Codable, Hashable {
     case image
-    case videoFrame = "video_frame"
+    case video
 }
 
 struct AIAttachment: Codable, Identifiable, Hashable {
     let id: String
     let conversationId: String
     let kind: AIAttachmentKind
-    let groupId: String
     let fileName: String
     let contentType: String
     let byteSize: Int
-    let frameIndex: Int
-    let frameCount: Int
     let createdAt: String
 }
 
 struct AIComposerAttachment: Identifiable, Hashable {
     let id: String
     let kind: AIAttachmentKind
-    let groupId: String
     let fileName: String
     let contentType: String
-    let frameIndex: Int
-    let frameCount: Int
     let data: Data
 
     var modality: AIInputModality { kind == .image ? .image : .video }
@@ -176,12 +200,20 @@ struct AIConversation: Codable, Identifiable, Hashable {
     var updatedAt: String
 }
 
+struct AITemporaryTurn: Codable, Identifiable, Equatable {
+    let id: String
+    let model: String
+    let inputText: String
+    let outputText: String
+}
+
 struct AIConversationDetail: Codable, Identifiable {
     let id: String
     var title: String
     let context: AIContext
     let createdAt: String
     var updatedAt: String
+    let savedTurns: [AITemporaryTurn]
     var runs: [AIRun]
 }
 

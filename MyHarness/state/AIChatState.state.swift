@@ -17,7 +17,7 @@ final class AIChatState {
         var loading = false
         var loadGeneration = 0
         var pending: Pending?
-        var harness: AIHarness = .hermes
+        var harness: AIHarness = .deepseek
         var repository: AIRepositorySelection = .unselected
         var delivery: AIDelivery = .changes
         var activeRun: AIRun? { detail?.runs.last(where: { $0.isActive }) }
@@ -29,6 +29,76 @@ final class AIChatState {
         let context: AIContextInput
         let submission: AIAPIClient.Submission
         let uploads: [AIComposerAttachment]
+    }
+    var powerHosts: [AIPowerHost] = []
+    var powerError = ""
+    private(set) var powerSubmitting = false
+    private(set) var powerChecking = false
+    var powerLoaded = false
+    private var powerLoading = false
+    func refreshPower() async {
+        guard !powerLoading else { return }
+        powerLoading = true
+        defer { powerLoading = false; powerLoaded = true }
+        guard let api, isSignedIn else { powerError = "PC管理にはログインが必要です。"; return }
+        do { powerHosts = try await api.powerHosts(); powerError = "" }
+        catch { powerError = error.localizedDescription }
+    }
+    func checkPower() async {
+        guard let api, !powerChecking else { return }
+        powerChecking = true
+        defer { powerChecking = false }
+        await refreshPower()
+        guard powerError.isEmpty else { return }
+        do {
+            for host in powerHosts.filter({ !$0.checking && !$0.hasActiveOperation }) {
+                _ = try await api.probePower(hostId: host.id, id: UUID().uuidString.lowercased())
+            }
+            await refreshPower()
+        } catch {
+            powerError = error.localizedDescription
+        }
+    }
+    func operatePower(hostId: String, action: String) async {
+        guard let api, !powerSubmitting else { return }
+        powerSubmitting = true
+        defer { powerSubmitting = false }
+        do {
+            _ = try await api.power(hostId: hostId, id: UUID().uuidString.lowercased(), action: action)
+            await refreshPower()
+        } catch {
+            let failure = error.localizedDescription
+            await refreshPower()
+            powerError = failure
+        }
+    }
+    func cancelPower(_ operation: AIPowerOperation) async {
+        guard let api, !powerSubmitting else { return }
+        powerSubmitting = true
+        defer { powerSubmitting = false }
+        do { _ = try await api.cancelPower(hostId: operation.hostId, id: operation.id); await refreshPower() }
+        catch { powerError = error.localizedDescription }
+    }
+    private(set) var sharingStatusLoading = false
+    private(set) var sharingStatusError = ""
+    func refreshSharingStatus() async {
+        guard !sharingStatusLoading else { return }
+        sharingStatusLoading = true
+        defer { sharingStatusLoading = false }
+        guard let api, isSignedIn else { sharingStatusError = "状態の確認にはログインが必要です。"; return }
+        // Only refresh the catalog; the user's unsaved sharing draft stays intact.
+        async let power: Void = refreshPower()
+        do {
+            models = try await api.models()
+            sharingStatusError = ""
+        } catch {
+            sharingStatusError = "OS Agentの接続状態を取得できませんでした。"
+        }
+        await power
+    }
+    func sharingConnection(for model: AIModel) -> AISharingConnection {
+        AISharingConnection(model: model, power: powerHosts.first { $0.hostId == model.hostId },
+                            catalogError: sharingStatusError, powerError: powerError)
     }
     var inferenceHosts: [AIInferenceHost] = []
     var inferenceError = ""
@@ -110,7 +180,7 @@ final class AIChatState {
         }
         let modalitiesAccepted = visible.attachments.allSatisfy { model.accepts($0.modality) }
         let hasInput = !composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !visible.attachments.isEmpty
-        return model.online && model.accepts(settings) && modalitiesAccepted && (visible.attachments.isEmpty || harness == .hermes)
+        return model.online && model.harnesses.contains(harness) && model.accepts(settings) && modalitiesAccepted && (visible.attachments.isEmpty || harness == .hermes)
             && hasInput && !isSending && !visible.loading && activeRun == nil
     }
 
@@ -140,16 +210,16 @@ final class AIChatState {
         }
         let combined = visible.attachments + attachments
         let images = combined.filter { $0.kind == .image }
-        let videoGroups = Set(combined.filter { $0.kind == .videoFrame }.map(\.groupId))
-        guard images.count <= 4, videoGroups.count <= 1, combined.count <= 12 else {
-            errorMessage = "画像は4枚、動画は1本（最大8フレーム）まで追加できます。"; return
+        let videos = combined.filter { $0.kind == .video }
+        guard images.count <= 4, videos.count <= 1, combined.count <= 5 else {
+            errorMessage = "画像は4枚、動画は1本まで追加できます。"; return
         }
         visible.attachments = combined
         errorMessage = ""
     }
-    func removeComposerAttachment(groupId: String) {
+    func removeComposerAttachment(id: String) {
         guard visible.pending == nil, !visible.sending else { return }
-        visible.attachments.removeAll { $0.groupId == groupId }
+        visible.attachments.removeAll { $0.id == id }
     }
     func cachedAttachmentData(_ id: String) -> Data? { attachmentDataById[id] }
     func loadAttachmentData(_ id: String) async {
@@ -160,11 +230,11 @@ final class AIChatState {
     func chooseHarness(_ value: AIHarness) {
         guard visible.detail == nil, !isSending, !hasPendingSubmission else { return }
         guard visible.attachments.isEmpty || value == .hermes else {
-            errorMessage = "画像・動画を削除してからOpenCodeへ切り替えてください。"
+            errorMessage = "画像・動画を削除してからハーネスを切り替えてください。"
             return
         }
         visible.harness = value
-        if value == .hermes { visible.delivery = .changes }
+        if value != .opencode { visible.delivery = .changes }
     }
     func chooseRepository(_ repository: AIRepository, branch: String) {
         guard visible.detail == nil, !isSending, !hasPendingSubmission, repository.branches.contains(branch) else { return }
@@ -190,7 +260,7 @@ final class AIChatState {
     func saveSettings(_ value: AISettings) {
         guard !visible.sending, visible.activeRun == nil, visible.pending == nil else { return }
         if let sharing, sharing.enabled, value.contextLength != sharing.contextLength {
-            errorMessage = "共有モードのコンテキスト長はトップ画面で変更してください。"; return
+            errorMessage = "共有モードのコンテキスト長は「共通コンテキスト」から変更してください。"; return
         }
         guard let model = selectedModel, model.accepts(value) else { errorMessage = "このモデルでは指定した設定を使用できません。"; return }
         visible.settings = value
@@ -297,6 +367,29 @@ final class AIChatState {
         for (id, session) in targets { await refresh(id: id, session: session) }
     }
 
+    func temporaryReply(model: AIModel, settings: AISettings, turns: [AITemporaryTurn], text: String) async throws -> AITemporaryTurn {
+        guard let api, authSession?.isSignedIn == true else { throw AIContractError.malformedEvent }
+        return try await api.temporaryReply(modelId: model.id, settings: settings, turns: turns, inputText: text)
+    }
+
+    func saveTemporaryChat(id: String, turns: [AITemporaryTurn], model: AIModel?, settings: AISettings?, draft: String) async throws -> String {
+        guard let api, authSession?.isSignedIn == true else { throw AIContractError.malformedEvent }
+        let saved = try await api.saveTemporaryChat(id: id, turns: turns)
+        try Task.checkCancellation()
+        let session = Session()
+        session.detail = saved
+        session.draft = draft
+        session.model = model
+        session.settings = settings
+        sessions[id] = session
+        listGeneration += 1
+        listLoading = false
+        conversations.removeAll { $0.id == id }
+        conversations.insert(AIConversation(id: saved.id, title: saved.title, context: saved.context,
+                                          createdAt: saved.createdAt, updatedAt: saved.updatedAt), at: 0)
+        return saved.id
+    }
+
     func send(conversationId: String?) async -> String? {
         guard let api, canSend else { return nil }
         let session = visible
@@ -325,8 +418,8 @@ final class AIChatState {
                     session.error = "作業repoとブランチを選んでください。"; return nil
                 }
                 context = .opencode(repositoryId: repo.id, baseBranch: branch)
-            } else { context = .hermes }
-            let title = text.isEmpty ? (session.attachments.contains(where: { $0.kind == .videoFrame }) ? "動画について" : "画像について") : String(text.prefix(80))
+            } else { context = (session.detail?.context.harness ?? session.harness) == .deepseek ? .deepseek : .hermes }
+            let title = text.isEmpty ? (session.attachments.contains(where: { $0.kind == .video }) ? "動画について" : "画像について") : String(text.prefix(80))
             session.pending = Pending(conversationId: id, title: title, isNew: conversationId == nil,
                 context: context, submission: AIAPIClient.Submission(id: UUID().uuidString.lowercased(), modelId: selectedModel.id, inputText: text,
                     settings: settings, delivery: session.delivery, attachmentIds: session.attachments.map(\.id)), uploads: session.attachments)
@@ -340,7 +433,7 @@ final class AIChatState {
             if pending.isNew {
                 let created = try await api.create(id: pending.conversationId, title: pending.title, context: pending.context)
                 if session.detail == nil {
-                    session.detail = AIConversationDetail(id: created.id, title: created.title, context: created.context, createdAt: created.createdAt, updatedAt: created.updatedAt, runs: [])
+                    session.detail = AIConversationDetail(id: created.id, title: created.title, context: created.context, createdAt: created.createdAt, updatedAt: created.updatedAt, savedTurns: [], runs: [])
                 }
                 listGeneration += 1; listLoading = false
                 if !conversations.contains(where: { $0.id == created.id }) { conversations.insert(created, at: 0) }
@@ -428,7 +521,7 @@ final class AIChatState {
     private func loadTrace(_ runId: String, session: Session) async {
         guard let api else { return }
         do {
-            var cursor = eventsByRun[runId]?.last?.seq ?? 0
+            var cursor = traceCursor(runId)
             while !Task.isCancelled {
                 let page = try await api.events(runId, after: cursor)
                 replaceRun(page.run, session: session)
@@ -447,8 +540,23 @@ final class AIChatState {
         synchronizePresentation(run, session: session)
     }
     private func appendTrace(_ runId: String, _ event: AIEvent) {
-        if let last = eventsByRun[runId]?.last, last.seq >= event.seq { return }
-        eventsByRun[runId, default: []].append(event)
+        if (eventsByRun[runId]?.last?.seq ?? 0) < event.seq {
+            eventsByRun[runId, default: []].append(event)
+            return
+        }
+        var events = eventsByRun[runId] ?? []
+        guard !events.contains(where: { $0.seq == event.seq }) else { return }
+        let index = events.firstIndex(where: { $0.seq > event.seq }) ?? events.endIndex
+        events.insert(event, at: index)
+        eventsByRun[runId] = events
+    }
+    private func traceCursor(_ runId: String) -> Int {
+        var cursor = 0
+        for event in eventsByRun[runId] ?? [] {
+            guard event.seq == cursor + 1 else { break }
+            cursor = event.seq
+        }
+        return cursor
     }
     private func observe(_ runId: String, session: Session) {
         guard let api else { return }
@@ -468,6 +576,11 @@ final class AIChatState {
                         try Task.checkCancellation()
                         self.replaceRun(run, session: session)
                         session.connection = ""
+                        // A socket can stay open without delivering events. Recover
+                        // reasoning/tool progress while the server is still working.
+                        if run.isActive && self.traceCursor(runId) < run.lastSeq {
+                            await self.loadTrace(runId, session: session)
+                        }
                         if !run.isActive {
                             await self.loadTrace(runId, session: session)
                             self.streams.removeValue(forKey: runId)?.cancel()
@@ -486,7 +599,7 @@ final class AIChatState {
             defer { self.streams.removeValue(forKey: runId) }
             while !Task.isCancelled {
                 do {
-                    let cursor = self.eventsByRun[runId]?.last?.seq ?? 0
+                    let cursor = self.traceCursor(runId)
                     for try await event in api.stream(runId, after: cursor) {
                         try Task.checkCancellation()
                         session.connection = ""

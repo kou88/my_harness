@@ -23,6 +23,8 @@ Cloud API/DB integration is intentionally not implemented in v0, but repository 
 
 ## Branches
 
+iPhone / iPad対応範囲と確認結果は [iPad対応](docs/ipad-support.md) を参照してください。
+
 - `develop`: default development branch
 - `stage`: TestFlight upload branch
 - `prod`: production promotion branch
@@ -80,7 +82,7 @@ group.com.kou888.myharness
 
 ## AIタブ
 
-4つ目の「AI」タブは、`my_api` の `/api/v5/ai` を会話履歴の正本として利用し、OS Agentを経由してHermesまたはOpenCodeを実行します。
+4つ目の「AI」タブは、`my_api` の `/api/v6/ai` を会話履歴の正本として利用し、OS Agentを経由してHermes、DeepSeek Harness、OpenCodeを実行します。
 
 - OpenAIはChatGPTサブスクリプションでログインした専用Codex runtimeを使い、OpenAI APIキーは使用しません。
 - OpenRouterは実行ホストだけが保持するAPIキーを使います。キーやChatGPT認証情報をiPhoneへ渡しません。
@@ -89,4 +91,29 @@ group.com.kou888.myharness
 - 承認待ち・完了・失敗Pushのdeep linkは `myharness://ai/conversations/{conversationId}` です。
 - AI実行には登録済みのMacまたはPCがオンラインである必要があります。オフライン時も保存済み会話は閲覧できます。
 
-永続OS Agent relayを使いながら履歴を保存しないことは保証できないため、一時チャットは安全な非永続経路が実装されるまでUIで明示的に無効化しています。
+AIタブ上部の「一時」から一時チャットを開けます。テキストでローカルモデルに相談でき、閉じると会話を破棄します。「履歴に保存」を押すと、それまでの質問と回答を含む通常のHermes会話に切り替わります。
+
+## 仮説検証
+
+[仮説検証の操作・仕様](docs/experiments.md)を参照してください。
+
+
+## ナビゲーション
+
+下部タブは「今日・本・テーマ・AI・テレビ」の5項目。AIの会話中もタブバーを表示する。記事は「本」画面のヘッダにある「記事」から開く。記事の共有リンク・通知・`myharness://articles` も本棚内の記事一覧／詳細へ遷移し、戻る操作で本棚へ戻れる。
+
+新規会話のハーネスはDeepSeek Harnessを初期選択する。モデル一覧の `harnesses` でPCの実対応を確認し、未対応PCでは送信を許可しない。初回はテキスト・隔離環境のツールに対応する。画像・動画はHermes、リポジトリの実装・PR作成はOpenCodeで使用する。既存会話のハーネスは変更しない。
+
+## UI図鑑
+
+「本」タブの「UI図鑑」、または `myharness://ui-palette` から開きます。部品の見本は一覧から操作できます。用語・見た目・動きで検索し、部品名を押すと英語名、別名、使いどころ、似た部品が表示されます。名前のコピー、検索、見本の操作はオフラインで使えます。
+
+「用途で絞り込む」から「CSSアニメーション」を選ぶと、6種類の見本が自動で繰り返し動きます。タップすると一時停止・再開できます。詳細の英語名とHTML・CSSをコピーでき、元の公開作例はアプリ内のブラウザで開きます。
+
+「UIアニメーション」は11分類・109例です。番号や動きの言葉で検索でき、端末内の動く見本、英語名・コードのコピー、作者の個別作例を開く操作があります。
+
+以前のプリセットは図鑑の「配色エディタ」で開けます。JSON・PNGの入出力には「ファイル」を使います。
+
+## 画角集
+
+「本」タブの本棚から「画角集」を開きます。10種類のカメラワークと12種類の静止構図を端末内で表示し、英語名のコピー、カメラの調整、PDF・GLBの共有ができます。データの正本はMy Frontの `packages/camera-atlas` です。更新時は同リポジトリで `pnpm run bundle:camera-ios` を実行し、出力された `CameraAtlas.bundle` で `MyHarness/Resources/CameraAtlas.bundle` を置き換えます。

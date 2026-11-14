@@ -406,6 +406,74 @@ final class ActionInboxAPIClient {
         encoder.keyEncodingStrategy = .useDefaultKeys
     }
 
+    func fetchExperimentData(path: String, queryItems: [URLQueryItem]) async throws -> Data {
+        try await request(path: "/api/experiments/" + path, method: "GET", queryItems: queryItems)
+    }
+
+    func createExperimentData<Input: Encodable>(path: String, input: Input) async throws -> Data {
+        try await request(path: "/api/experiments/" + path, method: "POST", body: input)
+    }
+
+    private struct BookEnvelope: Decodable { let data: BookPage }
+    func fetchBooks() async throws -> [Book] {
+        var result: [Book] = []
+        var cursor = ""
+        repeat {
+            var query = [URLQueryItem(name: "limit", value: "100")]
+            if !cursor.isEmpty { query.append(URLQueryItem(name: "cursor", value: cursor)) }
+            let data = try await request(path: "/api/books", method: "GET", queryItems: query)
+            let page = try decoder.decode(BookEnvelope.self, from: data).data
+            result += page.books; cursor = page.nextCursor
+        } while !cursor.isEmpty
+        return result
+    }
+    func fetchBookCover(_ book: Book) async throws -> Data {
+        try await request(path: "/api/books/\(book.id)/thumbnail", method: "GET")
+    }
+    func bookDownloadRequest(_ book: Book) async throws -> URLRequest {
+        try await bootstrapCurrentUser()
+        var request = URLRequest(url: endpoint(path: "/api/books/\(book.id)/pdf", queryItems: []), cachePolicy: .reloadIgnoringLocalCacheData)
+        request.setValue("Bearer \(try await authSession.accessToken())", forHTTPHeaderField: "Authorization")
+        request.setValue("application/pdf", forHTTPHeaderField: "Accept")
+        request.setValue(book.sha256, forHTTPHeaderField: "X-Book-SHA256")
+        return request
+    }
+
+    private struct BookRevisionRequest: Encodable {
+        let id: String
+        let baseSha256: String
+        let sha256: String
+        let thumbnailSha256: String
+        let sizeBytes: Int64
+        let thumbnailSizeBytes: Int64
+        let pageCount: Int
+    }
+    private struct SavedBookEnvelope: Decodable { let data: Book }
+    func saveBookRevision(_ book: Book, prepared: BookPreparedRevision) async throws -> Book {
+        let path = "/api/books/\(book.id)/revisions"
+        try await request(path: path, method: "POST", body: BookRevisionRequest(id: prepared.id, baseSha256: book.sha256,
+            sha256: prepared.sha256, thumbnailSha256: prepared.thumbnailSha256, sizeBytes: prepared.sizeBytes,
+            thumbnailSizeBytes: prepared.thumbnailSizeBytes, pageCount: book.pageCount))
+        for (kind, file, size, type) in [("pdf", prepared.pdf, prepared.sizeBytes, "application/pdf"),
+                                        ("thumbnail", prepared.thumbnail, prepared.thumbnailSizeBytes, "image/jpeg")] {
+            try Task.checkCancellation()
+            var request = URLRequest(url: endpoint(path: "\(path)/\(prepared.id)/\(kind)", queryItems: []), cachePolicy: .reloadIgnoringLocalCacheData)
+            request.httpMethod = "PUT"
+            request.setValue("Bearer \(try await authSession.accessToken())", forHTTPHeaderField: "Authorization")
+            request.setValue(type, forHTTPHeaderField: "Content-Type")
+            request.setValue(String(size), forHTTPHeaderField: "Content-Length")
+            let (data, response) = try await urlSession.upload(for: request, fromFile: file)
+            guard let http = response as? HTTPURLResponse else { throw ClientError.invalidResponse }
+            guard http.statusCode == 204 else {
+                let message = (try? decoder.decode(ErrorEnvelope.self, from: data).error.message) ?? "アップロードに失敗しました（HTTP \(http.statusCode)）"
+                throw BookError.unavailable(message)
+            }
+        }
+        try Task.checkCancellation()
+        let result = try await request(path: "\(path)/\(prepared.id)/complete", method: "POST")
+        return try decoder.decode(SavedBookEnvelope.self, from: result).data
+    }
+
     func fetchInbox() async throws -> ActionInboxPayload {
         let data = try await request(path: "/api/action-inbox", method: "GET")
         return try decoder.decode(InboxEnvelope.self, from: data).data
@@ -422,6 +490,70 @@ final class ActionInboxAPIClient {
         }
         let data = try await request(path: "/api/blog-posts/\(id.lowercased())", method: "GET")
         return try decoder.decode(BlogPostEnvelope.self, from: data).data
+    }
+
+    func fetchBlogPostImage(postID: String, imageID: String) async throws -> Data {
+        guard UUID(uuidString: postID) != nil, UUID(uuidString: imageID) != nil else {
+            throw ClientError.invalidResponse
+        }
+        return try await request(path: "/api/blog-posts/\(postID.lowercased())/images/\(imageID.lowercased())", method: "GET")
+    }
+
+    private struct ArticleImageEnvelope: Decodable {
+        struct Image: Decodable { var id: String; var url: String }
+        var data: Image
+    }
+
+    private struct ResearchReportUpdate: Encodable {
+        var sourceType: String
+        var sourceId: String
+        var originalUrl: String
+        var canonicalUrl: String
+        var title: String
+        var authorName: String
+        var authorHandle: String?
+        var language: String
+        var publishedAt: String?
+        var coverImageUrl: String?
+        var body: [BlogPostBlock]
+        var plainText: String
+        var importedAt: String
+    }
+
+    func appendBlogPostImage(post: BlogPost, jpeg: Data, alt: String) async throws -> BlogPost {
+        guard post.sourceType == "research_report", UUID(uuidString: post.id) != nil,
+              !jpeg.isEmpty, jpeg.count <= 8 * 1024 * 1024 else { throw ClientError.invalidResponse }
+        try await bootstrapCurrentUser()
+        let boundary = "ArticleImage-\(UUID().uuidString)"
+        var payload = Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"article.jpg\"\r\nContent-Type: image/jpeg\r\n\r\n".utf8)
+        payload.append(jpeg)
+        payload.append(Data("\r\n--\(boundary)--\r\n".utf8))
+        var upload = URLRequest(url: endpoint(path: "/api/blog-posts/\(post.id)/images", queryItems: []))
+        upload.httpMethod = "POST"
+        upload.setValue("Bearer \(try await authSession.accessToken())", forHTTPHeaderField: "Authorization")
+        upload.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        upload.httpBody = payload
+        let (uploadedData, uploadResponse) = try await urlSession.data(for: upload)
+        guard let uploadStatus = (uploadResponse as? HTTPURLResponse)?.statusCode,
+              uploadStatus == 201 else { throw ClientError.requestFailed((uploadResponse as? HTTPURLResponse)?.statusCode ?? 0, "画像を保存できませんでした") }
+        let image = try decoder.decode(ArticleImageEnvelope.self, from: uploadedData).data
+        let safeAlt = alt.replacingOccurrences(of: "[", with: " ").replacingOccurrences(of: "]", with: " ")
+            .replacingOccurrences(of: "\n", with: " ").prefix(100)
+        let markdown = post.plainText.trimmingCharacters(in: .whitespacesAndNewlines) + "\n\n![\(safeAlt)](\(image.url))\n"
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let update = ResearchReportUpdate(sourceType: post.sourceType, sourceId: post.sourceId,
+            originalUrl: post.originalUrl, canonicalUrl: post.canonicalUrl, title: post.title,
+            authorName: post.authorName, authorHandle: post.authorHandle, language: post.language,
+            publishedAt: post.publishedAt.map(formatter.string(from:)), coverImageUrl: post.coverImageUrl,
+            body: post.body, plainText: markdown, importedAt: formatter.string(from: Date()))
+        do {
+            let saved = try await request(path: "/api/blog-posts", method: "POST", body: update)
+            return try decoder.decode(BlogPostEnvelope.self, from: saved).data
+        } catch {
+            try? await request(path: "/api/blog-posts/\(post.id)/images/\(image.id)", method: "DELETE")
+            throw error
+        }
     }
 
     func fetchXArticleImportHosts() async throws -> [XArticleImportHost] {
@@ -1085,7 +1217,7 @@ final class ActionInboxAPIClient {
 
 }
 
-private enum ActionInboxDateDecoder {
+enum ActionInboxDateDecoder {
     static func decode(_ decoder: Decoder) throws -> Date {
         let container = try decoder.singleValueContainer()
         let value = try container.decode(String.self)

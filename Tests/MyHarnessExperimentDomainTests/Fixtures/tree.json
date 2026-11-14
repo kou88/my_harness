@@ -1,0 +1,129 @@
+{
+  "data": {
+    "theme": {
+      "id": "bd88f9f9-684d-4963-ab08-4242340edb09",
+      "ownerUserId": "d0105d9a-d7ec-4eaf-8b73-8a2b90399967",
+      "version": 1,
+      "revisionId": "0a686fb6-ef43-446b-9649-0bc1e021ddcb",
+      "createdBy": "user:d0105d9a-d7ec-4eaf-8b73-8a2b90399967",
+      "updatedBy": "user:d0105d9a-d7ec-4eaf-8b73-8a2b90399967",
+      "createdAt": "2026-10-24T04:55:13.103Z",
+      "updatedAt": "2026-10-24T04:55:13.103Z",
+      "archivedAt": null,
+      "title": "HP＋CRM（動作確認）",
+      "description": "問い合わせ管理付きHPの需要を検証する。",
+      "audience": "小規模事業者",
+      "constraints": "表示確認用のフィクスチャ。事業判断には使わない。",
+      "status": "active"
+    },
+    "hypotheses": [
+      {
+        "id": "1f06879c-2f45-4ac6-9c69-a29160f85fcd",
+        "ownerUserId": "d0105d9a-d7ec-4eaf-8b73-8a2b90399967",
+        "version": 2,
+        "revisionId": "67d716e7-68cf-4fa9-baec-111e489fed8e",
+        "createdBy": "user:d0105d9a-d7ec-4eaf-8b73-8a2b90399967",
+        "updatedBy": "user:d0105d9a-d7ec-4eaf-8b73-8a2b90399967",
+        "createdAt": "2026-10-24T04:55:13.135Z",
+        "updatedAt": "2026-10-24T04:55:13.323Z",
+        "archivedAt": null,
+        "themeId": "bd88f9f9-684d-4963-ab08-4242340edb09",
+        "definitionRevisionId": "7b9780b8-b9b8-41ee-b8e9-1a8b24947260",
+        "statement": "事業者5人のうち3人が問い合わせ管理付きHPに月額料金を払う",
+        "background": "問い合わせの対応漏れを減らしたいという仮説。",
+        "question": "月額料金を払う意思があるか",
+        "successCriteria": "5人中3人以上が支払意思を示す",
+        "falsificationCriteria": "5人全員が支払意思を示さない",
+        "priority": "high",
+        "status": "inconclusive"
+      }
+    ],
+    "tasks": [
+      {
+        "id": "5984c419-780a-4126-a1ad-945dc9a3d9c7",
+        "ownerUserId": "d0105d9a-d7ec-4eaf-8b73-8a2b90399967",
+        "version": 2,
+        "revisionId": "2c992fa9-7639-40e9-a769-3191e5a7b44d",
+        "createdBy": "user:d0105d9a-d7ec-4eaf-8b73-8a2b90399967",
+        "updatedBy": "user:d0105d9a-d7ec-4eaf-8b73-8a2b90399967",
+        "createdAt": "2026-10-24T04:55:13.166Z",
+        "updatedAt": "2026-10-24T04:55:13.292Z",
+        "archivedAt": null,
+        "hypothesisId": "1f06879c-2f45-4ac6-9c69-a29160f85fcd",
+        "hypothesisRevisionId": "7b9780b8-b9b8-41ee-b8e9-1a8b24947260",
+        "title": "競合サービスの料金を調べる",
+        "method": "公式価格ページを比較する。",
+        "expectedOutcome": "価格と機能の比較表",
+        "status": "completed",
+        "dueAt": "2026-10-24T04:55:13.044Z",
+        "priority": "high",
+        "assigneeKind": "agent",
+        "assigneeId": "fixture-agent",
+        "completionReason": "",
+        "completedAt": "2026-10-24T04:55:13.292Z"
+      },
+      {
+        "id": "cf76cfb1-110e-41c3-b904-e999ade519e8",
+        "ownerUserId": "d0105d9a-d7ec-4eaf-8b73-8a2b90399967",
+        "version": 1,
+        "revisionId": "ff16a4af-39e6-49be-b3a7-136850a76521",
+        "createdBy": "user:d0105d9a-d7ec-4eaf-8b73-8a2b90399967",
+        "updatedBy": "user:d0105d9a-d7ec-4eaf-8b73-8a2b90399967",
+        "createdAt": "2026-10-24T04:55:13.197Z",
+        "updatedAt": "2026-10-24T04:55:13.197Z",
+        "archivedAt": null,
+        "hypothesisId": "1f06879c-2f45-4ac6-9c69-a29160f85fcd",
+        "hypothesisRevisionId": "7b9780b8-b9b8-41ee-b8e9-1a8b24947260",
+        "title": "見込み顧客5人に意向を聞く",
+        "method": "ヒアリング",
+        "expectedOutcome": "回答と支払意思の記録",
+        "status": "pending",
+        "dueAt": null,
+        "priority": "high",
+        "assigneeKind": "human",
+        "assigneeId": "fixture-user",
+        "completionReason": "",
+        "completedAt": null
+      }
+    ],
+    "notes": [
+      {
+        "id": "ac41e53c-98d5-4e30-9b13-1af68391781e",
+        "ownerUserId": "d0105d9a-d7ec-4eaf-8b73-8a2b90399967",
+        "version": 2,
+        "revisionId": "5eaad9eb-4878-4cb1-aaa6-c8947e2eb50c",
+        "createdBy": "user:d0105d9a-d7ec-4eaf-8b73-8a2b90399967",
+        "updatedBy": "user:d0105d9a-d7ec-4eaf-8b73-8a2b90399967",
+        "createdAt": "2026-10-24T04:55:13.228Z",
+        "updatedAt": "2026-10-24T04:55:13.260Z",
+        "archivedAt": null,
+        "taskId": "5984c419-780a-4126-a1ad-945dc9a3d9c7",
+        "title": "価格帯と機能の比較",
+        "observedAt": "2026-10-24T04:55:13.044Z",
+        "facts": "表示確認用の架空データです。\n\n- Aサービス：月額3,500円\n- Bサービス：月額5,000円\n- Cサービス：月額8,000円",
+        "interpretation": "価格表だけでは顧客の支払意思を判断できない。",
+        "sources": [
+          {
+            "label": "参照元（フィクスチャ）",
+            "url": "https://example.com/pricing"
+          }
+        ],
+        "findings": "価格と問い合わせ管理の提供範囲を比較する。",
+        "unresolved": "顧客の支払意思",
+        "nextCandidates": "5人へのヒアリング"
+      }
+    ],
+    "judgments": [
+      {
+        "id": "b003397e-ab29-4f54-963a-1c059c1504df",
+        "ownerUserId": "d0105d9a-d7ec-4eaf-8b73-8a2b90399967",
+        "hypothesisId": "1f06879c-2f45-4ac6-9c69-a29160f85fcd",
+        "hypothesisRevisionId": "7b9780b8-b9b8-41ee-b8e9-1a8b24947260",
+        "decision": "inconclusive",
+        "reason": "表示確認用データのため、事業上の結論は判断保留とする。",
+        "actor": "user:d0105d9a-d7ec-4eaf-8b73-8a2b90399967",
+        "createdAt": "2026-10-24T04:55:13.323Z"
+      }
+    ]
+  }
+}

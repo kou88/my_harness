@@ -8,5 +8,9 @@
 	<array>
 		<string>group.com.kou888.myharness</string>
 	</array>
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:kou88.dev</string>
+	</array>
 </dict>
 </plist>

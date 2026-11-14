@@ -145,3 +145,14 @@ import Testing
     #expect(allowed.absoluteString == "myharness://research-missions/mission-123")
     #expect(rejected == PushNotificationRouting.nextActionsURL)
 }
+
+@Test func pcPowerNotificationOpensHostManagement() {
+    let host = "c9e89dc6-821a-478c-9857-f590a07b880f"
+    let url = PushNotificationRouting.deepLinkURL(from: [
+        "route": "myharness://ai/pcs/\(host)",
+        "eventType": "pc_power_completed",
+        "entityType": "pc_power",
+        "entityId": "b316f030-674a-4ebe-8f59-8e847f4c89a1"
+    ])
+    #expect(url.absoluteString == "myharness://ai/pcs/\(host)")
+}

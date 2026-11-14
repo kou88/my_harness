@@ -1,0 +1,24 @@
+import Foundation
+
+@MainActor
+struct ExperimentAPIClient {
+    let transport: ActionInboxAPIClient
+
+    func get<Value: Decodable>(_ path: String, query: [URLQueryItem], as type: Value.Type) async throws -> Value {
+        let data = try await transport.fetchExperimentData(path: path, queryItems: query)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .custom { decoder in try ActionInboxDateDecoder.decode(decoder) }
+        return try decoder.decode(ExperimentEnvelope<Value>.self, from: data).data
+    }
+
+    func page<Value: Decodable>(_ path: String, limit: Int, offset: Int, query: [URLQueryItem], as type: Value.Type) async throws -> ExperimentPage<Value> {
+        try await get(path, query: query + [URLQueryItem(name: "limit", value: String(limit)), URLQueryItem(name: "offset", value: String(offset))], as: ExperimentPage<Value>.self)
+    }
+
+    func create<Input: Encodable, Value: Decodable>(_ path: String, input: Input, as type: Value.Type) async throws -> Value {
+        let data = try await transport.createExperimentData(path: path, input: input)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .custom { decoder in try ActionInboxDateDecoder.decode(decoder) }
+        return try decoder.decode(ExperimentEnvelope<Value>.self, from: data).data
+    }
+}

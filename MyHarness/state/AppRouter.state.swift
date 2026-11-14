@@ -6,23 +6,22 @@ import Observation
 final class AppRouter {
     var presentedSheet: AppSheet?
     var selectedTab: AppTab = .today
-    var nextActionsPath: [AppRoute] = []
     var todayPath: [AppRoute] = []
-    var articlesPath: [AppRoute] = []
+    var booksPath: [AppRoute] = []
     var aiPath: [AppRoute] = []
+    var pcManagementHostId = ""
     var pendingProductOpsDeepLink: ProductOpsDeepLinkDestination?
 
     func push(_ route: AppRoute) {
         switch route.preferredTab {
-        case .nextActions:
-            selectedTab = .nextActions
-            nextActionsPath.append(route)
+        case .books:
+            selectedTab = .books
+            booksPath.append(route)
+        case .themes:
+            selectedTab = .themes
         case .today:
             selectedTab = .today
             todayPath.append(route)
-        case .articles:
-            selectedTab = .articles
-            articlesPath.append(route)
         case .ai:
             selectedTab = .ai
             aiPath.append(route)
@@ -32,6 +31,11 @@ final class AppRouter {
     }
 
     func handleDeepLink(_ url: URL) {
+        if let articleID = ArticleDeepLink.articleID(for: url) {
+            selectedTab = .books
+            booksPath = [.articles, .article(id: articleID)]
+            return
+        }
         guard url.scheme == "myharness" else { return }
 
         let host = url.host?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -43,12 +47,15 @@ final class AppRouter {
         case "open":
             selectedTab = .today
             todayPath = []
+        case "ui-palette":
+            selectedTab = .books
+            booksPath = [.uiPalette]
         case "next-actions":
             showNextActions()
         case "suggestions":
             if let id = nonEmptyId(tail.first) {
-                selectedTab = .nextActions
-                nextActionsPath = [.actionSuggestionDetail(id: id)]
+                selectedTab = .today
+                todayPath = [.actionSuggestionDetail(id: id)]
             } else {
                 showNextActions()
             }
@@ -84,11 +91,18 @@ final class AppRouter {
             })
         case "monitoring-alert", "monitoring_alert", "monitoring-alerts":
             showProductOpsDetail(nonEmptyId(tail.first).map(ProductOpsDeepLinkDestination.monitoringAlert))
+        case "books":
+            selectedTab = .books
+        case "themes":
+            selectedTab = .themes
         case "articles":
-            selectedTab = .articles
-            articlesPath = nonEmptyId(tail.first).map { [.article(id: $0)] } ?? []
+            selectedTab = .books
+            booksPath = [.articles]
         case "ai":
             selectedTab = .ai
+            if tail.first == "pcs", let id = nonEmptyId(tail.dropFirst().first) {
+                aiPath = []; pcManagementHostId = id; return
+            }
             let conversationId: String?
             if tail.first == "conversations" {
                 conversationId = nonEmptyId(tail.dropFirst().first)
@@ -102,12 +116,12 @@ final class AppRouter {
             if let id = nonEmptyId(tail.first) {
                 showProductOpsDetail(.mission(id: id, kind: .development))
             } else {
-                selectedTab = .nextActions
-                nextActionsPath = [.developmentBacklog]
+                selectedTab = .today
+                todayPath = [.developmentBacklog]
             }
         case "policy":
-            selectedTab = .nextActions
-            nextActionsPath = [.venturePolicy]
+            selectedTab = .today
+            todayPath = [.venturePolicy]
         case "executions":
             routeSuggestionReference(.actionExecution(id: tail.first ?? ""))
         case "needs":
@@ -127,8 +141,8 @@ final class AppRouter {
     }
 
     private func showNextActions() {
-        selectedTab = .nextActions
-        nextActionsPath = []
+        selectedTab = .today
+        todayPath = [.legacyActions]
         pendingProductOpsDeepLink = nil
     }
 
@@ -145,8 +159,8 @@ final class AppRouter {
     }
 
     private func routeSuggestionReference(_ route: AppRoute) {
-        selectedTab = .nextActions
-        nextActionsPath = route.referenceId.isEmpty ? [] : [route]
+        selectedTab = .today
+        todayPath = route.referenceId.isEmpty ? [.legacyActions] : [route]
     }
 }
 
@@ -190,14 +204,15 @@ enum ProductOpsDeepLinkDestination: Identifiable, Hashable {
 }
 
 enum AppTab: Hashable {
-    case nextActions
+    case books
     case today
-    case articles
+    case themes
     case ai
     case television
 }
 
 enum AppRoute: Hashable {
+    case legacyActions
     case oneShotTasks
     case actionSuggestionDetail(id: String)
     case actionExecution(id: String)
@@ -208,15 +223,19 @@ enum AppRoute: Hashable {
     case venturePolicy
     case actionHistory
     case completedActions
+    case articles
+    case uiPalette
+    case cameraAtlas
+    case cameraAtlasShot(slug: String, title: String)
     case article(id: String)
     case aiConversation(id: String)
 
     var preferredTab: AppTab {
         switch self {
-        case .oneShotTasks:
+        case .legacyActions, .oneShotTasks:
             return .today
-        case .article:
-            return .articles
+        case .articles, .article, .uiPalette, .cameraAtlas, .cameraAtlasShot:
+            return .books
         case .aiConversation:
             return .ai
         case .actionSuggestionDetail,
@@ -228,19 +247,21 @@ enum AppRoute: Hashable {
              .venturePolicy,
              .actionHistory,
              .completedActions:
-            return .nextActions
+            return .today
         }
     }
 
     var referenceId: String {
         switch self {
-        case .oneShotTasks:
+        case .legacyActions, .oneShotTasks, .articles, .uiPalette, .cameraAtlas:
             return ""
         case .actionSuggestionDetail(let id),
              .actionExecution(let id),
              .need(let id),
              .codexResult(let id):
             return id
+        case .cameraAtlasShot(let slug, _):
+            return slug
         case .article(let id):
             return id
         case .aiConversation(let id):
