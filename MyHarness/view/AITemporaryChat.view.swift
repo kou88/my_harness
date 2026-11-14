@@ -24,7 +24,7 @@ struct AITemporaryChatView: View {
                     AIMessageList(detail: detail, state: state)
                 } else {
                     VStack(spacing: 18) {
-                        Text("閉じると削除します。接続が切れた場合は、最終接続から1時間で削除対象になります。")
+                        Text("閉じると削除します。接続が切れた場合は、最終接続から15分で削除対象になります。")
                             .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
                         AIHarnessSetup(state: state)
                         if state.harness == .opencode {
